@@ -179,6 +179,12 @@ impl Transfers {
         let task = t.clone();
         rt.spawn(async move {
             let _permit = limiter.acquire_owned().await;
+            if task.cancelled() {
+                // Cancelled while queued: leave every destination untouched.
+                task.finish(Err(CANCELLED.into()));
+                on_done();
+                return;
+            }
             *task.started.lock() = Some(Instant::now());
             *task.state.lock() = TransferState::Running;
             let result = run_upload(&task, &sftp).await;
@@ -212,6 +218,11 @@ impl Transfers {
         let task = t.clone();
         rt.spawn(async move {
             let _permit = limiter.acquire_owned().await;
+            if task.cancelled() {
+                task.finish(Err(CANCELLED.into()));
+                on_done();
+                return;
+            }
             *task.started.lock() = Some(Instant::now());
             *task.state.lock() = TransferState::Running;
             let result = run_download(&task, &sftp).await;
@@ -295,6 +306,9 @@ async fn upload_file(
     size: u64,
 ) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
+    if t.cancelled() {
+        return Err(CANCELLED.into());
+    }
     let mut src = tokio::fs::File::open(local)
         .await
         .map_err(|e| format!("{}: {e}", local.display()))?;
@@ -419,11 +433,21 @@ async fn download_file(
     mode: Option<u32>,
 ) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
+    if t.cancelled() {
+        return Err(CANCELLED.into());
+    }
     let mut src = sftp
         .open(remote_path)
         .await
         .map_err(|e| format!("{remote_path}: {}", describe(&e)))?;
-    let mut dst = tokio::fs::File::create(local)
+    // Write next to the destination and rename into place only when complete, so a failed
+    // or cancelled download never destroys an existing local file.
+    let file_name = local
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let partial = local.with_file_name(format!(".{file_name}.peler-part"));
+    let mut dst = tokio::fs::File::create(&partial)
         .await
         .map_err(|e| format!("{}: {e}", local.display()))?;
     let mut buf = vec![0u8; CHUNK];
@@ -453,20 +477,27 @@ async fn download_file(
     }
     .await;
     drop(src);
+    drop(dst);
+    let result = result.and_then(|()| {
+        if written == size {
+            Ok(())
+        } else {
+            Err(format!(
+                "{}: size check failed ({written} of {size} bytes)",
+                local.display()
+            ))
+        }
+    });
     if let Err(e) = result {
-        drop(dst);
-        let _ = tokio::fs::remove_file(local).await;
+        let _ = tokio::fs::remove_file(&partial).await;
         return Err(e);
     }
-    if written != size {
-        return Err(format!(
-            "{}: size check failed ({written} of {size} bytes)",
-            local.display()
-        ));
-    }
     if let Some(mode) = mode {
-        let _ =
-            tokio::fs::set_permissions(local, std::fs::Permissions::from_mode(mode & 0o777)).await;
+        let _ = tokio::fs::set_permissions(&partial, std::fs::Permissions::from_mode(mode & 0o777))
+            .await;
     }
-    Ok(())
+    tokio::fs::rename(&partial, local).await.map_err(|e| {
+        let _ = std::fs::remove_file(&partial);
+        format!("{}: {e}", local.display())
+    })
 }

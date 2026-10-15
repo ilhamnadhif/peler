@@ -8,7 +8,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use eframe::egui::Context;
@@ -36,6 +36,8 @@ pub type SshHandle = Handle<SshHandler>;
 const TCP_TIMEOUT: Duration = Duration::from_secs(10);
 /// Handshake time limit, not counting time spent waiting for the user to answer a prompt.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
+/// Authentication time limit, again not counting time spent in prompts.
+const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_ATTEMPTS: usize = 3;
 
 /// Everything needed to (re)connect.
@@ -87,6 +89,16 @@ pub struct PaneStart {
     pub start_dir: String,
     pub startup_command: String,
     pub status: Arc<Mutex<PaneStatus>>,
+    /// The pane's current connection generation; a task whose `generation` is no longer
+    /// current (the pane reconnected) must not touch the terminal or status any more.
+    pub generation: Arc<AtomicU64>,
+    pub gen_id: u64,
+}
+
+impl PaneStart {
+    fn is_current(&self) -> bool {
+        self.generation.load(Ordering::Relaxed) == self.gen_id
+    }
 }
 
 enum ConnCmd {
@@ -137,17 +149,22 @@ impl Connection {
     }
 
     pub fn disconnect(&self) {
+        // Dropping a pending prompt's reply sender wakes the task waiting on it.
+        self.shared.lock().prompt = None;
         let _ = self.cmd_tx.send(ConnCmd::Disconnect);
     }
 }
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        let _ = self.cmd_tx.send(ConnCmd::Disconnect);
+        self.disconnect();
     }
 }
 
 fn fail_pane(pane: &PaneStart, message: &str) {
+    if !pane.is_current() {
+        return;
+    }
     *pane.status.lock() = PaneStatus::Failed(message.to_string());
     let mut feeder = pane.feeder.lock();
     tcore::write_status(&mut feeder, message);
@@ -183,12 +200,10 @@ impl SshHandler {
         if let Some(r) = check(&self.known_hosts) {
             return Ok(r);
         }
-        // The user's own OpenSSH known_hosts is trusted read-only: a match there is enough.
+        // The user's own OpenSSH known_hosts is consulted read-only: a match is trusted, and a
+        // different key there is reported as a changed key (never as merely "unknown").
         let user_file = paths::home_dir().join(".ssh/known_hosts");
-        if let Some(HostKeyCheck::Known) = check(&user_file) {
-            return Ok(HostKeyCheck::Known);
-        }
-        Ok(HostKeyCheck::Unknown)
+        Ok(check(&user_file).unwrap_or(HostKeyCheck::Unknown))
     }
 }
 
@@ -443,7 +458,10 @@ async fn establish(
         _ = handshake_watchdog(flags.prompting.clone(), HANDSHAKE_TIMEOUT) => return Err(ConnError::Timeout),
     };
     set_state(shared, ctx, ConnState::Authenticating);
-    authenticate(&mut handle, spec, shared, ctx, &flags.prompting).await?;
+    tokio::select! {
+        r = authenticate(&mut handle, spec, shared, ctx, &flags.prompting) => r?,
+        _ = handshake_watchdog(flags.prompting.clone(), AUTH_TIMEOUT) => return Err(ConnError::Timeout),
+    }
     Ok(handle)
 }
 
@@ -916,7 +934,10 @@ async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
         start_dir,
         startup_command,
         status,
+        generation,
+        gen_id,
     } = pane;
+    let current = move || generation.load(Ordering::Relaxed) == gen_id;
     let open = async {
         let channel = handle.channel_open_session().await?;
         let modes = [
@@ -938,28 +959,37 @@ async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
     let channel = match open.await {
         Ok(c) => c,
         Err(e) => {
-            *status.lock() = PaneStatus::Failed(e.to_string());
-            tcore::write_status(
-                &mut feeder.lock(),
-                &tf("Could not open a shell: {}", &[&e.to_string()]),
-            );
-            ctx.request_repaint();
+            if current() {
+                *status.lock() = PaneStatus::Failed(e.to_string());
+                tcore::write_status(
+                    &mut feeder.lock(),
+                    &tf("Could not open a shell: {}", &[&e.to_string()]),
+                );
+                ctx.request_repaint();
+            }
             return;
         }
     };
+    if !current() {
+        let _ = channel.close().await;
+        return;
+    }
     *status.lock() = PaneStatus::Running;
     ctx.request_repaint();
 
     let (mut reader, writer) = channel.split();
     let writer: Arc<ChannelWriteHalf<Msg>> = Arc::new(writer);
 
+    // Start folder and startup commands go out before anything typed while connecting.
+    let mut setup = String::new();
     if !start_dir.trim().is_empty() {
-        let _ = input_tx.send(PaneInput::Data(
-            format!("{}\r", cd_command(&start_dir)).into_bytes(),
-        ));
+        setup.push_str(&format!("{}\r", cd_command(&start_dir)));
     }
     for line in startup_command.lines().filter(|l| !l.trim().is_empty()) {
-        let _ = input_tx.send(PaneInput::Data(format!("{line}\r").into_bytes()));
+        setup.push_str(&format!("{line}\r"));
+    }
+    if !setup.is_empty() {
+        let _ = writer.data_bytes(setup.into_bytes()).await;
     }
 
     // Writer: input, resizes and parser replies. Runs separately so a full remote window
@@ -996,9 +1026,18 @@ async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
                 None => std::future::pending::<()>().await,
             }
         };
+        if !current() {
+            // The pane reconnected; this old channel must not write into it any more.
+            write_task.abort();
+            let _ = writer.close().await;
+            return;
+        }
         tokio::select! {
             msg = reader.wait() => match msg {
                 Some(ChannelMsg::Data { data }) | Some(ChannelMsg::ExtendedData { data, .. }) => {
+                    if !current() {
+                        continue;
+                    }
                     let (reply, repaint) = feeder.lock().feed(&data);
                     if !reply.is_empty() {
                         let _ = input_tx.send(PaneInput::Data(reply));
@@ -1021,6 +1060,9 @@ async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
         }
     }
     write_task.abort();
+    if !current() {
+        return;
+    }
     let message = match exit_status {
         Some(code) => tf(
             "[Session ended, exit code {}. Press Enter or ⌘R to reconnect.]",

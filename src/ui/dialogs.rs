@@ -136,7 +136,8 @@ impl Palette {
 pub enum ConfirmAction {
     DeleteBookmark(Uuid),
     DeleteGroup(Uuid),
-    CloseTab(usize),
+    /// Tab id.
+    CloseTab(u64),
     Quit,
 }
 

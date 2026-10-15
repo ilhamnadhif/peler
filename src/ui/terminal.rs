@@ -489,7 +489,9 @@ pub fn show(
                         PointerButton::Secondary => MouseButton::Right,
                         _ => continue,
                     };
-                    if pressed && !rect.contains(pos) {
+                    // Only presses that land on the terminal itself, not on a menu, popup or
+                    // dialog drawn over it.
+                    if pressed && (!rect.contains(pos) || !on_terminal_layer(ui, pos)) {
                         continue;
                     }
                     if !pressed && view.reported_button != Some(b) {
@@ -512,7 +514,11 @@ pub fn show(
                 Event::PointerMoved(pos) => {
                     let report = match view.reported_button {
                         Some(_) => mode.intersects(TermMode::MOUSE_DRAG | TermMode::MOUSE_MOTION),
-                        None => mode.contains(TermMode::MOUSE_MOTION) && rect.contains(pos),
+                        None => {
+                            mode.contains(TermMode::MOUSE_MOTION)
+                                && rect.contains(pos)
+                                && on_terminal_layer(ui, pos)
+                        }
                     };
                     if !report {
                         continue;
@@ -992,6 +998,11 @@ pub fn show(
     }
 
     // Context menu.
+    // In mouse-reporting mode the right button belongs to the remote program (Shift+right-click
+    // still opens the menu).
+    if mouse_mode && !shift_held {
+        return out;
+    }
     response.context_menu(|ui| {
         let term = shared.term.lock();
         let has_sel = term.selection.as_ref().is_some_and(|s| !s.is_empty());
@@ -1025,6 +1036,12 @@ pub fn show(
         }
     });
     out
+}
+
+fn on_terminal_layer(ui: &Ui, pos: Pos2) -> bool {
+    ui.ctx()
+        .layer_id_at(pos)
+        .is_none_or(|layer| layer == ui.layer_id())
 }
 
 pub fn select_all(shared: &TermShared) {

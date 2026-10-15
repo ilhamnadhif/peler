@@ -543,20 +543,17 @@ impl Sidebar {
                     .hline(rect.x_range(), y, Stroke::new(2.0, accent));
             }
             if let Some(item) = resp.dnd_release_payload::<DragItem>() {
-                let next = {
+                // "After this row" = before the next row that isn't the dragged one itself.
+                let after = |dragged: Uuid| {
                     let ids: Vec<Uuid> = cx.store.bookmarks_in(b.group).map(|x| x.id).collect();
                     let pos = ids.iter().position(|x| *x == id).unwrap_or(0);
-                    ids.get(pos + 1).copied()
+                    ids[pos + 1..].iter().copied().find(|x| *x != dragged)
                 };
                 cx.moved = Some(match *item {
                     DragItem::Bookmark(dragged) => TreeMove::Bookmark {
                         id: dragged,
                         group: b.group,
-                        before: if before {
-                            Some(id)
-                        } else {
-                            next.filter(|n| *n != dragged)
-                        },
+                        before: if before { Some(id) } else { after(dragged) },
                     },
                     DragItem::Group(g) => TreeMove::Group {
                         id: g,

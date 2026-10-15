@@ -229,12 +229,61 @@ fn file_operations_and_transfers() {
     let huge = local.join("huge.bin");
     random_file(&huge, 200 * 1024 * 1024);
     let up = transfers.upload(rt.handle(), sftp.clone(), huge, &base, || {});
+    // A second transfer takes the other slot, so the next one has to wait in the queue.
+    let other_dir = remote_join(&base, "other");
+    rt.block_on(remote::mkdir(&sftp, &other_dir)).unwrap();
+    let busy = transfers.upload(rt.handle(), sftp.clone(), src.clone(), &other_dir, || {});
+    // A queued upload that replaces an existing file, cancelled before it starts, must leave
+    // the existing remote file untouched.
+    let keep_remote = remote_join(&base, "keep.txt");
+    {
+        use tokio::io::AsyncWriteExt;
+        let mut f = rt.block_on(sftp.create(keep_remote.clone())).unwrap();
+        rt.block_on(f.write_all(b"original")).unwrap();
+        rt.block_on(f.close()).unwrap();
+    }
+    std::fs::write(local.join("keep.txt"), "replacement").unwrap();
+    let queued = transfers.upload(
+        rt.handle(),
+        sftp.clone(),
+        local.join("keep.txt"),
+        &base,
+        || {},
+    );
+    queued.cancel();
     wait_for(30, "transfer progress", || {
         (up.done.load(std::sync::atomic::Ordering::Relaxed) > 0).then_some(())
     });
     up.cancel();
     assert_eq!(wait_transfer(&up, 30), TransferState::Cancelled);
     assert!(!rt.block_on(remote::exists(&sftp, &remote_join(&base, "huge.bin"))));
+    assert_eq!(wait_transfer(&queued, 60), TransferState::Cancelled);
+    assert_eq!(rt.block_on(sftp.read(keep_remote)).unwrap(), b"original");
+    assert_eq!(wait_transfer(&busy, 60), TransferState::Done);
+
+    // A failed download leaves an existing local file intact (written to a temp file first).
+    std::fs::write(back.join("victim.txt"), "local data").unwrap();
+    {
+        use tokio::io::AsyncWriteExt;
+        let mut f = rt
+            .block_on(sftp.create(remote_join(&base, "victim.txt")))
+            .unwrap();
+        rt.block_on(f.write_all(b"remote")).unwrap();
+        rt.block_on(f.close()).unwrap();
+    }
+    let down = transfers.download(
+        rt.handle(),
+        sftp.clone(),
+        remote_join(&base, "victim.txt"),
+        &back,
+        || {},
+    );
+    assert_eq!(wait_transfer(&down, 30), TransferState::Done);
+    assert_eq!(
+        std::fs::read_to_string(back.join("victim.txt")).unwrap(),
+        "remote"
+    );
+    assert!(!back.join(".victim.txt.peler-part").exists());
 
     // Recursive delete.
     rt.block_on(async {

@@ -108,6 +108,8 @@ fn open_pane(conn: &Connection, start_dir: &str, startup: &str) -> TestPane {
         start_dir: start_dir.into(),
         startup_command: startup.into(),
         status: status.clone(),
+        generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        gen_id: 0,
     });
     TestPane {
         feeder,

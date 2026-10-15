@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use eframe::egui;
 use parking_lot::Mutex;
@@ -24,6 +25,8 @@ pub struct Pane {
     pub input: mpsc::UnboundedSender<PaneInput>,
     pub status: Arc<Mutex<PaneStatus>>,
     pub view: TermView,
+    /// Bumped on every reconnect so the previous connection's tasks stop touching the pane.
+    pub generation: Arc<AtomicU64>,
 }
 
 impl Pane {
@@ -71,6 +74,8 @@ pub struct PromptInput {
     pub text: String,
     pub save: bool,
     pub focus: bool,
+    /// The prompt has been drawn at least once (keys from earlier frames can't answer it).
+    pub armed: bool,
 }
 
 fn spec(bookmark: &Bookmark, env: &Env) -> ConnectSpec {
@@ -97,6 +102,7 @@ fn new_pane(id: PaneId, size: GridSize, env: &Env) -> (Pane, mpsc::UnboundedRece
         input: tx,
         status: Arc::new(Mutex::new(PaneStatus::Starting)),
         view: TermView::default(),
+        generation: Arc::new(AtomicU64::new(0)),
     };
     (pane, rx)
 }
@@ -131,6 +137,8 @@ fn pane_start(
             String::new()
         },
         status: pane.status.clone(),
+        generation: pane.generation.clone(),
+        gen_id: pane.generation.load(Ordering::Relaxed),
     }
 }
 
@@ -181,7 +189,13 @@ impl Tab {
             .and_then(|p| p.view.grid)
             .unwrap_or(GridSize { cols: 80, rows: 24 });
         let (pane, rx) = new_pane(new_id, size, env);
-        if self.state().is_connected() || !self.state().is_closed() {
+        if self.state().is_closed() {
+            *pane.status.lock() = PaneStatus::Failed(crate::i18n::t("Not connected.").into());
+            tcore::write_status(
+                &mut pane.feeder.lock(),
+                crate::i18n::t("[Connection closed. Press Enter or ⌘R to reconnect.]"),
+            );
+        } else {
             self.conn
                 .open_shell(pane_start(&pane, rx, &self.bookmark, false));
         }
@@ -215,7 +229,10 @@ impl Tab {
         for (i, pane) in self.panes.iter_mut().enumerate() {
             let (tx, rx) = mpsc::unbounded_channel();
             pane.input = tx;
-            *pane.status.lock() = PaneStatus::Starting;
+            // New generation and a fresh status: the old connection's tasks may still finish
+            // and must not mark the reconnected pane as ended.
+            pane.generation.fetch_add(1, Ordering::Relaxed);
+            pane.status = Arc::new(Mutex::new(PaneStatus::Starting));
             tcore::write_status(
                 &mut pane.feeder.lock(),
                 &format!("— {} —", crate::i18n::t("reconnecting")),

@@ -7,24 +7,32 @@ use crate::bookmarks::transfer::ExportScope;
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     // bookmarks
-    NewBookmark { group: Option<Uuid> },
+    NewBookmark {
+        group: Option<Uuid>,
+    },
     EditBookmark(Uuid),
     DuplicateBookmark(Uuid),
     DeleteBookmark(Uuid),
     Connect(Uuid),
-    NewGroup { parent: Option<Uuid> },
+    NewGroup {
+        parent: Option<Uuid>,
+    },
     RenameGroup(Uuid),
     DeleteGroup(Uuid),
     QuickConnect,
     // tabs and panes
     NewTab,
-    DuplicateTab(usize),
+    /// Tabs are referred to by their id: indices shift when tabs close or move.
+    DuplicateTab(u64),
     CloseTabOrPane,
-    CloseTab(usize),
+    CloseTab(u64),
     SelectTab(usize),
     NextTab,
     PrevTab,
-    MoveTab { from: usize, to: usize },
+    MoveTab {
+        from: u64,
+        to: u64,
+    },
     Reconnect,
     SplitRight,
     SplitDown,

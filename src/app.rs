@@ -378,8 +378,15 @@ impl PelerApp {
         }
     }
 
+    /// Whether a dialog or prompt has the keyboard (the terminal and shortcuts must not).
     fn modal_open(&self) -> bool {
-        self.editor.is_some() || self.palette.is_some() || self.dialog.is_some()
+        self.editor.is_some()
+            || self.palette.is_some()
+            || self.dialog.is_some()
+            || self.tabs.get(self.active).is_some_and(|t| {
+                t.sftp.as_ref().is_some_and(SftpPanel::dialog_open)
+                    || t.conn.shared.lock().prompt.is_some()
+            })
     }
 
     fn live_map(&self) -> HashMap<Uuid, Live> {
@@ -399,13 +406,16 @@ impl PelerApp {
         map
     }
 
+    /// Measured every frame: a font change only takes effect on the frame after `set_fonts`,
+    /// so a cached measurement could keep the old font's metrics.
     fn cell_size(&mut self, ctx: &egui::Context) -> egui::Vec2 {
-        let font = fonts::effective_choice(&self.settings.font);
-        if self.cell.0 != font || self.cell.1 != self.settings.font_size {
-            let c = terminal::cell_size(ctx, self.settings.font_size);
-            if c.x > 0.0 && c.y > 0.0 {
-                self.cell = (font, self.settings.font_size, c);
-            }
+        let c = terminal::cell_size(ctx, self.settings.font_size);
+        if c.x > 0.0 && c.y > 0.0 {
+            self.cell = (
+                fonts::effective_choice(&self.settings.font),
+                self.settings.font_size,
+                c,
+            );
         }
         self.cell.2
     }
@@ -604,6 +614,10 @@ impl PelerApp {
         }
     }
 
+    fn tab_index(&self, id: u64) -> Option<usize> {
+        self.tabs.iter().position(|t| t.id == id)
+    }
+
     fn request_close_tab(&mut self, idx: usize) {
         let Some(tab) = self.tabs.get(idx) else {
             return;
@@ -616,7 +630,7 @@ impl PelerApp {
                     &[&tab.bookmark.address()],
                 ),
                 t("Close"),
-                ConfirmAction::CloseTab(idx),
+                ConfirmAction::CloseTab(tab.id),
             ));
         } else {
             self.close_tab(idx);
@@ -628,6 +642,28 @@ impl PelerApp {
     fn process_actions(&mut self, ctx: &egui::Context) {
         let actions = std::mem::take(&mut self.actions);
         for action in actions {
+            // Native menu shortcuts arrive even while a dialog is open: only editing commands
+            // and Quit pass through, and ⌘W closes the dialog instead of a tab.
+            if self.modal_open() {
+                match action {
+                    Action::Copy | Action::Paste | Action::Cut | Action::Quit => {}
+                    Action::CloseTabOrPane => {
+                        if self.palette.is_some() {
+                            self.palette = None;
+                        } else if self.dialog.is_some() {
+                            self.dialog = None;
+                        } else if self.editor.is_some() {
+                            self.editor = None;
+                        } else if let Some(panel) =
+                            self.tabs.get_mut(self.active).and_then(|t| t.sftp.as_mut())
+                        {
+                            panel.close_dialog();
+                        }
+                        continue;
+                    }
+                    _ => continue,
+                }
+            }
             self.run_action(ctx, action);
         }
     }
@@ -646,6 +682,9 @@ impl PelerApp {
             Action::EditBookmark(id) => {
                 if let Some(b) = self.store.bookmark(id).cloned() {
                     self.editor = Some(Editor::new(b, false));
+                } else if let Some(tab) = self.tabs.iter().find(|t| t.bookmark.id == id) {
+                    // An ad-hoc connection (command line): offer to save it as a bookmark.
+                    self.editor = Some(Editor::new(tab.bookmark.clone(), true));
                 }
             }
             Action::DuplicateBookmark(id) => {
@@ -718,8 +757,8 @@ impl PelerApp {
                 }
                 None => self.palette = Some(Palette::default()),
             },
-            Action::DuplicateTab(i) => {
-                if let Some(tab) = self.tabs.get(i) {
+            Action::DuplicateTab(id) => {
+                if let Some(tab) = self.tabs.iter().find(|t| t.id == id) {
                     let b = self
                         .store
                         .bookmark(tab.bookmark.id)
@@ -738,7 +777,11 @@ impl PelerApp {
                     }
                 }
             }
-            Action::CloseTab(i) => self.request_close_tab(i),
+            Action::CloseTab(id) => {
+                if let Some(i) = self.tab_index(id) {
+                    self.request_close_tab(i);
+                }
+            }
             Action::SelectTab(i) => {
                 if i < self.tabs.len() {
                     self.active = i;
@@ -755,7 +798,9 @@ impl PelerApp {
                 }
             }
             Action::MoveTab { from, to } => {
-                if from < self.tabs.len() && to < self.tabs.len() && from != to {
+                if let (Some(from), Some(to)) = (self.tab_index(from), self.tab_index(to))
+                    && from != to
+                {
                     let tab = self.tabs.remove(from);
                     self.tabs.insert(to, tab);
                     self.active = to;
@@ -1029,6 +1074,7 @@ impl PelerApp {
                         for i in 0..self.tabs.len() {
                             let active = i == self.active;
                             let tab = &self.tabs[i];
+                            let tab_id = tab.id;
                             let (dot, status) = match tab.state() {
                                 ConnState::Connected if tab.panes.iter().any(|p| p.is_live()) => {
                                     (style::GREEN, t("Connected"))
@@ -1141,19 +1187,19 @@ impl PelerApp {
                                 );
                             }
                             if close.clicked() || resp.middle_clicked() {
-                                self.actions.push(Action::CloseTab(i));
+                                self.actions.push(Action::CloseTab(tab_id));
                             } else if resp.clicked() {
                                 self.actions.push(Action::SelectTab(i));
                             }
                             let resp =
                                 resp.on_hover_text(format!("{}\n{status}", tab.bookmark.address()));
-                            resp.dnd_set_drag_payload(i);
-                            if let Some(from) = resp.dnd_release_payload::<usize>() {
-                                drag_target = Some((*from, i));
+                            resp.dnd_set_drag_payload(tab_id);
+                            if let Some(from) = resp.dnd_release_payload::<u64>() {
+                                drag_target = Some((*from, tab_id));
                             }
                             resp.context_menu(|ui| {
                                 if ui.button(t("Duplicate Tab")).clicked() {
-                                    self.actions.push(Action::DuplicateTab(i));
+                                    self.actions.push(Action::DuplicateTab(tab_id));
                                     ui.close();
                                 }
                                 if ui.button(t("Reconnect")).clicked() {
@@ -1168,7 +1214,7 @@ impl PelerApp {
                                 }
                                 ui.separator();
                                 if ui.button(t("Close Tab")).clicked() {
-                                    self.actions.push(Action::CloseTab(i));
+                                    self.actions.push(Action::CloseTab(tab_id));
                                     ui.close();
                                 }
                             });
@@ -1637,7 +1683,10 @@ impl PelerApp {
                                 hostkey_answer = Some(true);
                             }
                         } else {
-                            if ui.button(RichText::new(accept).strong()).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+                            // Enter only counts once the prompt has been on screen for a frame,
+                            // so a key press meant for the terminal can't accept a host key.
+                            let enter = tab.prompt.armed && ui.input(|i| i.key_pressed(Key::Enter));
+                            if ui.button(RichText::new(accept).strong()).clicked() || enter {
                                 hostkey_answer = Some(true);
                             }
                             if ui.button(t("Cancel")).clicked() {
@@ -1686,7 +1735,8 @@ impl PelerApp {
                 }
             }
         });
-        if modal.should_close() && answer.is_none() && hostkey_answer.is_none() {
+        if modal.should_close() && tab.prompt.armed && answer.is_none() && hostkey_answer.is_none()
+        {
             match view {
                 PromptView::HostKey { .. } => hostkey_answer = Some(false),
                 PromptView::Secret { .. } => answer = Some(None),
@@ -1705,9 +1755,12 @@ impl PelerApp {
             }
             tab.prompt.text.clear();
             tab.prompt.focus = false;
+            tab.prompt.armed = false;
             if let Some(id) = tab.focused_pane().and_then(|p| p.view.id) {
                 ctx.memory_mut(|m| m.request_focus(id));
             }
+        } else {
+            tab.prompt.armed = true;
         }
     }
 
@@ -1772,7 +1825,11 @@ impl PelerApp {
                             self.store.remove_group(id);
                             self.save_store();
                         }
-                        ConfirmAction::CloseTab(i) => self.close_tab(i),
+                        ConfirmAction::CloseTab(id) => {
+                            if let Some(i) = self.tab_index(id) {
+                                self.close_tab(i);
+                            }
+                        }
                         ConfirmAction::Quit => {
                             self.allow_close = true;
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -1834,10 +1891,10 @@ impl eframe::App for PelerApp {
         self.handle_dropped_files(&ctx);
         if self.first_frame {
             self.open_startup_targets(&ctx);
-            if std::env::var_os("PELER_STARTUP_LOG").is_some() {
-                if let Some(start) = PROCESS_START.get() {
-                    eprintln!("first frame after {} ms", start.elapsed().as_millis());
-                }
+            if std::env::var_os("PELER_STARTUP_LOG").is_some()
+                && let Some(start) = PROCESS_START.get()
+            {
+                eprintln!("first frame after {} ms", start.elapsed().as_millis());
             }
         }
         #[cfg(debug_assertions)]
