@@ -6,13 +6,16 @@ Electerm yang jauh lebih ringan. Satu binary native, tanpa Chromium dan Node.js.
 | Target PRD | Hasil terukur | Status |
 | --- | --- | --- |
 | Memori, 1 sesi SSH | **63 MB** (phys_footprint, seperti Activity Monitor) | ✅ < 100 MB |
-| Memori, 5 tab SSH + panel SFTP | **83 MB** | ✅ < 200 MB |
+| Memori, 5 tab SSH + panel SFTP | **83 MB** (pemakaian biasa); **213 MB** bila kelima tab penuh scrollback 10.000 baris | ⚠️ < 200 MB, kecuali kasus terburuk |
 | Waktu start dingin | **~0,1 detik** sampai frame pertama (0,44 detik pada start pertama setelah instal) | ✅ < 1 detik |
-| Ukuran `.app` universal (Apple Silicon + Intel) | **29 MB** (DMG 15 MB) | ✅ < 30 MB |
+| Ukuran `.app` universal (Apple Silicon + Intel) | **±28 MB** (DMG ±15 MB) | ✅ < 30 MB |
 | CPU saat diam | **0,0%** (hanya menggambar saat ada perubahan) | ✅ |
 | Transfer SFTP 1 GB tanpa korupsi | sha256 identik (upload ~214 MB/s, download ~289 MB/s, lokal) | ✅ |
 
-Pengukuran dilakukan di MacBook Apple Silicon, macOS 14.6.
+Pengukuran dilakukan di MacBook Apple Silicon, macOS 14.6, jendela 1180×760. Satu baris scrollback
+memakan 24 byte per kolom; scrollback 10.000 baris yang penuh pada lebar ±120 kolom ≈ 30 MB per
+tab. Jika sering membuka banyak tab dengan output panjang, kecilkan **Riwayat gulir** di Pengaturan
+(mis. 5.000 baris).
 
 ## Fitur
 

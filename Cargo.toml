@@ -47,3 +47,40 @@ codegen-units = 1
 strip = true
 # Keep unwinding: a panic inside one session's task must not take the whole app down.
 panic = "unwind"
+
+# Size-optimize large dependencies that are not on a hot path (shader translation, GPU setup,
+# font parsing, accessibility). Keeps the universal .app comfortably under 30 MB.
+[profile.release.package.naga]
+opt-level = "s"
+[profile.release.package.wgpu-core]
+opt-level = "s"
+[profile.release.package.wgpu-hal]
+opt-level = "s"
+[profile.release.package.wgpu]
+opt-level = "s"
+[profile.release.package.accesskit_consumer]
+opt-level = "s"
+[profile.release.package.accesskit_macos]
+opt-level = "s"
+[profile.release.package.read-fonts]
+opt-level = "s"
+[profile.release.package.winit]
+opt-level = "s"
+[profile.release.package.muda]
+opt-level = "s"
+[profile.release.package.rfd]
+opt-level = "s"
+[profile.release.package.skrifa]
+opt-level = "s"
+[profile.release.package.harfrust]
+opt-level = "s"
+[profile.release.package.vello_common]
+opt-level = "s"
+[profile.release.package.vello_cpu]
+opt-level = "s"
+[profile.release.package.objc2-app-kit]
+opt-level = "s"
+[profile.release.package.objc2-foundation]
+opt-level = "s"
+[profile.release.package.accesskit]
+opt-level = "s"
