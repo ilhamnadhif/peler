@@ -23,6 +23,9 @@ pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
             style.spacing.interact_size.y = 24.0;
             style.spacing.window_margin = Margin::same(16);
             style.spacing.menu_margin = Margin::same(6);
+            // Selectable labels sense clicks and drags and would steal them from the rows,
+            // buttons and tables they sit in; text that should be copyable opts in explicitly.
+            style.interaction.selectable_labels = false;
             let v = &mut style.visuals;
             v.text_cursor.blink = false; // a blinking caret would repaint twice a second
             v.window_corner_radius = CornerRadius::same(10);

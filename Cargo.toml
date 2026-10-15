@@ -32,6 +32,13 @@ tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "sync", "
 uuid = { version = "1.28.0", features = ["v4", "serde", "v5"] }
 winit = "0.30"
 
+# AppKit bindings (already in the dependency tree via winit): used by the debug-only
+# end-to-end test driver that injects real keyboard and mouse events.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSGeometry", "NSArray"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSEvent", "NSApplication", "NSResponder", "NSWindow", "NSView", "NSGraphicsContext"] }
+
 [dev-dependencies]
 tempfile = "3.27.0"
 tiny-skia = "0.12.0"

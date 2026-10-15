@@ -108,65 +108,9 @@ pub struct PelerApp {
     /// (tab id, pane id) that last received keyboard focus.
     focus_target: Option<(u64, crate::ui::layout::PaneId)>,
     #[cfg(debug_assertions)]
-    dev: dev::Script,
+    dev: crate::devtest::Script,
 }
 
-/// Debug builds only: `PELER_DEV_SCRIPT="sleep 500;; action sftp;; type ls\r"` drives the UI
-/// for manual screenshots and smoke tests. Not compiled into release builds.
-#[cfg(debug_assertions)]
-mod dev {
-    use std::collections::VecDeque;
-    use std::time::{Duration, Instant};
-
-    #[derive(Default)]
-    pub struct Script {
-        steps: VecDeque<String>,
-        wait_until: Option<Instant>,
-    }
-
-    impl Script {
-        pub fn from_env() -> Self {
-            let steps = std::env::var("PELER_DEV_SCRIPT")
-                .map(|s| {
-                    s.split(";;")
-                        .map(|x| x.trim().to_string())
-                        .filter(|x| !x.is_empty())
-                        .collect()
-                })
-                .unwrap_or_default();
-            Self {
-                steps,
-                wait_until: None,
-            }
-        }
-
-        /// The next step to run now, if any.
-        pub fn next(&mut self, ctx: &eframe::egui::Context) -> Option<String> {
-            if self.steps.is_empty() {
-                return None;
-            }
-            ctx.request_repaint_after(Duration::from_millis(50));
-            if self.wait_until.is_some_and(|t| Instant::now() < t) {
-                return None;
-            }
-            self.wait_until = None;
-            let step = self.steps.pop_front()?;
-            if let Some(ms) = step.strip_prefix("sleep ") {
-                self.wait_until =
-                    Some(Instant::now() + Duration::from_millis(ms.trim().parse().unwrap_or(500)));
-                return None;
-            }
-            Some(step)
-        }
-    }
-
-    pub fn unescape(s: &str) -> String {
-        s.replace("\\r", "\r")
-            .replace("\\n", "\n")
-            .replace("\\e", "\x1b")
-            .replace("\\t", "\t")
-    }
-}
 
 static PROCESS_START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
@@ -269,30 +213,54 @@ impl PelerApp {
             startup: targets,
             focus_target: None,
             #[cfg(debug_assertions)]
-            dev: dev::Script::from_env(),
+            dev: crate::devtest::Script::from_env(),
         }
     }
 
+    /// Debug builds only: one step of `PELER_DEV_SCRIPT` (see `crate::devtest`).
     #[cfg(debug_assertions)]
     fn run_dev_script(&mut self, ctx: &egui::Context) {
+        use crate::devtest;
         let Some(step) = self.dev.next(ctx) else {
             return;
         };
         let (cmd, arg) = step.split_once(' ').unwrap_or((step.as_str(), ""));
-        match cmd {
-            "type" => {
-                if let Some(p) = self.tabs.get(self.active).and_then(|t| t.focused_pane()) {
-                    p.send(dev::unescape(arg).into_bytes());
+        let target = |name: &str| -> Option<egui::Pos2> {
+            match name.strip_prefix('@') {
+                Some(n) => devtest::rect_of(n).map(|r| r.center()),
+                None => {
+                    let (x, y) = name.split_once(',')?;
+                    Some(egui::pos2(x.trim().parse().ok()?, y.trim().parse().ok()?))
                 }
             }
+        };
+        let screen = |app: &Self| -> String {
+            let Some(p) = app.tabs.get(app.active).and_then(|t| t.focused_pane()) else {
+                return String::new();
+            };
+            use alacritty_terminal::grid::Dimensions;
+            let term = p.shared.term.lock();
+            term.bounds_to_string(
+                alacritty_terminal::index::Point::new(term.topmost_line(), alacritty_terminal::index::Column(0)),
+                alacritty_terminal::index::Point::new(term.bottommost_line(), term.last_column()),
+            )
+        };
+        match cmd {
+            // Input sent straight to the remote (bypasses the keyboard path).
+            "send" => {
+                if let Some(p) = self.tabs.get(self.active).and_then(|t| t.focused_pane()) {
+                    p.send(devtest::unescape(arg).into_bytes());
+                }
+            }
+            // Real keyboard and mouse events.
+            "keys" => devtest::type_text(&devtest::unescape(arg)),
+            "key" => devtest::key(arg),
+            "click" | "dclick" | "rclick" => match target(arg) {
+                Some(pos) => devtest::click(pos, if cmd == "dclick" { 2 } else { 1 }, cmd == "rclick"),
+                None => self.dev.check(false, &format!("{cmd} {arg}: target not found")),
+            },
             "connect" => {
-                if let Some(b) = self
-                    .store
-                    .bookmarks
-                    .iter()
-                    .find(|b| b.display_name() == arg)
-                    .cloned()
-                {
+                if let Some(b) = self.store.bookmarks.iter().find(|b| b.display_name() == arg).cloned() {
                     self.open_tab(ctx, b);
                 }
             }
@@ -328,15 +296,86 @@ impl PelerApp {
                         self.settings.language = Language::Indonesian;
                         None
                     }
+                    "english" => {
+                        self.settings.language = Language::English;
+                        None
+                    }
                     _ => None,
                 };
                 self.actions.extend(action);
             }
+            // Checks.
+            "expect-screen" => {
+                let text = screen(self);
+                self.dev.check(text.contains(arg), &format!("screen contains {arg:?}"));
+            }
+            "expect-not-screen" => {
+                let text = screen(self);
+                self.dev.check(!text.contains(arg), &format!("screen does not contain {arg:?}"));
+            }
+            "expect-tabs" => {
+                let n = self.tabs.len();
+                self.dev.check(arg.parse() == Ok(n), &format!("tabs = {arg} (got {n})"));
+            }
+            "expect-panes" => {
+                let n = self.tabs.get(self.active).map_or(0, |t| t.panes.len());
+                self.dev.check(arg.parse() == Ok(n), &format!("panes = {arg} (got {n})"));
+            }
+            "expect-keyboard-on-pane" => {
+                let ok = self.tabs.get(self.active).is_some_and(|t| {
+                    let idx: usize = arg.parse().unwrap_or(usize::MAX);
+                    let panes = t.layout.panes();
+                    panes.get(idx).is_some_and(|id| *id == t.focused)
+                        && ctx.memory(|m| m.has_focus(terminal::pane_widget_id(t.focused)))
+                });
+                self.dev.check(ok, &format!("keyboard focus on pane {arg}"));
+            }
+            "expect-remote-cwd" => {
+                let cwd = self
+                    .tabs
+                    .get(self.active)
+                    .and_then(|t| t.sftp.as_ref())
+                    .map(|p| p.remote_cwd().to_string())
+                    .unwrap_or_default();
+                self.dev.check(cwd == arg, &format!("remote cwd = {arg} (got {cwd})"));
+            }
+            "expect-local-cwd" => {
+                let cwd = self
+                    .tabs
+                    .get(self.active)
+                    .and_then(|t| t.sftp.as_ref())
+                    .map(|p| p.local_cwd().to_string())
+                    .unwrap_or_default();
+                self.dev.check(cwd == arg, &format!("local cwd = {arg} (got {cwd})"));
+            }
+            "expect-modal" => {
+                let open = self.modal_open();
+                self.dev.check(open == (arg == "yes"), &format!("modal open = {arg} (got {open})"));
+            }
+            "expect-bookmark" => {
+                let found = self.store.bookmarks.iter().any(|b| b.display_name() == arg);
+                self.dev.check(found, &format!("bookmark {arg:?} exists"));
+            }
+            "expect-theme-dark" => {
+                let dark = ctx.theme() == Theme::Dark;
+                self.dev.check(dark == (arg == "yes"), &format!("dark theme = {arg} (got {dark})"));
+            }
+            "log" => eprintln!("DEVTEST LOG: {arg}"),
+            "debug-hits" => ctx.all_styles_mut(|s| {
+                s.debug.show_widget_hits = true;
+                s.debug.show_interactive_widgets = true;
+            }),
+            "move" => {
+                if let Some(pos) = target(arg) {
+                    devtest::click(pos, 0, false);
+                }
+            }
             "quit" => {
+                eprintln!("DEVTEST DONE pass={} fail={}", self.dev.passed, self.dev.failed);
                 self.allow_close = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            _ => {}
+            other => self.dev.check(false, &format!("unknown step {other:?}")),
         }
     }
 
@@ -1181,6 +1220,11 @@ impl PelerApp {
                                     c,
                                 );
                             }
+                            #[cfg(debug_assertions)]
+                            {
+                                crate::devtest::record(format!("tab:{i}"), rect);
+                                crate::devtest::record(format!("tab-close:{i}"), close_rect);
+                            }
                             if close.clicked() || resp.middle_clicked() {
                                 self.actions.push(Action::CloseTab(tab_id));
                             } else if resp.clicked() {
@@ -1519,7 +1563,10 @@ impl PelerApp {
         let tab_id = tab.id;
         let mut new_focus = None;
         let mut close_pane = None;
-        for (pane_id, rect) in pane_rects {
+        for (pane_index, (pane_id, rect)) in pane_rects.into_iter().enumerate() {
+            #[cfg(debug_assertions)]
+            crate::devtest::record(format!("pane:{pane_index}"), rect);
+            let _ = pane_index;
             let focused_pane = tab.focused == pane_id;
             let Some(pane) = tab.pane_mut(pane_id) else {
                 continue;
@@ -1591,6 +1638,8 @@ impl PelerApp {
                         ui.visuals().strong_text_color(),
                     );
                 }
+                #[cfg(debug_assertions)]
+                crate::devtest::record(format!("pane-close:{pane_index}"), close_rect);
                 if close.clicked() {
                     close_pane = Some(pane_id);
                 }
@@ -1773,7 +1822,7 @@ impl PelerApp {
                         ui.label(algorithm.as_str());
                         ui.end_row();
                         ui.label(t("Fingerprint"));
-                        ui.add(egui::Label::new(RichText::new(fingerprint.as_str()).monospace()).wrap());
+                        ui.add(egui::Label::new(RichText::new(fingerprint.as_str()).monospace()).wrap().selectable(true));
                         ui.end_row();
                     });
                     ui.add_space(10.0);

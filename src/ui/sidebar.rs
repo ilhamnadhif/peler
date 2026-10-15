@@ -513,6 +513,8 @@ impl Sidebar {
             );
         }
 
+        #[cfg(debug_assertions)]
+        crate::devtest::record(format!("bookmark:{name}"), rect);
         let resp = resp.on_hover_ui(|ui| {
             ui.label(RichText::new(b.address()).strong());
             if !b.tags.is_empty() {

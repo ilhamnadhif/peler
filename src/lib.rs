@@ -3,6 +3,8 @@
 pub mod app;
 pub mod bookmarks;
 pub mod crypto;
+#[cfg(debug_assertions)]
+pub mod devtest;
 pub mod i18n;
 pub mod paths;
 pub mod secrets;

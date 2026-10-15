@@ -166,6 +166,14 @@ impl SftpPanel {
         }
     }
 
+    pub fn remote_cwd(&self) -> &str {
+        &self.remote.cwd
+    }
+
+    pub fn local_cwd(&self) -> &str {
+        &self.local.cwd
+    }
+
     pub fn dialog_open(&self) -> bool {
         self.dialog.is_some()
     }
@@ -694,6 +702,11 @@ impl SftpPanel {
                                 });
                             }
                             let resp = row.response();
+                            #[cfg(debug_assertions)]
+                            crate::devtest::record(
+                                format!("{}-row:{}", if is_remote { "remote" } else { "local" }, e.name),
+                                resp.rect,
+                            );
                             let names: Vec<String> = if side.selected.contains(&e.name) {
                                 side.selected.iter().cloned().collect()
                             } else {
