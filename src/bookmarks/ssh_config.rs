@@ -25,23 +25,52 @@ struct Block {
     options: Vec<(String, String)>,
 }
 
-/// Parses the config file at `path`, following `Include` directives.
+/// Largest config file read (anything bigger is not a hand-written config).
+const MAX_FILE_BYTES: u64 = 1024 * 1024;
+/// Most files read through `Include` (globs that include each other can't multiply forever).
+const MAX_INCLUDED_FILES: usize = 64;
+
+/// Parses the user's config file at `path`, following `Include` directives.
 pub fn parse_file(path: &Path) -> std::io::Result<Vec<SshConfigHost>> {
     let mut blocks = vec![Block::default()];
-    read_into(path, &mut blocks, 0)?;
+    let mut budget = Some(MAX_INCLUDED_FILES);
+    read_into(path, &mut blocks, 0, &mut budget)?;
     Ok(resolve(&blocks))
 }
 
-/// Parses config text; `Include` is resolved relative to `~/.ssh`.
+/// Parses config text from an imported file. `Include` lines are ignored: a file from
+/// elsewhere must not make the app read other local files.
 pub fn parse_str(text: &str) -> Vec<SshConfigHost> {
     let mut blocks = vec![Block::default()];
-    parse_text(text, &mut blocks, 0);
+    parse_text(text, &mut blocks, 0, &mut None);
     resolve(&blocks)
 }
 
-fn read_into(path: &Path, blocks: &mut Vec<Block>, depth: usize) -> std::io::Result<()> {
-    let text = std::fs::read_to_string(path)?;
-    parse_text(&text, blocks, depth);
+/// Reads one regular file of at most `MAX_FILE_BYTES` (never a device or FIFO).
+fn read_config_text(path: &Path) -> std::io::Result<String> {
+    use std::io::Read;
+    let file = std::fs::File::open(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() || meta.len() > MAX_FILE_BYTES {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "not a regular config file",
+        ));
+    }
+    let mut text = String::new();
+    file.take(MAX_FILE_BYTES).read_to_string(&mut text)?;
+    Ok(text)
+}
+
+/// `budget` is the number of files `Include` may still read; `None` disables `Include`.
+fn read_into(
+    path: &Path,
+    blocks: &mut Vec<Block>,
+    depth: usize,
+    budget: &mut Option<usize>,
+) -> std::io::Result<()> {
+    let text = read_config_text(path)?;
+    parse_text(&text, blocks, depth, budget);
     Ok(())
 }
 
@@ -88,7 +117,7 @@ fn split_args(s: &str) -> Vec<String> {
     out
 }
 
-fn parse_text(text: &str, blocks: &mut Vec<Block>, depth: usize) {
+fn parse_text(text: &str, blocks: &mut Vec<Block>, depth: usize, budget: &mut Option<usize>) {
     for line in text.lines() {
         let Some((key, args)) = split_line(line) else {
             continue;
@@ -102,14 +131,19 @@ fn parse_text(text: &str, blocks: &mut Vec<Block>, depth: usize) {
                 is_match: true,
                 ..Default::default()
             }),
-            "include" if depth < 8 => {
+            "include" if depth < 8 && budget.is_some() => {
                 for arg in args {
                     for file in expand_include(&arg) {
+                        match budget {
+                            Some(n) if *n > 0 => *n -= 1,
+                            _ => return,
+                        }
                         // Included files start in the context of the current block, as in ssh.
-                        let _ = read_into(&file, blocks, depth + 1);
+                        let _ = read_into(&file, blocks, depth + 1, budget);
                     }
                 }
             }
+            "include" => {}
             _ => {
                 if let (Some(block), Some(value)) = (blocks.last_mut(), args.into_iter().next()) {
                     block.options.push((key, value));
@@ -150,21 +184,9 @@ fn expand_include(arg: &str) -> Vec<PathBuf> {
     files
 }
 
-/// `*` and `?` wildcard match, as used in `Host` patterns.
+/// `*` and `?` wildcard match, as used in `Host` patterns (linear time, no recursion).
 pub fn glob_match(pattern: &str, text: &str) -> bool {
-    fn rec(p: &[char], t: &[char]) -> bool {
-        match p.first() {
-            None => t.is_empty(),
-            Some('*') => (0..=t.len()).any(|i| rec(&p[1..], &t[i..])),
-            Some('?') => !t.is_empty() && rec(&p[1..], &t[1..]),
-            Some(c) => {
-                t.first().is_some_and(|tc| tc.eq_ignore_ascii_case(c)) && rec(&p[1..], &t[1..])
-            }
-        }
-    }
-    let p: Vec<char> = pattern.chars().collect();
-    let t: Vec<char> = text.chars().collect();
-    rec(&p, &t)
+    crate::ssh::known_hosts::wildcard_match(pattern, text)
 }
 
 fn block_matches(block: &Block, alias: &str) -> bool {
@@ -298,5 +320,32 @@ Match host foo
         assert_eq!(hosts.len(), 2);
         assert_eq!(hosts[0].alias, "extra");
         assert_eq!(hosts[0].hostname.as_deref(), Some("1.2.3.4"));
+
+        // Imported text never follows Include.
+        let text = std::fs::read_to_string(&main).unwrap();
+        assert_eq!(parse_str(&text).len(), 1);
+    }
+
+    #[test]
+    fn include_loops_and_devices_are_bounded() {
+        let dir = tempfile::tempdir().unwrap();
+        // Every file includes every file: without a budget this is 3^8 reads.
+        for name in ["a.conf", "b.conf", "c.conf"] {
+            std::fs::write(
+                dir.path().join(name),
+                format!(
+                    "Include {}/*.conf\nInclude /dev/zero\nHost {}\n",
+                    dir.path().display(),
+                    name.trim_end_matches(".conf")
+                ),
+            )
+            .unwrap();
+        }
+        let start = std::time::Instant::now();
+        let hosts = parse_file(&dir.path().join("a.conf")).unwrap();
+        assert!(start.elapsed() < std::time::Duration::from_secs(2));
+        let mut names: Vec<_> = hosts.iter().map(|h| h.alias.clone()).collect();
+        names.sort();
+        assert_eq!(names, ["a", "b", "c"]);
     }
 }

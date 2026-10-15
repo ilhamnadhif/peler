@@ -69,6 +69,7 @@ fn user_known_hosts_mismatch_and_reconnect() {
         bookmark: bookmark(&server),
         keepalive_secs: 30,
         known_hosts: app_known.clone(),
+        save_secrets: true,
     };
     let conn = Connection::start(rt.handle(), ctx.clone(), spec);
     let status = wait_for(15, "host key prompt", || {
@@ -100,6 +101,7 @@ fn user_known_hosts_mismatch_and_reconnect() {
         settings: &settings,
         scheme: &SCHEMES[0],
         known_hosts: app_known.clone(),
+        store: None,
     };
     let mut tab = Tab::open(
         1,

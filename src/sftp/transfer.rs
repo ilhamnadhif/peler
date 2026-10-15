@@ -1,8 +1,10 @@
 //! Background uploads and downloads with progress, cancellation and recursive folders.
 //!
-//! Each transfer runs as a tokio task; the UI polls the atomics for progress. Partial files are
-//! removed when a transfer is cancelled or fails, and every file's size is checked after it has
-//! been written.
+//! Each transfer runs as a tokio task; the UI polls the atomics for progress. Files are written
+//! under a temporary name next to the destination and renamed into place only when complete,
+//! so a failed or cancelled transfer never damages an existing file. Entries that cannot be
+//! transferred inside a folder (unreadable folders, symlinked folders) are skipped and reported
+//! instead of aborting the whole transfer.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,7 +16,7 @@ use russh_sftp::protocol::FileType;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Semaphore;
 
-use super::entry::{remote_join, remote_name};
+use super::entry::{remote_join, remote_name, remote_parent};
 use super::remote::{self, Sftp, describe};
 
 /// Read/write chunk size; the SFTP client pipelines it into several in-flight requests.
@@ -49,6 +51,8 @@ pub struct Transfer {
     pub files_total: AtomicU64,
     pub files_done: AtomicU64,
     pub state: Mutex<TransferState>,
+    /// Entries inside a folder that were skipped, with the reason.
+    pub skipped: Mutex<Vec<String>>,
     cancel: AtomicBool,
     started: Mutex<Option<Instant>>,
     finished: Mutex<Option<Instant>>,
@@ -69,6 +73,7 @@ impl Transfer {
             files_total: AtomicU64::new(0),
             files_done: AtomicU64::new(0),
             state: Mutex::new(TransferState::Queued),
+            skipped: Mutex::new(Vec::new()),
             cancel: AtomicBool::new(false),
             started: Mutex::new(None),
             finished: Mutex::new(None),
@@ -77,6 +82,12 @@ impl Transfer {
 
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::Relaxed);
+        // A transfer still waiting for its turn is cancelled right away.
+        let mut state = self.state.lock();
+        if *state == TransferState::Queued {
+            *state = TransferState::Cancelled;
+            *self.finished.lock() = Some(Instant::now());
+        }
     }
 
     fn cancelled(&self) -> bool {
@@ -116,6 +127,10 @@ impl Transfer {
         self.done.load(Ordering::Relaxed) as f64 / secs
     }
 
+    fn skip(&self, what: String) {
+        self.skipped.lock().push(what);
+    }
+
     fn finish(&self, result: Result<(), String>) {
         *self.finished.lock() = Some(Instant::now());
         *self.state.lock() = match result {
@@ -123,6 +138,11 @@ impl Transfer {
             Err(e) if e == CANCELLED => TransferState::Cancelled,
             Err(e) => TransferState::Failed(e),
         };
+    }
+
+    /// Temporary name for a file being written by this transfer.
+    fn partial_name(&self, name: &str) -> String {
+        format!(".{name}.peler-part-{}", self.id)
     }
 }
 
@@ -152,27 +172,26 @@ impl Transfers {
         self.items.retain(|t| !t.is_finished());
     }
 
-    /// Uploads a local file or folder into `remote_dir`.
-    pub fn upload(
+    /// Whether an unfinished transfer already writes to this destination.
+    fn busy(&self, direction: Direction, local: &Path, remote: &str) -> bool {
+        self.items.iter().any(|t| {
+            !t.is_finished()
+                && t.direction == direction
+                && match direction {
+                    Direction::Upload => t.remote == remote,
+                    Direction::Download => t.local == local,
+                }
+        })
+    }
+
+    fn start(
         &mut self,
         rt: &tokio::runtime::Handle,
         sftp: Sftp,
-        local: PathBuf,
-        remote_dir: &str,
+        t: Transfer,
         on_done: impl Fn() + Send + Sync + 'static,
     ) -> Arc<Transfer> {
-        let name = local
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        let dest = remote_join(remote_dir, &name);
-        let t = Arc::new(Transfer::new(
-            self.next_id,
-            Direction::Upload,
-            name,
-            local,
-            dest,
-        ));
+        let t = Arc::new(t);
         self.next_id += 1;
         self.items.push(t.clone());
         let limiter = self.limiter.clone();
@@ -187,14 +206,40 @@ impl Transfers {
             }
             *task.started.lock() = Some(Instant::now());
             *task.state.lock() = TransferState::Running;
-            let result = run_upload(&task, &sftp).await;
+            let result = match task.direction {
+                Direction::Upload => run_upload(&task, &sftp).await,
+                Direction::Download => run_download(&task, &sftp).await,
+            };
             task.finish(result);
             on_done();
         });
         t
     }
 
-    /// Downloads a remote file or folder into `local_dir`.
+    /// Uploads a local file or folder into `remote_dir`. Refused while another transfer is
+    /// writing to the same destination.
+    pub fn upload(
+        &mut self,
+        rt: &tokio::runtime::Handle,
+        sftp: Sftp,
+        local: PathBuf,
+        remote_dir: &str,
+        on_done: impl Fn() + Send + Sync + 'static,
+    ) -> Result<Arc<Transfer>, String> {
+        let name = local
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let dest = remote_join(remote_dir, &name);
+        if self.busy(Direction::Upload, &local, &dest) {
+            return Err(dest);
+        }
+        let t = Transfer::new(self.next_id, Direction::Upload, name, local, dest);
+        Ok(self.start(rt, sftp, t, on_done))
+    }
+
+    /// Downloads a remote file or folder into `local_dir`. Refused while another transfer is
+    /// writing to the same destination.
     pub fn download(
         &mut self,
         rt: &tokio::runtime::Handle,
@@ -202,34 +247,14 @@ impl Transfers {
         remote: String,
         local_dir: &Path,
         on_done: impl Fn() + Send + Sync + 'static,
-    ) -> Arc<Transfer> {
+    ) -> Result<Arc<Transfer>, String> {
         let name = remote_name(&remote).to_string();
         let dest = local_dir.join(&name);
-        let t = Arc::new(Transfer::new(
-            self.next_id,
-            Direction::Download,
-            name,
-            dest,
-            remote,
-        ));
-        self.next_id += 1;
-        self.items.push(t.clone());
-        let limiter = self.limiter.clone();
-        let task = t.clone();
-        rt.spawn(async move {
-            let _permit = limiter.acquire_owned().await;
-            if task.cancelled() {
-                task.finish(Err(CANCELLED.into()));
-                on_done();
-                return;
-            }
-            *task.started.lock() = Some(Instant::now());
-            *task.state.lock() = TransferState::Running;
-            let result = run_download(&task, &sftp).await;
-            task.finish(result);
-            on_done();
-        });
-        t
+        if self.busy(Direction::Download, &dest, &remote) {
+            return Err(dest.display().to_string());
+        }
+        let t = Transfer::new(self.next_id, Direction::Download, name, dest, remote);
+        Ok(self.start(rt, sftp, t, on_done))
     }
 }
 
@@ -240,8 +265,8 @@ struct Plan {
     files: Vec<(PathBuf, String, u64)>,
 }
 
-/// Walks a local file or folder (without following symlinked folders).
-fn plan_upload(local: &Path, dest: &str) -> Result<Plan, String> {
+/// Walks a local file or folder. Symlinked folders and unreadable folders are skipped.
+fn plan_upload(t: &Transfer, local: &Path, dest: &str) -> Result<Plan, String> {
     let meta = std::fs::metadata(local).map_err(|e| format!("{}: {e}", local.display()))?;
     let mut plan = Plan {
         dirs: Vec::new(),
@@ -254,11 +279,16 @@ fn plan_upload(local: &Path, dest: &str) -> Result<Plan, String> {
     }
     let mut stack = vec![(local.to_path_buf(), dest.to_string())];
     while let Some((dir, remote_dir)) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(e) => e,
+            Err(e) if dir != local => {
+                t.skip(format!("{}: {e}", dir.display()));
+                continue;
+            }
+            Err(e) => return Err(format!("{}: {e}", dir.display())),
+        };
         plan.dirs.push(remote_dir.clone());
-        let mut entries: Vec<_> = std::fs::read_dir(&dir)
-            .map_err(|e| format!("{}: {e}", dir.display()))?
-            .flatten()
-            .collect();
+        let mut entries: Vec<_> = entries.flatten().collect();
         entries.sort_by_key(|e| e.file_name());
         for entry in entries {
             let path = entry.path();
@@ -267,6 +297,8 @@ fn plan_upload(local: &Path, dest: &str) -> Result<Plan, String> {
             let target = remote_join(&remote_dir, &name);
             if ft.is_dir() {
                 stack.push((path, target));
+            } else if ft.is_symlink() && path.is_dir() {
+                t.skip(format!("{} (symlinked folder)", path.display()));
             } else if ft.is_file() || (ft.is_symlink() && path.is_file()) {
                 let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                 plan.files.push((path, target, size));
@@ -276,9 +308,10 @@ fn plan_upload(local: &Path, dest: &str) -> Result<Plan, String> {
     Ok(plan)
 }
 
-async fn run_upload(t: &Transfer, sftp: &Sftp) -> Result<(), String> {
+async fn run_upload(t: &Arc<Transfer>, sftp: &Sftp) -> Result<(), String> {
     let (local, dest) = (t.local.clone(), t.remote.clone());
-    let plan = tokio::task::spawn_blocking(move || plan_upload(&local, &dest))
+    let task = t.clone();
+    let plan = tokio::task::spawn_blocking(move || plan_upload(&task, &local, &dest))
         .await
         .map_err(|e| e.to_string())??;
     t.total
@@ -312,13 +345,17 @@ async fn upload_file(
     let mut src = tokio::fs::File::open(local)
         .await
         .map_err(|e| format!("{}: {e}", local.display()))?;
-    let mode = src
+    let local_mode = src
         .metadata()
         .await
         .map(|m| m.permissions().mode() & 0o777)
         .ok();
+    let partial = remote_join(
+        &remote_parent(remote_path),
+        &t.partial_name(remote_name(remote_path)),
+    );
     let mut dst = sftp
-        .create(remote_path)
+        .create(partial.clone())
         .await
         .map_err(|e| format!("{remote_path}: {}", describe(&e)))?;
     let mut buf = vec![0u8; CHUNK];
@@ -343,19 +380,42 @@ async fn upload_file(
     }
     .await;
     let closed = dst.close().await.map_err(|e| format!("{remote_path}: {e}"));
-    if let Err(e) = result.and(closed) {
-        let _ = sftp.remove_file(remote_path).await;
+    let result = result.and(closed);
+    let result = match result {
+        Ok(()) => match sftp.metadata(partial.clone()).await {
+            Ok(m) if m.size == Some(size) => Ok(()),
+            Ok(m) => Err(format!(
+                "{remote_path}: size check failed ({} of {size} bytes)",
+                m.size.unwrap_or(0)
+            )),
+            Err(e) => Err(format!("{remote_path}: {}", describe(&e))),
+        },
+        Err(e) => Err(e),
+    };
+    if let Err(e) = result {
+        let _ = sftp.remove_file(partial).await;
         return Err(e);
     }
+    // Replacing a file keeps its permissions; a new file gets the local file's.
+    let existing = sftp.metadata(remote_path).await.ok();
+    let mode = existing
+        .as_ref()
+        .and_then(|m| m.permissions)
+        .map(|p| p & 0o7777)
+        .or(local_mode);
     if let Some(mode) = mode {
-        let _ = remote::chmod(sftp, remote_path, mode).await;
+        let _ = remote::chmod(sftp, &partial, mode).await;
     }
-    let written = sftp.metadata(remote_path).await.ok().and_then(|m| m.size);
-    if written.is_some_and(|w| w != size) {
-        return Err(format!(
-            "{remote_path}: size check failed ({} of {size} bytes)",
-            written.unwrap_or(0)
-        ));
+    if existing.is_some() {
+        // SFTP v3 rename refuses to replace: remove the old file at the last moment.
+        if let Err(e) = sftp.remove_file(remote_path).await {
+            let _ = sftp.remove_file(partial).await;
+            return Err(format!("{remote_path}: {}", describe(&e)));
+        }
+    }
+    if let Err(e) = remote::rename(sftp, &partial, remote_path).await {
+        let _ = sftp.remove_file(partial).await;
+        return Err(format!("{remote_path}: {e}"));
     }
     Ok(())
 }
@@ -375,20 +435,34 @@ async fn run_download(t: &Transfer, sftp: &Sftp) -> Result<(), String> {
             if t.cancelled() {
                 return Err(CANCELLED.into());
             }
+            let entries = match sftp.read_dir(&remote_dir).await {
+                Ok(e) => e,
+                Err(e) if remote_dir != t.remote => {
+                    t.skip(format!("{remote_dir}: {}", describe(&e)));
+                    continue;
+                }
+                Err(e) => return Err(format!("{remote_dir}: {}", describe(&e))),
+            };
             dirs.push(local_dir.clone());
-            let mut entries: Vec<_> = sftp
-                .read_dir(&remote_dir)
-                .await
-                .map_err(|e| format!("{remote_dir}: {}", describe(&e)))?
-                .collect();
+            let mut entries: Vec<_> = entries.collect();
             entries.sort_by_key(|e| e.file_name());
             for e in entries {
                 let name = e.file_name();
                 if name == "." || name == ".." || name.contains('/') {
                     continue;
                 }
-                let attrs = e.metadata();
                 let child = remote_join(&remote_dir, &name);
+                let mut attrs = e.metadata();
+                if attrs.file_type() == FileType::Symlink {
+                    // Follow links to files; links to folders are skipped (they can loop).
+                    match sftp.metadata(&child).await {
+                        Ok(target) if target.file_type() == FileType::File => attrs = target,
+                        _ => {
+                            t.skip(format!("{child} (symlink)"));
+                            continue;
+                        }
+                    }
+                }
                 match attrs.file_type() {
                     FileType::Dir => stack.push((child, local_dir.join(&name))),
                     FileType::File => files.push((
@@ -397,7 +471,7 @@ async fn run_download(t: &Transfer, sftp: &Sftp) -> Result<(), String> {
                         attrs.size.unwrap_or(0),
                         attrs.permissions,
                     )),
-                    _ => {}
+                    _ => t.skip(format!("{child} (special file)")),
                 }
             }
         }
@@ -440,13 +514,11 @@ async fn download_file(
         .open(remote_path)
         .await
         .map_err(|e| format!("{remote_path}: {}", describe(&e)))?;
-    // Write next to the destination and rename into place only when complete, so a failed
-    // or cancelled download never destroys an existing local file.
     let file_name = local
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let partial = local.with_file_name(format!(".{file_name}.peler-part"));
+    let partial = local.with_file_name(t.partial_name(&file_name));
     let mut dst = tokio::fs::File::create(&partial)
         .await
         .map_err(|e| format!("{}: {e}", local.display()))?;
@@ -478,8 +550,9 @@ async fn download_file(
     .await;
     drop(src);
     drop(dst);
+    // A file that grew while being read (a log) is fine; one that came up short is not.
     let result = result.and_then(|()| {
-        if written == size {
+        if written >= size {
             Ok(())
         } else {
             Err(format!(

@@ -601,6 +601,127 @@ const ID: &[(&str, &str)] = &[
         "{} to add · {} to update · {} to skip",
         "{} ditambah · {} diperbarui · {} dilewati",
     ),
+    (
+        "Bookmark changes are not saved: the bookmarks file could not be read safely.",
+        "Perubahan bookmark tidak disimpan: file bookmark tidak bisa dibaca dengan aman.",
+    ),
+    (
+        "Close the open dialog first, then drop the files again.",
+        "Tutup dialog yang terbuka dulu, lalu drop file-nya lagi.",
+    ),
+    ("Connect to {}", "Hubungkan ke {}"),
+    (
+        "Could not open {} ({}); showing the home folder instead.",
+        "Tidak bisa membuka {} ({}); menampilkan folder home.",
+    ),
+    (
+        "Could not read the saved credentials of {} from the Keychain: {}",
+        "Tidak bisa membaca kredensial tersimpan milik {} dari Keychain: {}",
+    ),
+    (
+        "Could not read the settings ({}). The file was kept as {}.",
+        "Tidak bisa membaca pengaturan ({}). File disimpan sebagai {}.",
+    ),
+    ("Could not read {} ({})", "Tidak bisa membaca {} ({})"),
+    ("Could not read {}", "Tidak bisa membaca {}"),
+    ("Could not save {}", "Tidak bisa menyimpan {}"),
+    ("{} is damaged", "{} rusak"),
+    (
+        "Could not save the host key in {} ({})",
+        "Tidak bisa menyimpan host key di {} ({})",
+    ),
+    ("Decryption failed.", "Dekripsi gagal."),
+    (
+        "Encryption parameters in the file are out of range.",
+        "Parameter enkripsi di file berada di luar batas.",
+    ),
+    (
+        "Import startup commands ({} bookmark(s))",
+        "Import startup command ({} bookmark)",
+    ),
+    (
+        "Looking up {} timed out.",
+        "Pencarian alamat {} melewati batas waktu.",
+    ),
+    (
+        "Missing \"]\" after the IPv6 address.",
+        "Kurang \"]\" setelah alamat IPv6.",
+    ),
+    ("Not an Electerm export.", "Bukan file export Electerm."),
+    ("Open a remote folder first.", "Buka folder remote dulu."),
+    (
+        "Overwriting changes the address; the credentials saved for the old address are removed.",
+        "Menimpa akan mengubah alamat; kredensial yang tersimpan untuk alamat lama dihapus.",
+    ),
+    ("Reconnect this tab?", "Hubungkan ulang tab ini?"),
+    ("Saved keys", "Key tersimpan"),
+    ("Show hidden files", "Tampilkan file tersembunyi"),
+    (
+        "Startup commands run on the server every time the bookmark connects. Only import them from a file you trust.",
+        "Startup command dijalankan di server setiap kali bookmark terhubung. Import hanya dari file yang Anda percaya.",
+    ),
+    (
+        "The bookmarks were saved by a newer version of Peler (schema {}). Please update the app; until then bookmark changes are not saved.",
+        "Bookmark disimpan oleh versi Peler yang lebih baru (schema {}). Perbarui aplikasi; sampai saat itu perubahan bookmark tidak disimpan.",
+    ),
+    (
+        "The encrypted credentials in the file are damaged.",
+        "Kredensial terenkripsi di file ini rusak.",
+    ),
+    (
+        "The file is too large to be a bookmark export (more than {} MB).",
+        "File terlalu besar untuk sebuah export bookmark (lebih dari {} MB).",
+    ),
+    (
+        "The font {} could not be loaded; the built-in Hack font is used instead.",
+        "Font {} tidak bisa dimuat; font bawaan Hack dipakai sebagai gantinya.",
+    ),
+    (
+        "The host name contains characters that are not allowed.",
+        "Nama host berisi karakter yang tidak diizinkan.",
+    ),
+    (
+        "The running sessions on {} will be closed and opened again.",
+        "Sesi yang berjalan di {} akan ditutup dan dibuka lagi.",
+    ),
+    (
+        "The server's host key is marked as revoked in known_hosts. Connection refused.",
+        "Host key server ditandai sebagai dicabut (revoked) di known_hosts. Koneksi ditolak.",
+    ),
+    (
+        "This file is from an older version: check each bookmark's address before connecting with the imported credentials.",
+        "File ini dari versi lama: periksa alamat setiap bookmark sebelum terhubung dengan kredensial yang di-import.",
+    ),
+    (
+        "Unsupported encryption ({} / {}).",
+        "Enkripsi tidak didukung ({} / {}).",
+    ),
+    (
+        "Uploads will start after the open dialog is closed.",
+        "Upload akan dimulai setelah dialog yang terbuka ditutup.",
+    ),
+    (
+        "Uploads will start when SFTP is ready.",
+        "Upload akan dimulai saat SFTP siap.",
+    ),
+    (
+        "[Session ended by signal {}. Press Enter or ⌘R to reconnect.]",
+        "[Sesi berakhir karena sinyal {}. Tekan Enter atau ⌘R untuk menghubungkan ulang.]",
+    ),
+    (
+        "the server only accepts RSA keys with SHA-1 signatures. Enable legacy algorithms in the bookmark to allow it.",
+        "server hanya menerima key RSA dengan signature SHA-1. Aktifkan algoritma lama (legacy) di bookmark untuk mengizinkannya.",
+    ),
+    (
+        "{} file transfer(s) are still running and will be cancelled.",
+        "{} transfer file masih berjalan dan akan dibatalkan.",
+    ),
+    ("{} is already being transferred.", "{} sedang ditransfer."),
+    (
+        "{} saved credential(s) were left out: the bookmark's address in the file differs from the address they were saved for.",
+        "{} kredensial tersimpan tidak diikutkan: alamat bookmark di file berbeda dengan alamat saat kredensial disimpan.",
+    ),
+    ("{} skipped", "{} dilewati"),
 ];
 
 #[cfg(test)]

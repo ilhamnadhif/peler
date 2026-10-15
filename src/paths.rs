@@ -5,16 +5,19 @@ use std::io::{self, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const APP_NAME: &str = "peler";
 
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
-/// Data directory: `~/Library/Application Support/peler`, or `PELER_DATA_DIR` when set
-/// (used by tests).
+/// Data directory: `~/Library/Application Support/peler`, or `PELER_DATA_DIR` when set in a
+/// debug build (tests and the scripted UI checks; release builds ignore it).
 pub fn data_dir() -> &'static Path {
     DATA_DIR.get_or_init(|| {
-        if let Some(dir) = std::env::var_os("PELER_DATA_DIR") {
+        if cfg!(debug_assertions)
+            && let Some(dir) = std::env::var_os("PELER_DATA_DIR")
+        {
             return PathBuf::from(dir);
         }
         dirs::data_dir()
@@ -54,21 +57,32 @@ pub fn write_private(path: &Path, data: &[u8]) -> io::Result<()> {
     if let Some(dir) = path.parent() {
         ensure_private_dir(dir)?;
     }
+    // Unique per write, so two writers (threads, or a second app instance) never share a
+    // temporary file; `create_new` refuses to follow anything already at that name.
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
-    tmp_name.push(format!(".tmp-{}", std::process::id()));
+    tmp_name.push(format!(
+        ".tmp-{}-{}",
+        std::process::id(),
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
     let tmp = path.with_file_name(tmp_name);
-    {
+    let result = (|| {
         let mut f = OpenOptions::new()
             .write(true)
-            .create(true)
-            .truncate(true)
+            .create_new(true)
             .mode(0o600)
             .open(&tmp)?;
         f.write_all(data)?;
         f.sync_all()?;
+        drop(f);
+        fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))?;
+        fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
     }
-    fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600))?;
-    fs::rename(&tmp, path)
+    result
 }
 
 /// Replaces a leading `~` with the home directory.

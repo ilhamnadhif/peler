@@ -127,19 +127,23 @@ impl Settings {
     pub fn load(path: &Path) -> Result<Self> {
         match std::fs::read(path) {
             Ok(data) => {
-                let mut s: Settings = serde_json::from_slice(&data)
-                    .with_context(|| format!("parsing {}", path.display()))?;
+                let mut s: Settings = serde_json::from_slice(&data).with_context(|| {
+                    crate::i18n::tf("{} is damaged", &[&path.display().to_string()])
+                })?;
                 s.clamp();
                 Ok(s)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
-            Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+            Err(e) => Err(e).with_context(|| {
+                crate::i18n::tf("Could not read {}", &[&path.display().to_string()])
+            }),
         }
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
         let json = serde_json::to_vec_pretty(self)?;
-        paths::write_private(path, &json).with_context(|| format!("writing {}", path.display()))
+        paths::write_private(path, &json)
+            .with_context(|| crate::i18n::tf("Could not save {}", &[&path.display().to_string()]))
     }
 
     pub fn clamp(&mut self) {

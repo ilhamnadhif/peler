@@ -112,14 +112,18 @@ impl Bookmark {
         }
     }
 
-    /// `user@host[:port]`.
+    /// `user@host[:port]` (IPv6 addresses in brackets).
     pub fn address(&self) -> String {
         let mut s = String::new();
         if !self.username.is_empty() {
             s.push_str(&self.username);
             s.push('@');
         }
-        s.push_str(&self.host);
+        if self.host.contains(':') && !self.host.starts_with('[') {
+            s.push_str(&format!("[{}]", self.host));
+        } else {
+            s.push_str(&self.host);
+        }
         if self.port != DEFAULT_PORT {
             s.push_str(&format!(":{}", self.port));
         }
@@ -139,5 +143,114 @@ impl Bookmark {
             id: Uuid::new_v4(),
             ..self.clone()
         }
+    }
+}
+
+/// An address typed by the user: `[ssh://][user@]host[:port]`, where an IPv6 host with a port
+/// is written in brackets (`[::1]:2222`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Target {
+    pub user: Option<String>,
+    pub host: String,
+    pub port: Option<u16>,
+}
+
+/// Parses a typed address; the error says what is wrong with it.
+pub fn parse_target(input: &str) -> Result<Target, String> {
+    use crate::i18n::t;
+    let input = input.trim();
+    let input = input
+        .strip_prefix("ssh://")
+        .unwrap_or(input)
+        .trim_end_matches('/');
+    let (user, rest) = match input.rsplit_once('@') {
+        Some((u, r)) => (
+            Some(u.trim().to_string()).filter(|u| !u.is_empty()),
+            r.trim(),
+        ),
+        None => (None, input),
+    };
+    let bad_port = || t("Port must be a number between 1 and 65535.").to_string();
+    let parse_port = |p: &str| {
+        p.parse::<u16>()
+            .ok()
+            .filter(|p| *p > 0)
+            .ok_or_else(bad_port)
+    };
+    let (host, port) = if let Some(inner) = rest.strip_prefix('[') {
+        let (host, after) = inner
+            .split_once(']')
+            .ok_or_else(|| t("Missing \"]\" after the IPv6 address.").to_string())?;
+        let port = match after {
+            "" => None,
+            p => Some(parse_port(p.strip_prefix(':').ok_or_else(bad_port)?)?),
+        };
+        (host.to_string(), port)
+    } else {
+        match rest.matches(':').count() {
+            0 => (rest.to_string(), None),
+            1 => {
+                let (h, p) = rest.split_once(':').unwrap_or((rest, ""));
+                (h.to_string(), Some(parse_port(p)?))
+            }
+            // Several colons: a bare IPv6 address (a port needs the brackets).
+            _ => (rest.to_string(), None),
+        }
+    };
+    if host.is_empty() {
+        return Err(t("Host is required.").into());
+    }
+    if crate::ssh::session::clean_host(&host).is_none() {
+        return Err(t("The host name contains characters that are not allowed.").into());
+    }
+    Ok(Target { user, host, port })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn target(user: Option<&str>, host: &str, port: Option<u16>) -> Target {
+        Target {
+            user: user.map(str::to_string),
+            host: host.into(),
+            port,
+        }
+    }
+
+    #[test]
+    fn typed_addresses() {
+        assert_eq!(
+            parse_target("web.example.com"),
+            Ok(target(None, "web.example.com", None))
+        );
+        assert_eq!(
+            parse_target(" root@10.0.0.1:2222 "),
+            Ok(target(Some("root"), "10.0.0.1", Some(2222)))
+        );
+        assert_eq!(
+            parse_target("ssh://deploy@host/"),
+            Ok(target(Some("deploy"), "host", None))
+        );
+        assert_eq!(
+            parse_target("[::1]:2299"),
+            Ok(target(None, "::1", Some(2299)))
+        );
+        assert_eq!(
+            parse_target("admin@fe80::1"),
+            Ok(target(Some("admin"), "fe80::1", None))
+        );
+        assert!(parse_target("host:abc").is_err());
+        assert!(parse_target("host:0").is_err());
+        assert!(parse_target("[::1").is_err());
+        assert!(parse_target("bad host").is_err());
+        assert!(parse_target("user@").is_err());
+        let b = Bookmark {
+            host: "::1".into(),
+            port: 2299,
+            username: "me".into(),
+            ..Default::default()
+        };
+        assert_eq!(b.address(), "me@[::1]:2299");
     }
 }

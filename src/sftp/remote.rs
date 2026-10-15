@@ -38,8 +38,9 @@ fn entry_from(
     link_target: Option<&FileAttributes>,
 ) -> FileEntry {
     let is_symlink = attrs.file_type() == FileType::Symlink;
-    let effective = link_target.unwrap_or(attrs);
-    let is_dir = effective.file_type() == FileType::Dir;
+    // A symlink shows (and chmods) what it points to; a broken link has no usable mode.
+    let effective = if is_symlink { link_target } else { Some(attrs) };
+    let is_dir = effective.is_some_and(|a| a.file_type() == FileType::Dir);
     FileEntry {
         name,
         is_dir,
@@ -47,31 +48,47 @@ fn entry_from(
         size: if is_dir {
             0
         } else {
-            effective.size.unwrap_or(0)
+            effective.and_then(|a| a.size).unwrap_or(0)
         },
         modified: attrs.mtime.map(i64::from),
-        mode: attrs.permissions.map(|p| p & 0o7777),
+        mode: effective.and_then(|a| a.permissions).map(|p| p & 0o7777),
     }
 }
 
-/// Lists a remote directory. Symlinks are resolved so linked folders can be opened.
-pub async fn list(sftp: &SftpSession, path: &str) -> Result<Vec<FileEntry>, String> {
+/// Lists a remote directory. Symlinks are resolved (several at a time) so linked folders can
+/// be opened and show their target's details.
+pub async fn list(sftp: &Sftp, path: &str) -> Result<Vec<FileEntry>, String> {
     let entries = sftp.read_dir(path).await.map_err(|e| describe(&e))?;
-    let mut out = Vec::new();
+    let mut raw = Vec::new();
+    let mut links = tokio::task::JoinSet::new();
+    let limit = Arc::new(tokio::sync::Semaphore::new(16));
     for e in entries {
         let name = e.file_name();
         if name == "." || name == ".." {
             continue;
         }
         let attrs = e.metadata();
-        let target = if attrs.file_type() == FileType::Symlink {
-            sftp.metadata(remote_join(path, &name)).await.ok()
-        } else {
-            None
-        };
-        out.push(entry_from(name, &attrs, target.as_ref()));
+        if attrs.file_type() == FileType::Symlink {
+            let (sftp, limit, full, idx) = (
+                sftp.clone(),
+                limit.clone(),
+                remote_join(path, &name),
+                raw.len(),
+            );
+            links.spawn(async move {
+                let _permit = limit.acquire_owned().await;
+                (idx, sftp.metadata(full).await.ok())
+            });
+        }
+        raw.push((name, attrs, None));
     }
-    Ok(out)
+    while let Some(Ok((idx, target))) = links.join_next().await {
+        raw[idx].2 = target;
+    }
+    Ok(raw
+        .into_iter()
+        .map(|(name, attrs, target)| entry_from(name, &attrs, target.as_ref()))
+        .collect())
 }
 
 pub async fn home(sftp: &SftpSession) -> Result<String, String> {

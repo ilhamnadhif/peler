@@ -99,7 +99,7 @@ pub fn read(value: &Value) -> Result<Incoming> {
             };
             (arr("bookmarkGroups"), arr("bookmarks"), arr("profiles"))
         }
-        _ => bail!("Not an Electerm export."),
+        _ => bail!("{}", crate::i18n::t("Not an Electerm export.")),
     };
     let profiles: HashMap<&str, &Value> = profiles
         .iter()
@@ -128,41 +128,46 @@ pub fn read(value: &Value) -> Result<Incoming> {
             }
         }
     }
-    // Break cycles by detaching the group where the walk loops back.
+    // Break cycles by detaching the group where the walk loops back. Each group is walked
+    // once (linear time even for very deep or crafted trees).
+    let mut state: HashMap<String, u8> = HashMap::new(); // 1 = on the current walk, 2 = done
     for id in &order {
-        let mut seen = HashSet::from([id.clone()]);
-        let mut cur = parent_of.get(id).cloned();
-        while let Some(p) = cur {
-            if !seen.insert(p.clone()) {
-                parent_of.remove(id);
-                break;
+        let mut path = Vec::new();
+        let mut cur = Some(id.clone());
+        while let Some(c) = cur {
+            match state.get(&c) {
+                Some(2) => break,
+                Some(_) => {
+                    parent_of.remove(&c);
+                    break;
+                }
+                None => {}
             }
-            cur = parent_of.get(&p).cloned();
+            state.insert(c.clone(), 1);
+            cur = parent_of.get(&c).cloned();
+            path.push(c);
+        }
+        for p in path {
+            state.insert(p, 2);
         }
     }
 
     // Depth-first order: roots in file order, children in bookmarkGroupIds order. Electerm's
-    // "default" group maps to the top level.
+    // "default" group maps to the top level. Iterative, so deep nesting can't overflow the stack.
     let mut tree_order: Vec<String> = Vec::new();
-    fn visit(
-        id: &str,
-        by_id: &HashMap<String, &Value>,
-        parent_of: &HashMap<String, String>,
-        out: &mut Vec<String>,
-    ) {
-        if out.iter().any(|x| x == id) {
-            return;
-        }
-        out.push(id.to_string());
-        for child in ids(by_id[id], "bookmarkGroupIds") {
-            if parent_of.get(&child).is_some_and(|p| p == id) {
-                visit(&child, by_id, parent_of, out);
+    let mut visited: HashSet<String> = HashSet::new();
+    for root in order.iter().filter(|id| !parent_of.contains_key(*id)) {
+        let mut stack = vec![root.clone()];
+        while let Some(id) = stack.pop() {
+            if !visited.insert(id.clone()) {
+                continue;
             }
-        }
-    }
-    for id in &order {
-        if !parent_of.contains_key(id) {
-            visit(id, &by_id, &parent_of, &mut tree_order);
+            let children: Vec<String> = ids(by_id[&id], "bookmarkGroupIds")
+                .into_iter()
+                .filter(|child| parent_of.get(child).is_some_and(|p| *p == id))
+                .collect();
+            stack.extend(children.into_iter().rev());
+            tree_order.push(id);
         }
     }
 

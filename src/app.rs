@@ -12,8 +12,9 @@ use eframe::egui::{
 use muda::MenuEvent;
 use uuid::Uuid;
 
+use crate::bookmarks::store::NewerSchema;
 use crate::bookmarks::transfer::{self, ExportScope, ImportPlan};
-use crate::bookmarks::{Bookmark, BookmarkStore, ssh_config};
+use crate::bookmarks::{Auth, Bookmark, BookmarkStore, ssh_config};
 use crate::i18n::{self, Language, t, tf};
 use crate::paths;
 use crate::secrets::{self, SecretKind};
@@ -41,7 +42,6 @@ struct Applied {
     theme: ThemeMode,
     font: FontChoice,
     cjk: bool,
-    option_as_meta: bool,
     terminal: (usize, crate::settings::CursorStyle, bool, String, String),
 }
 
@@ -52,7 +52,6 @@ impl Applied {
             theme: s.theme,
             font: fonts::effective_choice(&s.font),
             cjk: s.load_cjk_font,
-            option_as_meta: s.option_as_meta,
             terminal: (
                 s.scrollback,
                 s.cursor_style,
@@ -72,6 +71,7 @@ enum PromptView {
         algorithm: String,
         fingerprint: String,
         changed: bool,
+        known: Vec<String>,
     },
     Secret {
         kind: SecretPromptKind,
@@ -85,7 +85,11 @@ enum PromptView {
 pub struct PelerApp {
     rt: tokio::runtime::Runtime,
     store: BookmarkStore,
+    /// False when the bookmarks file must not be overwritten (written by a newer version, or
+    /// unreadable and could not be moved aside).
+    store_writable: bool,
     settings: Settings,
+    settings_writable: bool,
     settings_saved: Settings,
     settings_changed_at: Option<Instant>,
     applied: Applied,
@@ -105,12 +109,20 @@ pub struct PelerApp {
     title: String,
     first_frame: bool,
     startup: Vec<String>,
+    /// The tab that was active last frame (to notice tab switches).
+    last_active_tab: Option<u64>,
+    modal_was_open: bool,
+    /// What Option currently does in the window (Meta or composing), once set.
+    option_as_alt: Option<bool>,
+    /// Arguments of later launches, forwarded by `crate::instance`.
+    instance_rx: Option<std::sync::mpsc::Receiver<Vec<String>>>,
     /// (tab id, pane id) that last received keyboard focus.
     focus_target: Option<(u64, crate::ui::layout::PaneId)>,
+    /// Modification time of bookmarks.json as last loaded or saved by this window.
+    store_mtime: Option<std::time::SystemTime>,
     #[cfg(debug_assertions)]
     dev: crate::devtest::Script,
 }
-
 
 static PROCESS_START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
@@ -119,24 +131,34 @@ pub fn mark_process_start() {
     PROCESS_START.get_or_init(Instant::now);
 }
 
+fn file_mtime(path: &std::path::Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(path).and_then(|m| m.modified()).ok()
+}
+
+/// Moves an unreadable data file aside (`name.corrupt-<time>.json`); `None` if that failed.
+fn backup_corrupt(path: &std::path::Path) -> Option<PathBuf> {
+    let backup = path.with_extension(format!(
+        "corrupt-{}.json",
+        chrono::Utc::now().format("%Y%m%d%H%M%S")
+    ));
+    std::fs::rename(path, &backup).ok().map(|_| backup)
+}
+
+fn font_error(font: &FontChoice) -> String {
+    let name = font.path.as_deref().unwrap_or(&font.name);
+    tf(
+        "The font {} could not be loaded; the built-in Hack font is used instead.",
+        &[name],
+    )
+}
+
 /// A bookmark for `user@host[:port]` typed on the command line (not saved).
 fn adhoc_bookmark(target: &str) -> Option<Bookmark> {
-    let target = target.trim().trim_start_matches("ssh://");
-    let (user, rest) = match target.split_once('@') {
-        Some((u, r)) => (u.to_string(), r),
-        None => (String::new(), target),
-    };
-    let (host, port) = match rest.rsplit_once(':') {
-        Some((h, p)) if !h.contains(':') => (h.to_string(), p.parse().ok()?),
-        _ => (rest.to_string(), crate::bookmarks::DEFAULT_PORT),
-    };
-    if host.is_empty() || host.contains(char::is_whitespace) {
-        return None;
-    }
+    let target = crate::bookmarks::model::parse_target(target).ok()?;
     Some(Bookmark {
-        host,
-        port,
-        username: user,
+        host: target.host,
+        port: target.port.unwrap_or(crate::bookmarks::DEFAULT_PORT),
+        username: target.user.unwrap_or_default(),
         ..Default::default()
     })
 }
@@ -145,36 +167,57 @@ const TAB_H: f32 = 34.0;
 
 impl PelerApp {
     /// `targets` are command-line arguments: bookmark names or `user@host[:port]`.
-    pub fn new(cc: &eframe::CreationContext<'_>, targets: Vec<String>) -> Self {
+    pub fn new(
+        cc: &eframe::CreationContext<'_>,
+        targets: Vec<String>,
+        listener: Option<std::os::unix::net::UnixListener>,
+    ) -> Self {
         let ctx = &cc.egui_ctx;
         let mut toasts = Toasts::default();
+        let mut settings_writable = true;
         let settings = Settings::load(&paths::settings_file()).unwrap_or_else(|e| {
-            toasts.error(format!("{e:#}"));
+            // Moved aside rather than overwritten by the defaults; if that fails, settings
+            // are not saved in this session.
+            match backup_corrupt(&paths::settings_file()) {
+                Some(backup) => toasts.error(tf(
+                    "Could not read the settings ({}). The file was kept as {}.",
+                    &[&format!("{e:#}"), &backup.display().to_string()],
+                )),
+                None => {
+                    settings_writable = false;
+                    toasts.error(format!("{e:#}"));
+                }
+            }
             Settings::default()
         });
         i18n::set_language(settings.language);
+        let mut store_writable = true;
         let store = match BookmarkStore::load(&paths::bookmarks_file()) {
             Ok(s) => s,
+            Err(e) if e.downcast_ref::<NewerSchema>().is_some() => {
+                store_writable = false;
+                toasts.error(format!("{e:#}"));
+                BookmarkStore::default()
+            }
             Err(e) => {
                 // Keep the unreadable file instead of overwriting it with an empty store.
-                let path = paths::bookmarks_file();
-                let backup = path.with_extension(format!(
-                    "corrupt-{}.json",
-                    chrono::Utc::now().format("%Y%m%d%H%M%S")
-                ));
-                let _ = std::fs::rename(&path, &backup);
-                toasts.error(tf(
-                    "Could not read the bookmarks file ({}). It was kept as {}.",
-                    &[&format!("{e:#}"), &backup.display().to_string()],
-                ));
+                match backup_corrupt(&paths::bookmarks_file()) {
+                    Some(backup) => toasts.error(tf(
+                        "Could not read the bookmarks file ({}). It was kept as {}.",
+                        &[&format!("{e:#}"), &backup.display().to_string()],
+                    )),
+                    None => {
+                        store_writable = false;
+                        toasts.error(format!("{e:#}"));
+                    }
+                }
                 BookmarkStore::default()
             }
         };
-        fonts::apply(
-            ctx,
-            &fonts::effective_choice(&settings.font),
-            settings.load_cjk_font,
-        );
+        let font = fonts::effective_choice(&settings.font);
+        if !fonts::apply(ctx, &font, settings.load_cjk_font) {
+            toasts.error(font_error(&font));
+        }
         style::apply(ctx, settings.theme);
         ctx.options_mut(|o| {
             o.zoom_with_keyboard = false;
@@ -190,7 +233,10 @@ impl PelerApp {
             .expect("tokio runtime");
         Self {
             rt,
+            store_mtime: file_mtime(&paths::bookmarks_file()),
             store,
+            store_writable,
+            settings_writable,
             applied: Applied::of(&settings),
             settings_saved: settings.clone(),
             settings,
@@ -211,6 +257,10 @@ impl PelerApp {
             title: String::new(),
             first_frame: true,
             startup: targets,
+            instance_rx: listener.map(|l| crate::instance::serve(l, ctx.clone())),
+            last_active_tab: None,
+            modal_was_open: false,
+            option_as_alt: None,
             focus_target: None,
             #[cfg(debug_assertions)]
             dev: crate::devtest::Script::from_env(),
@@ -241,7 +291,10 @@ impl PelerApp {
             use alacritty_terminal::grid::Dimensions;
             let term = p.shared.term.lock();
             term.bounds_to_string(
-                alacritty_terminal::index::Point::new(term.topmost_line(), alacritty_terminal::index::Column(0)),
+                alacritty_terminal::index::Point::new(
+                    term.topmost_line(),
+                    alacritty_terminal::index::Column(0),
+                ),
                 alacritty_terminal::index::Point::new(term.bottommost_line(), term.last_column()),
             )
         };
@@ -256,11 +309,21 @@ impl PelerApp {
             "keys" => devtest::type_text(&devtest::unescape(arg)),
             "key" => devtest::key(arg),
             "click" | "dclick" | "rclick" => match target(arg) {
-                Some(pos) => devtest::click(pos, if cmd == "dclick" { 2 } else { 1 }, cmd == "rclick"),
-                None => self.dev.check(false, &format!("{cmd} {arg}: target not found")),
+                Some(pos) => {
+                    devtest::click(pos, if cmd == "dclick" { 2 } else { 1 }, cmd == "rclick")
+                }
+                None => self
+                    .dev
+                    .check(false, &format!("{cmd} {arg}: target not found")),
             },
             "connect" => {
-                if let Some(b) = self.store.bookmarks.iter().find(|b| b.display_name() == arg).cloned() {
+                if let Some(b) = self
+                    .store
+                    .bookmarks
+                    .iter()
+                    .find(|b| b.display_name() == arg)
+                    .cloned()
+                {
                     self.open_tab(ctx, b);
                 }
             }
@@ -307,19 +370,25 @@ impl PelerApp {
             // Checks.
             "expect-screen" => {
                 let text = screen(self);
-                self.dev.check(text.contains(arg), &format!("screen contains {arg:?}"));
+                self.dev
+                    .check(text.contains(arg), &format!("screen contains {arg:?}"));
             }
             "expect-not-screen" => {
                 let text = screen(self);
-                self.dev.check(!text.contains(arg), &format!("screen does not contain {arg:?}"));
+                self.dev.check(
+                    !text.contains(arg),
+                    &format!("screen does not contain {arg:?}"),
+                );
             }
             "expect-tabs" => {
                 let n = self.tabs.len();
-                self.dev.check(arg.parse() == Ok(n), &format!("tabs = {arg} (got {n})"));
+                self.dev
+                    .check(arg.parse() == Ok(n), &format!("tabs = {arg} (got {n})"));
             }
             "expect-panes" => {
                 let n = self.tabs.get(self.active).map_or(0, |t| t.panes.len());
-                self.dev.check(arg.parse() == Ok(n), &format!("panes = {arg} (got {n})"));
+                self.dev
+                    .check(arg.parse() == Ok(n), &format!("panes = {arg} (got {n})"));
             }
             "expect-keyboard-on-pane" => {
                 let ok = self.tabs.get(self.active).is_some_and(|t| {
@@ -337,7 +406,8 @@ impl PelerApp {
                     .and_then(|t| t.sftp.as_ref())
                     .map(|p| p.remote_cwd().to_string())
                     .unwrap_or_default();
-                self.dev.check(cwd == arg, &format!("remote cwd = {arg} (got {cwd})"));
+                self.dev
+                    .check(cwd == arg, &format!("remote cwd = {arg} (got {cwd})"));
             }
             "expect-local-cwd" => {
                 let cwd = self
@@ -346,11 +416,15 @@ impl PelerApp {
                     .and_then(|t| t.sftp.as_ref())
                     .map(|p| p.local_cwd().to_string())
                     .unwrap_or_default();
-                self.dev.check(cwd == arg, &format!("local cwd = {arg} (got {cwd})"));
+                self.dev
+                    .check(cwd == arg, &format!("local cwd = {arg} (got {cwd})"));
             }
             "expect-modal" => {
                 let open = self.modal_open();
-                self.dev.check(open == (arg == "yes"), &format!("modal open = {arg} (got {open})"));
+                self.dev.check(
+                    open == (arg == "yes"),
+                    &format!("modal open = {arg} (got {open})"),
+                );
             }
             "expect-bookmark" => {
                 let found = self.store.bookmarks.iter().any(|b| b.display_name() == arg);
@@ -358,7 +432,10 @@ impl PelerApp {
             }
             "expect-theme-dark" => {
                 let dark = ctx.theme() == Theme::Dark;
-                self.dev.check(dark == (arg == "yes"), &format!("dark theme = {arg} (got {dark})"));
+                self.dev.check(
+                    dark == (arg == "yes"),
+                    &format!("dark theme = {arg} (got {dark})"),
+                );
             }
             "log" => eprintln!("DEVTEST LOG: {arg}"),
             "debug-hits" => ctx.all_styles_mut(|s| {
@@ -371,7 +448,10 @@ impl PelerApp {
                 }
             }
             "quit" => {
-                eprintln!("DEVTEST DONE pass={} fail={}", self.dev.passed, self.dev.failed);
+                eprintln!(
+                    "DEVTEST DONE pass={} fail={}",
+                    self.dev.passed, self.dev.failed
+                );
                 self.allow_close = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
@@ -415,8 +495,38 @@ impl PelerApp {
     }
 
     fn save_store(&mut self) {
+        if !self.store_writable {
+            self.toasts.error(t(
+                "Bookmark changes are not saved: the bookmarks file could not be read safely.",
+            ));
+            return;
+        }
         if let Err(e) = self.store.save(&paths::bookmarks_file()) {
             self.toasts.error(format!("{e:#}"));
+        }
+        self.store_mtime = file_mtime(&paths::bookmarks_file());
+    }
+
+    /// Another Peler window may have changed the bookmarks: reload them when this window gets
+    /// focus again, so the next save doesn't overwrite those changes.
+    fn reload_store_if_changed(&mut self, ctx: &egui::Context) {
+        let focused_now = ctx.input(|i| {
+            i.events
+                .iter()
+                .any(|e| matches!(e, egui::Event::WindowFocused(true)))
+        });
+        if !focused_now || self.modal_open() {
+            return;
+        }
+        let path = paths::bookmarks_file();
+        let mtime = file_mtime(&path);
+        if mtime.is_none() || mtime == self.store_mtime {
+            return;
+        }
+        if let Ok(store) = BookmarkStore::load(&path) {
+            self.store = store;
+            self.store_mtime = mtime;
+            self.store_writable = true;
         }
     }
 
@@ -504,21 +614,39 @@ impl PelerApp {
     }
 
     fn handle_close_request(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
-            let live = self.tabs.iter().filter(|t| t.is_active()).count();
-            if live > 0 && self.settings.confirm_close_connected {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                self.dialog = Some(dialogs::confirm(
-                    t("Quit Peler?"),
-                    tf(
-                        "{} connection(s) are open and will be closed.",
-                        &[&live.to_string()],
-                    ),
-                    t("Quit"),
-                    ConfirmAction::Quit,
-                ));
-            }
+        if ctx.input(|i| i.viewport().close_requested())
+            && !self.allow_close
+            && let Some(message) = self.quit_warning()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.dialog = Some(dialogs::confirm(
+                t("Quit Peler?"),
+                message,
+                t("Quit"),
+                ConfirmAction::Quit,
+            ));
         }
+    }
+
+    /// What quitting would interrupt, if the user should be asked first. Running file
+    /// transfers always ask; open sessions only when the setting says so.
+    fn quit_warning(&self) -> Option<String> {
+        let live = self.tabs.iter().filter(|t| t.is_active()).count();
+        let transfers: usize = self.tabs.iter().map(Tab::running_transfers).sum();
+        let mut lines = Vec::new();
+        if live > 0 && (self.settings.confirm_close_connected || transfers > 0) {
+            lines.push(tf(
+                "{} connection(s) are open and will be closed.",
+                &[&live.to_string()],
+            ));
+        }
+        if transfers > 0 {
+            lines.push(tf(
+                "{} file transfer(s) are still running and will be cancelled.",
+                &[&transfers.to_string()],
+            ));
+        }
+        (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
@@ -530,6 +658,11 @@ impl PelerApp {
                 .collect()
         });
         if dropped.is_empty() {
+            return;
+        }
+        if self.modal_open() {
+            self.toasts
+                .error(t("Close the open dialog first, then drop the files again."));
             return;
         }
         let rt = self.rt.handle().clone();
@@ -555,7 +688,7 @@ impl PelerApp {
         }
     }
 
-    fn apply_settings_changes(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+    fn apply_settings_changes(&mut self, ctx: &egui::Context) {
         self.settings.clamp();
         let now = Applied::of(&self.settings);
         if now != self.applied || self.first_frame {
@@ -566,19 +699,12 @@ impl PelerApp {
             if now.theme != self.applied.theme {
                 style::apply(ctx, now.theme);
             }
-            if now.font != self.applied.font || now.cjk != self.applied.cjk {
-                fonts::apply(ctx, &now.font, now.cjk);
+            if (now.font != self.applied.font || now.cjk != self.applied.cjk)
+                && !fonts::apply(ctx, &now.font, now.cjk)
+            {
+                self.toasts.error(font_error(&now.font));
             }
-            if now.option_as_meta != self.applied.option_as_meta || self.first_frame {
-                use winit::platform::macos::{OptionAsAlt, WindowExtMacOS};
-                if let Some(w) = frame.winit_window() {
-                    w.set_option_as_alt(if now.option_as_meta {
-                        OptionAsAlt::Both
-                    } else {
-                        OptionAsAlt::None
-                    });
-                }
-            }
+
             if now.terminal != self.applied.terminal {
                 let scheme = self.scheme(ctx);
                 for tab in &self.tabs {
@@ -601,7 +727,9 @@ impl PelerApp {
         if self.settings != self.settings_saved {
             let at = *self.settings_changed_at.get_or_insert_with(Instant::now);
             if at.elapsed() > Duration::from_millis(600) {
-                if let Err(e) = self.settings.save(&paths::settings_file()) {
+                if !self.settings_writable {
+                    // The unreadable settings file is kept as it is.
+                } else if let Err(e) = self.settings.save(&paths::settings_file()) {
                     self.toasts.error(format!("{e:#}"));
                 }
                 self.settings_saved = self.settings.clone();
@@ -621,6 +749,7 @@ impl PelerApp {
             settings: &self.settings,
             scheme: self.scheme(ctx),
             known_hosts: paths::known_hosts_file(),
+            store: Some(&self.store),
         }
     }
 
@@ -660,19 +789,48 @@ impl PelerApp {
         let Some(tab) = self.tabs.get(idx) else {
             return;
         };
-        if self.settings.confirm_close_connected && tab.is_active() {
+        let transfers = tab.running_transfers();
+        if (self.settings.confirm_close_connected && tab.is_active()) || transfers > 0 {
+            let mut message = tf(
+                "The connection to {} will be closed.",
+                &[&tab.bookmark.address()],
+            );
+            if transfers > 0 {
+                message.push('\n');
+                message.push_str(&tf(
+                    "{} file transfer(s) are still running and will be cancelled.",
+                    &[&transfers.to_string()],
+                ));
+            }
             self.dialog = Some(dialogs::confirm(
                 t("Close this tab?"),
-                tf(
-                    "The connection to {} will be closed.",
-                    &[&tab.bookmark.address()],
-                ),
+                message,
                 t("Close"),
                 ConfirmAction::CloseTab(tab.id),
             ));
         } else {
             self.close_tab(idx);
         }
+    }
+
+    /// Reconnects a tab, picking up edits made to its bookmark meanwhile.
+    fn reconnect_tab(&mut self, ctx: &egui::Context, idx: usize) {
+        if idx >= self.tabs.len() {
+            return;
+        }
+        let id = self.tabs[idx].bookmark.id;
+        if let Some(b) = self.store.bookmark(id).cloned() {
+            self.tabs[idx].bookmark = b;
+        }
+        let env = Env {
+            rt: self.rt.handle(),
+            ctx,
+            settings: &self.settings,
+            scheme: self.scheme(ctx),
+            known_hosts: paths::known_hosts_file(),
+            store: Some(&self.store),
+        };
+        self.tabs[idx].reconnect(&env);
     }
 
     // ----- actions ----------------------------------------------------------------------------
@@ -845,19 +1003,26 @@ impl PelerApp {
                 }
             }
             Action::Reconnect => {
-                if self.active < self.tabs.len() {
-                    let id = self.tabs[self.active].bookmark.id;
-                    if let Some(b) = self.store.bookmark(id).cloned() {
-                        self.tabs[self.active].bookmark = b;
+                if let Some(tab) = self.tabs.get(self.active) {
+                    if tab.is_active() || tab.running_transfers() > 0 {
+                        // Running programs would be cut off: ask first.
+                        self.dialog = Some(dialogs::confirm(
+                            t("Reconnect this tab?"),
+                            tf(
+                                "The running sessions on {} will be closed and opened again.",
+                                &[&tab.bookmark.address()],
+                            ),
+                            t("Reconnect"),
+                            ConfirmAction::Reconnect(tab.id),
+                        ));
+                    } else {
+                        self.reconnect_tab(ctx, self.active);
                     }
-                    let env = Env {
-                        rt: self.rt.handle(),
-                        ctx,
-                        settings: &self.settings,
-                        scheme: self.scheme(ctx),
-                        known_hosts: paths::known_hosts_file(),
-                    };
-                    self.tabs[self.active].reconnect(&env);
+                }
+            }
+            Action::RestartPane(pane_id) => {
+                if self.active < self.tabs.len() && !self.tabs[self.active].restart_pane(pane_id) {
+                    self.reconnect_tab(ctx, self.active);
                 }
             }
             Action::SplitRight | Action::SplitDown => {
@@ -874,6 +1039,7 @@ impl PelerApp {
                         settings: &self.settings,
                         scheme: self.scheme(ctx),
                         known_hosts: paths::known_hosts_file(),
+                        store: Some(&self.store),
                     };
                     self.tabs[self.active].split(pane_id, dir, &env);
                 }
@@ -974,14 +1140,10 @@ impl PelerApp {
             Action::About => {}
             Action::Shortcuts => self.dialog = Some(Dialog::Shortcuts),
             Action::Quit => {
-                let live = self.tabs.iter().filter(|t| t.is_active()).count();
-                if live > 0 && self.settings.confirm_close_connected {
+                if let Some(message) = self.quit_warning() {
                     self.dialog = Some(dialogs::confirm(
                         t("Quit Peler?"),
-                        tf(
-                            "{} connection(s) are open and will be closed.",
-                            &[&live.to_string()],
-                        ),
+                        message,
                         t("Quit"),
                         ConfirmAction::Quit,
                     ));
@@ -994,6 +1156,17 @@ impl PelerApp {
     }
 
     fn import_file(&mut self, path: PathBuf) {
+        // Checked before reading: a huge file or a device must not be read into memory.
+        match std::fs::metadata(&path) {
+            Ok(m) if !m.is_file() || m.len() > transfer::MAX_IMPORT_BYTES => {
+                self.toasts.error(tf(
+                    "The file is too large to be a bookmark export (more than {} MB).",
+                    &[&(transfer::MAX_IMPORT_BYTES / 1024 / 1024).to_string()],
+                ));
+                return;
+            }
+            _ => {}
+        }
         let data = match std::fs::read(&path) {
             Ok(d) => d,
             Err(e) => {
@@ -1031,7 +1204,7 @@ impl PelerApp {
             &self.store,
             &scope,
             passphrase.as_deref(),
-            secrets::load_set,
+            secrets::try_load_set,
         )
         .and_then(|file| Ok(serde_json::to_vec_pretty(&file)?))
         .and_then(|json| Ok(paths::write_private(&path, &json)?));
@@ -1046,6 +1219,9 @@ impl PelerApp {
     fn apply_import(&mut self, plan: ImportPlan) {
         let outcome = plan.apply(&mut self.store);
         let mut failed = 0;
+        for id in &outcome.clear_secrets {
+            secrets::delete_all(*id);
+        }
         for (id, set) in &outcome.secrets {
             if secrets::store_set(*id, set).is_err() {
                 failed += 1;
@@ -1355,6 +1531,8 @@ impl PelerApp {
                 ui.visuals().widgets.inactive.weak_bg_fill,
             );
         }
+        #[cfg(debug_assertions)]
+        crate::devtest::record("theme-button", resp.rect);
         if resp.clicked() {
             self.settings.theme = if dark {
                 ThemeMode::Light
@@ -1464,7 +1642,7 @@ impl PelerApp {
 
         // Status banner.
         let banner = match &state {
-            ConnState::Connecting => Some((
+            ConnState::Connecting if !has_prompt => Some((
                 tf("Connecting to {}…", &[&tab.bookmark.address()]),
                 style::AMBER,
                 false,
@@ -1597,7 +1775,7 @@ impl PelerApp {
                 ctx.copy_text(text);
             }
             if resp.reconnect {
-                self.actions.push(Action::Reconnect);
+                self.actions.push(Action::RestartPane(pane_id));
             }
             if resp.activated {
                 new_focus = Some(pane_id);
@@ -1775,6 +1953,7 @@ impl PelerApp {
                     algorithm,
                     fingerprint,
                     status,
+                    known,
                     ..
                 }) => PromptView::HostKey {
                     host: host.clone(),
@@ -1782,6 +1961,7 @@ impl PelerApp {
                     algorithm: algorithm.clone(),
                     fingerprint: fingerprint.clone(),
                     changed: *status == HostKeyStatus::Changed,
+                    known: known.clone(),
                 },
                 Some(Prompt::Secret {
                     kind,
@@ -1805,7 +1985,7 @@ impl PelerApp {
         let modal = egui::Modal::new(egui::Id::new(("prompt", tab.id))).show(ctx, |ui| {
             ui.set_width(440.0);
             match &view {
-                PromptView::HostKey { host, port, algorithm, fingerprint, changed } => {
+                PromptView::HostKey { host, port, algorithm, fingerprint, changed, known } => {
                     if *changed {
                         ui.heading(RichText::new(t("Warning: the host key has changed!")).color(style::RED));
                         ui.label(t("The server presented a different key than the one saved for it. Someone could be intercepting the connection, or the server may have been reinstalled. Only continue if you know why the key changed."));
@@ -1824,6 +2004,15 @@ impl PelerApp {
                         ui.label(t("Fingerprint"));
                         ui.add(egui::Label::new(RichText::new(fingerprint.as_str()).monospace()).wrap().selectable(true));
                         ui.end_row();
+                        if !known.is_empty() {
+                            ui.label(t("Saved keys"));
+                            ui.vertical(|ui| {
+                                for k in known {
+                                    ui.add(egui::Label::new(RichText::new(k.as_str()).monospace().small()).wrap().selectable(true));
+                                }
+                            });
+                            ui.end_row();
+                        }
                     });
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
@@ -1836,10 +2025,9 @@ impl PelerApp {
                                 hostkey_answer = Some(true);
                             }
                         } else {
-                            // Enter only counts once the prompt has been on screen for a frame,
-                            // so a key press meant for the terminal can't accept a host key.
-                            let enter = tab.prompt.armed && ui.input(|i| i.key_pressed(Key::Enter));
-                            if ui.button(RichText::new(accept).strong()).clicked() || enter {
+                            // No Enter shortcut: a key press meant for the terminal must never
+                            // trust a host key. The decision takes a click.
+                            if ui.button(RichText::new(accept).strong()).clicked() {
                                 hostkey_answer = Some(true);
                             }
                             if ui.button(t("Cancel")).clicked() {
@@ -1875,7 +2063,14 @@ impl PelerApp {
                     if *can_save {
                         ui.checkbox(&mut tab.prompt.save, t("Save in Keychain"));
                     }
-                    let submit = r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                    // Enter submits only when pressed (not auto-repeated) after the prompt has
+                    // been up for a moment: an Enter held or typed into the terminal just before
+                    // the prompt appeared must not send an empty or half-typed secret.
+                    let settled = tab.prompt.shown_at.is_some_and(|t| t.elapsed() >= Duration::from_millis(300));
+                    let enter = ui.input(|i| {
+                        i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, repeat: false, .. }))
+                    });
+                    let submit = settled && r.lost_focus() && enter;
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         if ui.button(RichText::new(t("Connect")).strong()).clicked() || submit {
@@ -1888,8 +2083,10 @@ impl PelerApp {
                 }
             }
         });
-        if modal.should_close() && tab.prompt.armed && answer.is_none() && hostkey_answer.is_none()
-        {
+        // Only Esc dismisses (a stray click beside the dialog must not cancel the login).
+        let escape = ctx.input(|i| i.key_pressed(Key::Escape));
+        let _ = modal;
+        if escape && tab.prompt.armed && answer.is_none() && hostkey_answer.is_none() {
             match view {
                 PromptView::HostKey { .. } => hostkey_answer = Some(false),
                 PromptView::Secret { .. } => answer = Some(None),
@@ -1907,13 +2104,19 @@ impl PelerApp {
                 None => {}
             }
             tab.prompt.text.clear();
+            tab.prompt.save = false;
             tab.prompt.focus = false;
             tab.prompt.armed = false;
+            tab.prompt.shown_at = None;
             if let Some(id) = tab.focused_pane().and_then(|p| p.view.id) {
                 ctx.memory_mut(|m| m.request_focus(id));
             }
         } else {
             tab.prompt.armed = true;
+            if tab.prompt.shown_at.is_none() {
+                tab.prompt.shown_at = Some(Instant::now());
+                ctx.request_repaint_after(Duration::from_millis(320));
+            }
         }
     }
 
@@ -1936,8 +2139,16 @@ impl PelerApp {
                     for kind in clear {
                         let _ = secrets::set(id, kind, None);
                     }
+                    // Secrets the chosen login method doesn't use are removed, so switching a
+                    // bookmark to another method leaves nothing stale in the Keychain.
+                    if !matches!(bookmark.auth, Auth::Password) {
+                        let _ = secrets::set(id, SecretKind::Password, None);
+                    }
                     if !bookmark.auth.uses_key() {
                         let _ = secrets::set(id, SecretKind::Passphrase, None);
+                    }
+                    if !matches!(bookmark.auth, Auth::KeychainKey) {
+                        let _ = secrets::set(id, SecretKind::PrivateKey, None);
                     }
                     self.store.upsert_bookmark(bookmark.clone());
                     self.save_store();
@@ -1960,6 +2171,12 @@ impl PelerApp {
                     self.palette = None;
                     self.actions.push(Action::Connect(id));
                 }
+                PaletteResult::ConnectTo(address) => {
+                    self.palette = None;
+                    if let Some(b) = adhoc_bookmark(&address) {
+                        self.open_tab(ctx, b);
+                    }
+                }
             }
         }
         if let Some(dialog) = &mut self.dialog {
@@ -1981,6 +2198,11 @@ impl PelerApp {
                         ConfirmAction::CloseTab(id) => {
                             if let Some(i) = self.tab_index(id) {
                                 self.close_tab(i);
+                            }
+                        }
+                        ConfirmAction::Reconnect(id) => {
+                            if let Some(i) = self.tab_index(id) {
+                                self.reconnect_tab(ctx, i);
                             }
                         }
                         ConfirmAction::Quit => {
@@ -2013,6 +2235,56 @@ impl PelerApp {
         self.toasts.show(ctx);
     }
 
+    /// End-of-frame focus bookkeeping.
+    fn track_focus(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        // Leaving a tab: its panes lose focus (a focus-out report for programs that asked).
+        let active_id = self.tabs.get(self.active).map(|t| t.id);
+        if active_id != self.last_active_tab {
+            if let Some(old) = self
+                .last_active_tab
+                .and_then(|id| self.tabs.iter_mut().find(|t| t.id == id))
+            {
+                for pane in &mut old.panes {
+                    let alive = pane.is_live();
+                    let bytes = pane.view.blur(&pane.shared, alive);
+                    if !bytes.is_empty() {
+                        pane.send(bytes);
+                    }
+                }
+            }
+            self.last_active_tab = active_id;
+        }
+        // A dialog just closed: the terminal gets the keyboard back before the next key.
+        let modal = self.modal_open();
+        if self.modal_was_open
+            && !modal
+            && let Some(tab) = self.tabs.get(self.active)
+        {
+            ctx.memory_mut(|m| m.request_focus(terminal::pane_widget_id(tab.focused)));
+            self.focus_target = Some((tab.id, tab.focused));
+            ctx.request_repaint();
+        }
+        self.modal_was_open = modal;
+        // Option acts as Meta only while a terminal has the keyboard: dialogs and search
+        // fields get the normal Option characters (such as @ on a German keyboard).
+        let terminal_focused = !modal
+            && self.tabs.get(self.active).is_some_and(|t| {
+                ctx.memory(|m| m.focused()) == Some(terminal::pane_widget_id(t.focused))
+            });
+        let want = self.settings.option_as_meta && terminal_focused;
+        if self.option_as_alt != Some(want)
+            && let Some(w) = frame.winit_window()
+        {
+            use winit::platform::macos::{OptionAsAlt, WindowExtMacOS};
+            w.set_option_as_alt(if want {
+                OptionAsAlt::Both
+            } else {
+                OptionAsAlt::None
+            });
+            self.option_as_alt = Some(want);
+        }
+    }
+
     fn update_title(&mut self, ctx: &egui::Context) {
         let title = match self.tabs.get(self.active) {
             Some(tab) => {
@@ -2038,17 +2310,24 @@ impl eframe::App for PelerApp {
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.handle_menu_events();
-        self.apply_settings_changes(&ctx, frame);
+        self.apply_settings_changes(&ctx);
         self.handle_shortcuts(&ctx);
         self.handle_close_request(&ctx);
         self.handle_dropped_files(&ctx);
-        if self.first_frame {
-            self.open_startup_targets(&ctx);
-            if std::env::var_os("PELER_STARTUP_LOG").is_some()
-                && let Some(start) = PROCESS_START.get()
-            {
-                eprintln!("first frame after {} ms", start.elapsed().as_millis());
+        self.reload_store_if_changed(&ctx);
+        if let Some(rx) = &self.instance_rx {
+            while let Ok(args) = rx.try_recv() {
+                self.startup.extend(args);
             }
+        }
+        if !self.startup.is_empty() {
+            self.open_startup_targets(&ctx);
+        }
+        if self.first_frame
+            && std::env::var_os("PELER_STARTUP_LOG").is_some()
+            && let Some(start) = PROCESS_START.get()
+        {
+            eprintln!("first frame after {} ms", start.elapsed().as_millis());
         }
         #[cfg(debug_assertions)]
         self.run_dev_script(&ctx);
@@ -2113,6 +2392,7 @@ impl eframe::App for PelerApp {
         self.prompt_ui(&ctx);
         self.overlays(&ctx);
         self.process_actions(&ctx);
+        self.track_focus(&ctx, frame);
         self.update_title(&ctx);
     }
 
@@ -2120,7 +2400,7 @@ impl eframe::App for PelerApp {
         for tab in &self.tabs {
             tab.disconnect();
         }
-        if self.settings != self.settings_saved {
+        if self.settings_writable && self.settings != self.settings_saved {
             let _ = self.settings.save(&paths::settings_file());
         }
     }

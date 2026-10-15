@@ -82,25 +82,22 @@ impl Editor {
     }
 
     fn validate(&mut self) -> bool {
-        self.draft.host = self.draft.host.trim().to_string();
         self.draft.username = self.draft.username.trim().to_string();
-        // Accept "user@host:port" typed into the host field.
-        if let Some((user, rest)) = self.draft.host.clone().split_once('@') {
-            if self.draft.username.is_empty() {
-                self.draft.username = user.to_string();
+        // Accept "user@host:port" (and "[ipv6]:port") typed into the host field.
+        match crate::bookmarks::model::parse_target(&self.draft.host) {
+            Ok(target) => {
+                if let Some(user) = target.user {
+                    self.draft.username = user;
+                }
+                self.draft.host = target.host;
+                if let Some(p) = target.port {
+                    self.port_text = p.to_string();
+                }
             }
-            self.draft.host = rest.to_string();
-        }
-        if let Some((host, port)) = self.draft.host.clone().rsplit_once(':')
-            && !host.contains(':')
-            && let Ok(p) = port.parse::<u16>()
-        {
-            self.draft.host = host.to_string();
-            self.port_text = p.to_string();
-        }
-        if self.draft.host.is_empty() {
-            self.error = Some(t("Host is required.").into());
-            return false;
+            Err(e) => {
+                self.error = Some(e);
+                return false;
+            }
         }
         match self.port_text.trim().parse::<u16>() {
             Ok(p) if p > 0 => self.draft.port = p,
@@ -109,12 +106,13 @@ impl Editor {
                 return false;
             }
         }
-        if let Auth::Key { path } = &self.draft.auth {
-            if path.trim().is_empty() {
+        if let Auth::Key { path } = &mut self.draft.auth {
+            *path = path.trim().to_string();
+            if path.is_empty() {
                 self.error = Some(t("Choose a private key file.").into());
                 return false;
             }
-            if !paths::expand_tilde(path.trim()).is_file() {
+            if !paths::expand_tilde(path).is_file() {
                 self.error = Some(t("The private key file does not exist.").into());
                 return false;
             }
@@ -312,7 +310,7 @@ impl Editor {
                 }
             });
         });
-        if modal.should_close() && matches!(result, EditorResult::Open) {
+        if super::dialogs::escape_only(ctx, &modal) && matches!(result, EditorResult::Open) {
             result = EditorResult::Cancel;
         }
         let _ = DEFAULT_PORT;

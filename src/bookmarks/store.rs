@@ -6,7 +6,7 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -23,6 +23,22 @@ pub struct BookmarkStore {
     pub bookmarks: Vec<Bookmark>,
 }
 
+/// The bookmarks file was written by a newer version of the app: it must be left alone (not
+/// renamed, not overwritten) so that version still finds it.
+#[derive(Debug)]
+pub struct NewerSchema(pub u32);
+
+impl std::fmt::Display for NewerSchema {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&crate::i18n::tf(
+            "The bookmarks were saved by a newer version of Peler (schema {}). Please update the app; until then bookmark changes are not saved.",
+            &[&self.0.to_string()],
+        ))
+    }
+}
+
+impl std::error::Error for NewerSchema {}
+
 #[derive(Serialize, Deserialize)]
 struct StoreFile {
     schema_version: u32,
@@ -36,17 +52,24 @@ impl BookmarkStore {
         let data = match std::fs::read(path) {
             Ok(d) => d,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
-            Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
+            Err(e) => {
+                return Err(e).with_context(|| {
+                    crate::i18n::tf("Could not read {}", &[&path.display().to_string()])
+                });
+            }
         };
-        let file: StoreFile =
-            serde_json::from_slice(&data).with_context(|| format!("parsing {}", path.display()))?;
-        if file.schema_version > STORE_SCHEMA_VERSION {
-            bail!(
-                "{} was written by a newer version of the app (schema {})",
-                path.display(),
-                file.schema_version
-            );
+        // The version is checked first: a newer file may not parse as this version's format.
+        #[derive(Deserialize)]
+        struct Version {
+            schema_version: u32,
         }
+        if let Ok(v) = serde_json::from_slice::<Version>(&data)
+            && v.schema_version > STORE_SCHEMA_VERSION
+        {
+            return Err(NewerSchema(v.schema_version).into());
+        }
+        let file: StoreFile = serde_json::from_slice(&data)
+            .with_context(|| crate::i18n::tf("{} is damaged", &[&path.display().to_string()]))?;
         let mut store = file.store;
         store.sanitize();
         Ok(store)
@@ -58,7 +81,8 @@ impl BookmarkStore {
             store: self.clone(),
         };
         let json = serde_json::to_vec_pretty(&file)?;
-        paths::write_private(path, &json).with_context(|| format!("writing {}", path.display()))
+        paths::write_private(path, &json)
+            .with_context(|| crate::i18n::tf("Could not save {}", &[&path.display().to_string()]))
     }
 
     // ----- lookup -------------------------------------------------------------------------

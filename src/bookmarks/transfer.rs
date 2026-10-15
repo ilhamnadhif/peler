@@ -30,9 +30,49 @@ pub struct ExportFile {
     pub app: String,
     pub groups: Vec<Group>,
     pub bookmarks: Vec<Bookmark>,
-    /// Encrypted `BTreeMap<Uuid, SecretSet>`; absent when credentials were not exported.
+    /// Encrypted `BTreeMap<Uuid, CredentialEntry>`; absent when credentials were not exported.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credentials: Option<EncryptedBlob>,
+}
+
+/// Largest file accepted for import.
+pub const MAX_IMPORT_BYTES: u64 = 10 * 1024 * 1024;
+
+/// One bookmark's exported credentials, bound to the address they were saved for. The bookmark
+/// list in an export is not encrypted, so if it is edited to point a bookmark elsewhere, the
+/// credentials are not handed to the new address.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CredentialEntry {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    #[serde(flatten)]
+    pub secrets: SecretSet,
+}
+
+impl CredentialEntry {
+    fn for_bookmark(b: &Bookmark, secrets: SecretSet) -> Self {
+        Self {
+            host: b.host.trim().to_string(),
+            port: b.port,
+            username: b.username.trim().to_string(),
+            secrets,
+        }
+    }
+
+    fn matches(&self, b: &Bookmark) -> bool {
+        self.host.trim().eq_ignore_ascii_case(b.host.trim())
+            && self.port == b.port
+            && self.username.trim() == b.username.trim()
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum StoredCredential {
+    Bound(CredentialEntry),
+    /// Exports made before credentials were bound to an address.
+    Legacy(SecretSet),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -44,12 +84,13 @@ pub enum ExportScope {
 }
 
 /// Builds an export. `secrets` provides each exported bookmark's credentials and is only called
-/// when `passphrase` is given.
+/// when `passphrase` is given; an error reading them fails the export (rather than silently
+/// leaving credentials out).
 pub fn export(
     store: &BookmarkStore,
     scope: &ExportScope,
     passphrase: Option<&str>,
-    mut secrets: impl FnMut(Uuid) -> SecretSet,
+    mut secrets: impl FnMut(Uuid) -> Result<SecretSet>,
 ) -> Result<ExportFile> {
     let bookmarks: Vec<Bookmark> = match scope {
         ExportScope::All => store.bookmarks.clone(),
@@ -100,11 +141,21 @@ pub fn export(
 
     let credentials = match passphrase {
         Some(pass) => {
-            let map: BTreeMap<Uuid, SecretSet> = bookmarks
-                .iter()
-                .map(|b| (b.id, secrets(b.id)))
-                .filter(|(_, s)| !s.is_empty())
-                .collect();
+            let mut map: BTreeMap<Uuid, CredentialEntry> = BTreeMap::new();
+            for b in &bookmarks {
+                let set = secrets(b.id).map_err(|e| {
+                    anyhow!(
+                        "{}",
+                        tf(
+                            "Could not read the saved credentials of {} from the Keychain: {}",
+                            &[&b.display_name(), &format!("{e:#}")]
+                        )
+                    )
+                })?;
+                if !set.is_empty() {
+                    map.insert(b.id, CredentialEntry::for_bookmark(b, set));
+                }
+            }
             let plain = serde_json::to_vec(&map)?;
             Some(crypto::encrypt(pass, &plain)?)
         }
@@ -161,6 +212,8 @@ pub enum Resolution {
 #[derive(Clone, Debug)]
 pub struct ImportItem {
     pub incoming: Bookmark,
+    /// For a conflict whose address differs: the existing bookmark's address.
+    pub existing_address: Option<String>,
     /// Group path of the incoming bookmark, for display.
     pub group_path: String,
     pub secrets: SecretSet,
@@ -178,6 +231,9 @@ pub struct ImportPlan {
     /// Encrypted credentials still waiting for the passphrase.
     pub encrypted_credentials: Option<EncryptedBlob>,
     pub warnings: Vec<String>,
+    /// Import the bookmarks' startup commands. Off by default: they run on the server as soon
+    /// as the bookmark connects, so they need a deliberate yes.
+    pub import_startup_commands: bool,
 }
 
 /// A parsed but not yet planned import (format-specific readers produce this).
@@ -194,6 +250,15 @@ pub struct Incoming {
 /// Detects the file format and parses it. `ssh_config_name` hints that a non-JSON file should
 /// be read as an OpenSSH config.
 pub fn read_import(data: &[u8]) -> Result<Incoming> {
+    if data.len() as u64 > MAX_IMPORT_BYTES {
+        bail!(
+            "{}",
+            tf(
+                "The file is too large to be a bookmark export (more than {} MB).",
+                &[&(MAX_IMPORT_BYTES / 1024 / 1024).to_string()]
+            )
+        );
+    }
     let text =
         std::str::from_utf8(data).map_err(|_| anyhow!("{}", t("The file is not UTF-8 text.")))?;
     let value: serde_json::Value = match serde_json::from_str(text) {
@@ -241,7 +306,13 @@ fn read_peler(value: serde_json::Value) -> Result<Incoming> {
         );
     }
     if version == 0 {
-        bail!("Invalid schema_version in export file.");
+        bail!(
+            "{}",
+            tf(
+                "The export file is damaged or incomplete: {}",
+                &["schema_version"]
+            )
+        );
     }
     let file: ExportFile = serde_json::from_value(value).map_err(|e| {
         anyhow!(
@@ -349,6 +420,9 @@ impl ImportPlan {
                         .find(|e| e.same_endpoint(&b) && !endpoint_taken.contains(&e.id))
                         .map(|e| (e, MatchedBy::Endpoint))
                 });
+            let existing_address = existing
+                .map(|(e, _)| e.address())
+                .filter(|a| *a != b.address());
             let status = match existing {
                 Some((e, by)) => {
                     endpoint_taken.insert(e.id);
@@ -373,6 +447,7 @@ impl ImportPlan {
             };
             items.push(ImportItem {
                 incoming: b,
+                existing_address,
                 group_path,
                 secrets,
                 status,
@@ -386,6 +461,7 @@ impl ImportPlan {
             items,
             encrypted_credentials: incoming.encrypted_credentials,
             warnings: incoming.warnings,
+            import_startup_commands: false,
         }
     }
 
@@ -395,24 +471,72 @@ impl ImportPlan {
             return Ok(0);
         };
         let plain = crypto::decrypt(passphrase, blob)?;
-        let map: BTreeMap<Uuid, SecretSet> = serde_json::from_slice(&plain)
-            .map_err(|e| anyhow!("Decrypted credentials are malformed: {e}"))?;
-        let mut n = 0;
+        self.attach_credentials(&plain)
+    }
+
+    /// Attaches decrypted credentials (see `crypto::decrypt`, which is slow and best run off the
+    /// UI thread) to the items they belong to. Credentials saved for a different address than
+    /// the bookmark now has in the file are dropped.
+    pub fn attach_credentials(&mut self, plain: &[u8]) -> Result<usize> {
+        let map: BTreeMap<Uuid, StoredCredential> =
+            serde_json::from_slice(plain).map_err(|_| {
+                anyhow!(
+                    "{}",
+                    t("The encrypted credentials in the file are damaged.")
+                )
+            })?;
+        let (mut n, mut mismatched, mut legacy) = (0, 0, false);
         for item in &mut self.items {
-            if let Some(s) = map.get(&item.incoming.id) {
-                item.secrets = s.clone();
-                n += 1;
-                // Identical bookmark but new credentials: offer to update.
-                if let ItemStatus::Identical { existing } = item.status {
-                    item.status = ItemStatus::Conflict {
-                        existing,
-                        matched_by: MatchedBy::Id,
-                    };
+            let secrets = match map.get(&item.incoming.id) {
+                None => continue,
+                Some(StoredCredential::Bound(entry)) if !entry.matches(&item.incoming) => {
+                    mismatched += 1;
+                    continue;
                 }
+                Some(StoredCredential::Bound(entry)) => entry.secrets.clone(),
+                Some(StoredCredential::Legacy(set)) => {
+                    legacy = true;
+                    set.clone()
+                }
+            };
+            item.secrets = secrets;
+            n += 1;
+            // Identical bookmark but new credentials: offer to update.
+            if let ItemStatus::Identical { existing } = item.status {
+                item.status = ItemStatus::Conflict {
+                    existing,
+                    matched_by: MatchedBy::Id,
+                };
             }
+        }
+        if mismatched > 0 {
+            self.warnings.push(tf(
+                "{} saved credential(s) were left out: the bookmark's address in the file differs from the address they were saved for.",
+                &[&mismatched.to_string()],
+            ));
+        }
+        if legacy {
+            self.warnings.push(
+                t("This file is from an older version: check each bookmark's address before connecting with the imported credentials.")
+                    .into(),
+            );
         }
         self.encrypted_credentials = None;
         Ok(n)
+    }
+
+    /// Bookmarks to be imported that carry a startup command.
+    pub fn startup_command_count(&self) -> usize {
+        self.items
+            .iter()
+            .filter(|i| !i.incoming.startup_command.trim().is_empty())
+            .filter(|i| {
+                !matches!(
+                    (&i.status, i.resolution),
+                    (ItemStatus::Identical { .. }, _) | (_, Resolution::Skip)
+                )
+            })
+            .count()
     }
 
     pub fn conflicts(&self) -> usize {
@@ -449,13 +573,34 @@ impl ImportPlan {
         let mut out = ImportOutcome::default();
         for item in &self.items {
             let mut b = item.incoming.clone();
+            if !self.import_startup_commands {
+                b.startup_command = match &item.status {
+                    // An overwritten bookmark keeps the command it already had.
+                    ItemStatus::Conflict { existing, .. }
+                        if item.resolution == Resolution::Overwrite =>
+                    {
+                        store
+                            .bookmark(*existing)
+                            .map(|e| e.startup_command.clone())
+                            .unwrap_or_default()
+                    }
+                    _ => String::new(),
+                };
+            }
             let target_id = match (&item.status, item.resolution) {
                 (_, Resolution::Skip) | (ItemStatus::Identical { .. }, _) => {
                     out.skipped += 1;
                     continue;
                 }
                 (ItemStatus::Conflict { existing, .. }, Resolution::Overwrite) => {
-                    // Keep the existing id so its Keychain items stay attached.
+                    // Keep the existing id so its Keychain items stay attached, unless the
+                    // address changes: then the old credentials must not follow it.
+                    if store
+                        .bookmark(*existing)
+                        .is_some_and(|e| !e.same_endpoint(&b))
+                    {
+                        out.clear_secrets.push(*existing);
+                    }
                     b.id = *existing;
                     store.upsert_bookmark(b);
                     out.updated += 1;
@@ -499,6 +644,8 @@ pub struct ImportOutcome {
     pub updated: usize,
     pub skipped: usize,
     pub secrets: Vec<(Uuid, SecretSet)>,
+    /// Bookmarks whose saved credentials must be removed first (their address changed).
+    pub clear_secrets: Vec<Uuid>,
 }
 
 /// Maps incoming group ids to local ids: same id if it exists locally, otherwise a local group
@@ -606,7 +753,7 @@ mod tests {
         let src = sample_store();
         let secrets = secrets_for(&src);
         let file = export(&src, &ExportScope::All, Some("correct horse"), |id| {
-            secrets.get(&id).cloned().unwrap_or_default()
+            Ok(secrets.get(&id).cloned().unwrap_or_default())
         })
         .unwrap();
         let json = serde_json::to_vec_pretty(&file).unwrap();
@@ -620,6 +767,7 @@ mod tests {
         let mut plan = ImportPlan::new(read_import(&json).unwrap(), &dst);
         assert!(plan.unlock_credentials("wrong").is_err());
         assert_eq!(plan.unlock_credentials("correct horse").unwrap(), 2);
+        plan.import_startup_commands = true;
         let out = plan.apply(&mut dst);
         assert_eq!((out.added, out.updated, out.skipped), (3, 0, 0));
         assert_eq!(dst, src, "store after import must equal the exported store");
@@ -632,6 +780,53 @@ mod tests {
         let before = dst.clone();
         plan.apply(&mut dst);
         assert_eq!(dst, before);
+    }
+
+    #[test]
+    fn credentials_stay_with_their_address_and_commands_need_consent() {
+        let mut src = sample_store();
+        src.bookmarks[0].startup_command = "curl example.com | sh".into();
+        let secrets = secrets_for(&src);
+        let file = export(&src, &ExportScope::All, Some("correct horse"), |id| {
+            Ok(secrets.get(&id).cloned().unwrap_or_default())
+        })
+        .unwrap();
+        // Someone edits the unencrypted bookmark list to point web-1 at their own server.
+        let mut v = serde_json::to_value(&file).unwrap();
+        v["bookmarks"][0]["host"] = "evil.example".into();
+        let json = serde_json::to_vec(&v).unwrap();
+
+        // Into an empty store: the moved bookmark loses its password, the other keeps its own.
+        let mut dst = BookmarkStore::default();
+        let mut plan = ImportPlan::new(read_import(&json).unwrap(), &dst);
+        assert_eq!(plan.unlock_credentials("correct horse").unwrap(), 1);
+        assert!(plan.warnings.iter().any(|w| w.contains('1')));
+        assert_eq!(plan.startup_command_count(), 1);
+        let out = plan.apply(&mut dst);
+        assert!(out.secrets.iter().all(|(id, _)| *id != src.bookmarks[0].id));
+        assert!(
+            dst.bookmarks.iter().all(|b| b.startup_command.is_empty()),
+            "not without consent"
+        );
+
+        // Over the original store: overwriting with a new address drops the old credentials.
+        let mut local = src.clone();
+        let mut plan = ImportPlan::new(read_import(&json).unwrap(), &local);
+        plan.resolve_all_conflicts(Resolution::Overwrite);
+        let web = plan
+            .items
+            .iter()
+            .find(|i| i.incoming.id == src.bookmarks[0].id)
+            .unwrap();
+        assert_eq!(web.existing_address.as_deref(), Some("deploy@10.0.0.1"));
+        plan.import_startup_commands = true;
+        let out = plan.apply(&mut local);
+        assert_eq!(out.clear_secrets, [src.bookmarks[0].id]);
+        assert_eq!(local.bookmarks[0].startup_command, "curl example.com | sh");
+
+        // A file far too large is refused before parsing.
+        let big = vec![b' '; MAX_IMPORT_BYTES as usize + 1];
+        assert!(read_import(&big).is_err());
     }
 
     #[test]
@@ -654,7 +849,7 @@ mod tests {
         let prod = src.groups[0].id;
         let db = src.groups[1].id;
         let f = export(&src, &ExportScope::Group(db), None, |_| {
-            SecretSet::default()
+            Ok(SecretSet::default())
         })
         .unwrap();
         assert_eq!(f.bookmarks.len(), 1);
@@ -662,7 +857,7 @@ mod tests {
         assert_eq!(gids, [prod, db], "ancestors are kept so the path survives");
 
         let f = export(&src, &ExportScope::Group(prod), None, |_| {
-            SecretSet::default()
+            Ok(SecretSet::default())
         })
         .unwrap();
         assert_eq!(f.bookmarks.len(), 2);
@@ -670,7 +865,7 @@ mod tests {
 
         let loose = src.bookmarks[2].id;
         let f = export(&src, &ExportScope::Selected(vec![loose]), None, |_| {
-            SecretSet::default()
+            Ok(SecretSet::default())
         })
         .unwrap();
         assert_eq!(f.bookmarks.len(), 1);
@@ -743,7 +938,7 @@ mod tests {
         let prod = local.add_group("Production", None);
         let src = sample_store();
         let json = serde_json::to_vec(
-            &export(&src, &ExportScope::All, None, |_| SecretSet::default()).unwrap(),
+            &export(&src, &ExportScope::All, None, |_| Ok(SecretSet::default())).unwrap(),
         )
         .unwrap();
         let plan = ImportPlan::new(read_import(&json).unwrap(), &local);

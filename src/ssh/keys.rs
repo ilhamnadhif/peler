@@ -77,22 +77,6 @@ pub fn decode_key(text: &str, passphrase: Option<&str>) -> Result<PrivateKey, Ke
     }
 }
 
-/// Removes line `line` (1-based, as reported by russh's `KeyChanged`) from a known_hosts file.
-pub fn forget_known_host_line(path: &Path, line: usize) -> std::io::Result<()> {
-    let text = std::fs::read_to_string(path)?;
-    let kept: Vec<&str> = text
-        .lines()
-        .enumerate()
-        .filter(|(i, _)| i + 1 != line)
-        .map(|(_, l)| l)
-        .collect();
-    let mut out = kept.join("\n");
-    if !out.is_empty() {
-        out.push('\n');
-    }
-    crate::paths::write_private(path, out.as_bytes())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,14 +132,5 @@ mod tests {
             decode_key("garbage", None),
             Err(KeyLoadError::Unsupported(_))
         ));
-    }
-
-    #[test]
-    fn forget_line() {
-        let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("known_hosts");
-        std::fs::write(&p, "a key1\nb key2\nc key3\n").unwrap();
-        forget_known_host_line(&p, 2).unwrap();
-        assert_eq!(std::fs::read_to_string(&p).unwrap(), "a key1\nc key3\n");
     }
 }

@@ -4,6 +4,7 @@ use eframe::egui;
 
 fn main() -> eframe::Result {
     peler::app::mark_process_start();
+    install_crash_log();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Peler")
@@ -17,17 +18,48 @@ fn main() -> eframe::Result {
             builder.with_default_menu(false);
         })),
         renderer: eframe::Renderer::Wgpu,
+        // Window size and position (and panel sizes) are remembered between launches.
+        persist_window: true,
+        persistence_path: Some(peler::paths::data_dir().join("window.ron")),
         ..Default::default()
     };
-    // Arguments: bookmark names or user@host[:port] to open on launch. Finder/launchd may pass
-    // a `-psn_…` process serial number argument, which is ignored.
-    let targets: Vec<String> = std::env::args()
-        .skip(1)
-        .filter(|a| !a.starts_with("-psn_"))
-        .collect();
-    eframe::run_native(
+    // Arguments: bookmark names or user@host[:port] to open on launch.
+    let targets = peler::instance::targets(std::env::args().skip(1));
+    // A second launch hands its arguments to the running app instead of opening another
+    // window on the same bookmarks file.
+    let (lock, listener) = match peler::instance::acquire(&targets) {
+        peler::instance::Instance::Forwarded => return Ok(()),
+        peler::instance::Instance::Primary { lock, listener } => (lock, listener),
+    };
+    let result = eframe::run_native(
         "Peler",
         options,
-        Box::new(|cc| Ok(Box::new(peler::app::PelerApp::new(cc, targets)))),
-    )
+        Box::new(|cc| Ok(Box::new(peler::app::PelerApp::new(cc, targets, listener)))),
+    );
+    drop(lock);
+    result
+}
+
+/// Writes a report to `~/Library/Logs/Peler/` when something panics (including inside a
+/// connection task, which the app survives), then runs the default hook.
+fn install_crash_log() {
+    let default = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let dir = peler::paths::home_dir().join("Library/Logs/Peler");
+        if std::fs::create_dir_all(&dir).is_ok() {
+            let thread = std::thread::current()
+                .name()
+                .unwrap_or("unnamed")
+                .to_string();
+            let report = format!(
+                "Peler {} panicked on thread '{thread}' at {}\n{info}\n\n{}\n",
+                env!("CARGO_PKG_VERSION"),
+                chrono::Local::now().to_rfc3339(),
+                std::backtrace::Backtrace::force_capture(),
+            );
+            let name = format!("panic-{}.log", chrono::Local::now().format("%Y%m%d-%H%M%S"));
+            let _ = std::fs::write(dir.join(name), report);
+        }
+        default(info);
+    }));
 }

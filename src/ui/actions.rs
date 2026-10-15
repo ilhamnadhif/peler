@@ -34,6 +34,9 @@ pub enum Action {
         to: u64,
     },
     Reconnect,
+    /// Enter in an ended pane: a new shell in that pane (the whole tab reconnects only when
+    /// the connection itself is gone).
+    RestartPane(u64),
     SplitRight,
     SplitDown,
     NextPane,

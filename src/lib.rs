@@ -6,6 +6,7 @@ pub mod crypto;
 #[cfg(debug_assertions)]
 pub mod devtest;
 pub mod i18n;
+pub mod instance;
 pub mod paths;
 pub mod secrets;
 pub mod settings;

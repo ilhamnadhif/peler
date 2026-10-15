@@ -40,6 +40,7 @@ fn spec(server: &TestServer, auth: Auth, known_hosts: &std::path::Path) -> Conne
         },
         keepalive_secs: 30,
         known_hosts: known_hosts.to_path_buf(),
+        save_secrets: true,
     }
 }
 
@@ -378,6 +379,7 @@ fn network_errors_are_classified() {
         },
         keepalive_secs: 0,
         known_hosts: known.clone(),
+        save_secrets: true,
     };
     // A port with nothing listening.
     let port = std::net::TcpListener::bind("127.0.0.1:0")

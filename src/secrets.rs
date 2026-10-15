@@ -83,14 +83,18 @@ fn account(id: Uuid, kind: SecretKind) -> String {
 
 enum Backend {
     Keychain,
-    /// Process-local store used by tests (`PELER_SECRETS=memory`).
+    /// Process-local store used by tests (`PELER_SECRETS=memory`, debug builds only).
     Memory(Mutex<HashMap<String, String>>),
 }
 
 fn backend() -> &'static Backend {
     static BACKEND: OnceLock<Backend> = OnceLock::new();
     BACKEND.get_or_init(|| {
-        if cfg!(test) || std::env::var("PELER_SECRETS").is_ok_and(|v| v == "memory") {
+        // The in-memory store is for tests only; release builds always use the Keychain.
+        if cfg!(test)
+            || (cfg!(debug_assertions)
+                && std::env::var("PELER_SECRETS").is_ok_and(|v| v == "memory"))
+        {
             Backend::Memory(Mutex::new(HashMap::new()))
         } else {
             Backend::Keychain
@@ -143,6 +147,15 @@ pub fn set(id: Uuid, kind: SecretKind, value: Option<&str>) -> anyhow::Result<()
 
 pub fn has(id: Uuid, kind: SecretKind) -> bool {
     matches!(get(id, kind), Ok(Some(_)))
+}
+
+/// Like `load_set`, but a Keychain error is reported instead of read as "nothing saved".
+pub fn try_load_set(id: Uuid) -> anyhow::Result<SecretSet> {
+    let mut s = SecretSet::default();
+    for kind in SecretKind::ALL {
+        s.set(kind, get(id, kind)?);
+    }
+    Ok(s)
 }
 
 pub fn load_set(id: Uuid) -> SecretSet {

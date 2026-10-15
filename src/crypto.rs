@@ -28,6 +28,10 @@ pub struct EncryptedBlob {
 
 /// 64 MiB, 3 passes: a few hundred milliseconds on a laptop, expensive to brute-force.
 const DEFAULT_PARAMS: (u32, u32, u32) = (64 * 1024, 3, 1);
+/// Upper limits accepted when decrypting: 256 MiB, 10 passes, 4 lanes.
+const MAX_M_COST: u32 = 256 * 1024;
+const MAX_T_COST: u32 = 10;
+const MAX_P_COST: u32 = 4;
 
 fn random_bytes<const N: usize>() -> Result<[u8; N]> {
     let mut buf = [0u8; N];
@@ -75,25 +79,43 @@ pub fn encrypt_with(
     })
 }
 
+fn damaged() -> anyhow::Error {
+    anyhow!(
+        "{}",
+        crate::i18n::t("The encrypted credentials in the file are damaged.")
+    )
+}
+
 pub fn decrypt(passphrase: &str, blob: &EncryptedBlob) -> Result<Vec<u8>> {
     if blob.kdf != KDF_ARGON2ID || blob.cipher != CIPHER_XCHACHA {
-        bail!("Unsupported encryption ({} / {}).", blob.kdf, blob.cipher);
+        bail!(
+            "{}",
+            crate::i18n::tf(
+                "Unsupported encryption ({} / {}).",
+                &[&blob.kdf, &blob.cipher]
+            )
+        );
     }
-    // Refuse absurd parameters from a crafted file (memory above 1 GiB, too many passes).
-    if blob.m_cost > 1024 * 1024 || blob.t_cost > 64 || blob.p_cost > 16 {
-        bail!("Encryption parameters in the file are out of range.");
+    // Refuse parameters a crafted file could use to stall or exhaust the machine (the
+    // defaults are 64 MiB, 3 passes, 1 lane; this leaves room to raise them later).
+    if blob.m_cost > MAX_M_COST
+        || blob.t_cost == 0
+        || blob.t_cost > MAX_T_COST
+        || blob.p_cost == 0
+        || blob.p_cost > MAX_P_COST
+    {
+        bail!(
+            "{}",
+            crate::i18n::t("Encryption parameters in the file are out of range.")
+        );
     }
-    let salt = B64
-        .decode(&blob.salt)
-        .map_err(|_| anyhow!("Malformed salt."))?;
+    let salt = B64.decode(&blob.salt).map_err(|_| damaged())?;
     let nonce: [u8; 24] = B64
         .decode(&blob.nonce)
         .ok()
         .and_then(|n| n.try_into().ok())
-        .ok_or_else(|| anyhow!("Malformed nonce."))?;
-    let ciphertext = B64
-        .decode(&blob.ciphertext)
-        .map_err(|_| anyhow!("Malformed ciphertext."))?;
+        .ok_or_else(damaged)?;
+    let ciphertext = B64.decode(&blob.ciphertext).map_err(|_| damaged())?;
     let key = derive_key(passphrase, &salt, blob.m_cost, blob.t_cost, blob.p_cost)?;
     XChaCha20Poly1305::new(&key.into())
         .decrypt(&XNonce::from(nonce), ciphertext.as_slice())
@@ -123,5 +145,24 @@ mod tests {
         let other = encrypt_with("pass", b"secret data", (1024, 1, 1)).unwrap();
         assert_ne!(other.salt, blob.salt);
         assert_ne!(other.nonce, blob.nonce);
+    }
+
+    #[test]
+    fn refuses_extreme_parameters() {
+        let blob = encrypt_with("pass", b"x", (1024, 1, 1)).unwrap();
+        for (m, t, p) in [
+            (512 * 1024, 1, 1),
+            (1024, 11, 1),
+            (1024, 1, 5),
+            (1024, 0, 1),
+        ] {
+            let crafted = EncryptedBlob {
+                m_cost: m,
+                t_cost: t,
+                p_cost: p,
+                ..blob.clone()
+            };
+            assert!(decrypt("pass", &crafted).is_err(), "{m} {t} {p}");
+        }
     }
 }

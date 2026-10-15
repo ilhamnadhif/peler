@@ -28,12 +28,23 @@ pub enum PaletteResult {
     Open,
     Close,
     Connect(Uuid),
+    /// An address typed in (`user@host[:port]`) that matches no bookmark.
+    ConnectTo(String),
 }
+
+/// Most results listed in the palette.
+const PALETTE_ROWS: usize = 50;
 
 impl Palette {
     pub fn show(&mut self, ctx: &egui::Context, store: &BookmarkStore) -> PaletteResult {
         let mut result = PaletteResult::Open;
-        let hits = search::search(store, &self.query);
+        let mut hits = search::search(store, &self.query);
+        hits.truncate(PALETTE_ROWS);
+        // With no matching bookmark, something that looks like an address connects directly.
+        let address = (hits.is_empty() && self.query.contains(['@', '.', ':']))
+            .then(|| crate::bookmarks::model::parse_target(&self.query).ok())
+            .flatten()
+            .map(|_| self.query.trim().to_string());
         let area = egui::Area::new(egui::Id::new("palette-area"))
             .anchor(Align2::CENTER_TOP, vec2(0.0, 90.0));
         let modal = egui::Modal::new(egui::Id::new("palette"))
@@ -77,13 +88,22 @@ impl Palette {
                     });
                 }
                 if enter {
-                    result = match hits.get(self.index) {
-                        Some(id) => PaletteResult::Connect(*id),
-                        None => PaletteResult::Close,
+                    result = match (hits.get(self.index), &address) {
+                        (Some(id), _) => PaletteResult::Connect(*id),
+                        (None, Some(a)) => PaletteResult::ConnectTo(a.clone()),
+                        (None, None) => PaletteResult::Close,
                     };
                 }
                 ui.add_space(6.0);
-                if hits.is_empty() {
+                if let Some(a) = &address {
+                    let resp = ui.add(
+                        egui::Button::selectable(true, RichText::new(tf("Connect to {}", &[a])))
+                            .min_size(vec2(ui.available_width(), 26.0)),
+                    );
+                    if resp.clicked() {
+                        result = PaletteResult::ConnectTo(a.clone());
+                    }
+                } else if hits.is_empty() {
                     ui.label(
                         RichText::new(if store.bookmarks.is_empty() {
                             t("No bookmarks yet")
@@ -96,7 +116,7 @@ impl Palette {
                 egui::ScrollArea::vertical()
                     .max_height(360.0)
                     .show(ui, |ui| {
-                        for (i, id) in hits.iter().take(50).enumerate() {
+                        for (i, id) in hits.iter().enumerate() {
                             let Some(b) = store.bookmark(*id) else {
                                 continue;
                             };
@@ -138,6 +158,8 @@ pub enum ConfirmAction {
     DeleteGroup(Uuid),
     /// Tab id.
     CloseTab(u64),
+    /// Tab id.
+    Reconnect(u64),
     Quit,
 }
 
@@ -174,6 +196,11 @@ pub enum DialogResult {
         passphrase: Option<String>,
     },
     Import(Box<ImportPlan>),
+}
+
+/// For dialogs holding typed input: only Esc closes them, not a click beside the dialog.
+pub fn escape_only<T>(ctx: &egui::Context, modal: &egui::ModalResponse<T>) -> bool {
+    modal.should_close() && ctx.input(|i| i.key_pressed(Key::Escape))
 }
 
 pub fn confirm(title: &str, message: String, button: &str, action: ConfirmAction) -> Dialog {
@@ -435,7 +462,7 @@ impl ExportDialog {
                 }
             });
         });
-        if modal.should_close() && matches!(result, DialogResult::Open) {
+        if escape_only(ctx, &modal) && matches!(result, DialogResult::Open) {
             result = DialogResult::Close;
         }
         result
@@ -449,6 +476,8 @@ pub struct ImportDialog {
     pub source: String,
     passphrase: String,
     unlock_message: Option<(String, bool)>,
+    /// Key derivation runs on a worker thread (it takes a moment by design).
+    unlocking: Option<std::sync::mpsc::Receiver<anyhow::Result<Vec<u8>>>>,
 }
 
 impl ImportDialog {
@@ -458,10 +487,53 @@ impl ImportDialog {
             source,
             passphrase: String::new(),
             unlock_message: None,
+            unlocking: None,
         }
     }
 
+    fn start_unlock(&mut self, ctx: &egui::Context) {
+        let Some(blob) = self.plan.encrypted_credentials.clone() else {
+            return;
+        };
+        let passphrase = self.passphrase.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::crypto::decrypt(&passphrase, &blob));
+            ctx.request_repaint();
+        });
+        self.unlocking = Some(rx);
+        self.unlock_message = None;
+    }
+
+    fn poll_unlock(&mut self) {
+        let Some(rx) = &self.unlocking else {
+            return;
+        };
+        let result = match rx.try_recv() {
+            Ok(r) => r,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err(anyhow::anyhow!("{}", t("Decryption failed.")))
+            }
+        };
+        self.unlocking = None;
+        self.unlock_message = Some(
+            match result.and_then(|plain| self.plan.attach_credentials(&plain)) {
+                Ok(n) => (
+                    tf(
+                        "Unlocked credentials for {} bookmark(s).",
+                        &[&n.to_string()],
+                    ),
+                    false,
+                ),
+                Err(e) => (format!("{e:#}"), true),
+            },
+        );
+    }
+
     fn show(&mut self, ctx: &egui::Context) -> DialogResult {
+        self.poll_unlock();
         let mut result = DialogResult::Open;
         let modal = egui::Modal::new(egui::Id::new("import")).show(ctx, |ui| {
             ui.set_width(640.0);
@@ -480,13 +552,13 @@ impl ImportDialog {
                 ui.group(|ui| {
                     ui.label(t("This file contains encrypted passwords. Enter the export passphrase to import them, or continue without them."));
                     ui.horizontal(|ui| {
-                        let r = ui.add(egui::TextEdit::singleline(&mut self.passphrase).password(true).hint_text(t("Passphrase")).desired_width(240.0));
-                        let go = ui.button(t("Unlock")).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)));
-                        if go {
-                            self.unlock_message = Some(match self.plan.unlock_credentials(&self.passphrase) {
-                                Ok(n) => (tf("Unlocked credentials for {} bookmark(s).", &[&n.to_string()]), false),
-                                Err(e) => (e.to_string(), true),
-                            });
+                        let busy = self.unlocking.is_some();
+                        let r = ui.add_enabled(!busy, egui::TextEdit::singleline(&mut self.passphrase).password(true).hint_text(t("Passphrase")).desired_width(240.0));
+                        let go = ui.add_enabled(!busy, egui::Button::new(t("Unlock"))).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)));
+                        if busy {
+                            ui.spinner();
+                        } else if go && !self.passphrase.is_empty() {
+                            self.start_unlock(ui.ctx());
                         }
                     });
                 });
@@ -494,6 +566,18 @@ impl ImportDialog {
             if let Some((msg, err)) = &self.unlock_message {
                 let color = if *err { ui.visuals().error_fg_color } else { Color32::from_rgb(0x3f, 0xb9, 0x50) };
                 ui.colored_label(color, msg);
+            }
+
+            let commands = self.plan.startup_command_count();
+            if commands > 0 {
+                ui.add_space(4.0);
+                ui.group(|ui| {
+                    ui.checkbox(
+                        &mut self.plan.import_startup_commands,
+                        tf("Import startup commands ({} bookmark(s))", &[&commands.to_string()]),
+                    );
+                    ui.label(RichText::new(t("Startup commands run on the server every time the bookmark connects. Only import them from a file you trust.")).weak().small());
+                });
             }
 
             let (add, change, skip) = self.plan.summary();
@@ -527,7 +611,15 @@ impl ImportDialog {
                             name.push_str("  🔑");
                         }
                         ui.label(name);
-                        ui.label(RichText::new(item.incoming.address()).weak());
+                        match (&item.status, &item.existing_address) {
+                            (ItemStatus::Conflict { .. }, Some(old)) => {
+                                ui.label(RichText::new(format!("{old} → {}", item.incoming.address())).color(Color32::from_rgb(0xd0, 0x9a, 0x2a)))
+                                    .on_hover_text(t("Overwriting changes the address; the credentials saved for the old address are removed."));
+                            }
+                            _ => {
+                                ui.label(RichText::new(item.incoming.address()).weak());
+                            }
+                        }
                         ui.label(RichText::new(&item.group_path).weak());
                         match item.status {
                             ItemStatus::New => {
@@ -566,7 +658,7 @@ impl ImportDialog {
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 let (add, change, _) = self.plan.summary();
-                if ui.add_enabled(add + change > 0, egui::Button::new(RichText::new(t("Import")).strong())).clicked() {
+                if ui.add_enabled(add + change > 0 && self.unlocking.is_none(), egui::Button::new(RichText::new(t("Import")).strong())).clicked() {
                     result = DialogResult::Import(Box::new(self.plan.clone()));
                 }
                 if ui.button(t("Cancel")).clicked() {
@@ -574,7 +666,7 @@ impl ImportDialog {
                 }
             });
         });
-        if modal.should_close() && matches!(result, DialogResult::Open) {
+        if escape_only(ctx, &modal) && matches!(result, DialogResult::Open) {
             result = DialogResult::Close;
         }
         result
@@ -667,6 +759,7 @@ fn general(ui: &mut egui::Ui, s: &mut Settings) {
                 ui.add(
                     egui::DragValue::new(&mut s.keepalive_secs)
                         .range(0..=600)
+                        .update_while_editing(false)
                         .suffix(" s"),
                 );
                 ui.label(RichText::new(t("0 = off. Applies to new connections.")).weak());
@@ -721,7 +814,7 @@ fn terminal(ui: &mut egui::Ui, s: &mut Settings) {
                     });
                 if ui.button(t("Other font file…")).clicked()
                     && let Some(p) = rfd::FileDialog::new()
-                        .add_filter("Font", &["ttf", "otf", "ttc"])
+                        .add_filter(t("Fonts"), &["ttf", "otf", "ttc"])
                         .pick_file()
                 {
                     let name = p
@@ -785,6 +878,9 @@ fn terminal(ui: &mut egui::Ui, s: &mut Settings) {
                     egui::DragValue::new(&mut s.scrollback)
                         .range(0..=Settings::MAX_SCROLLBACK)
                         .speed(100)
+                        // Applied when typing ends: each change resizes every open terminal's
+                        // history, and "5" on the way to "50000" would cut it to 5 lines.
+                        .update_while_editing(false)
                         .suffix(t(" lines")),
                 );
             });

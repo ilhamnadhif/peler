@@ -52,6 +52,8 @@ pub struct Env<'a> {
     pub settings: &'a Settings,
     pub scheme: &'a Scheme,
     pub known_hosts: PathBuf,
+    /// The saved bookmarks (secrets are only offered for saving for those).
+    pub store: Option<&'a crate::bookmarks::BookmarkStore>,
 }
 
 pub struct Tab {
@@ -76,6 +78,8 @@ pub struct PromptInput {
     pub focus: bool,
     /// The prompt has been drawn at least once (keys from earlier frames can't answer it).
     pub armed: bool,
+    /// When the current prompt first appeared.
+    pub shown_at: Option<std::time::Instant>,
 }
 
 fn spec(bookmark: &Bookmark, env: &Env) -> ConnectSpec {
@@ -83,6 +87,7 @@ fn spec(bookmark: &Bookmark, env: &Env) -> ConnectSpec {
         bookmark: bookmark.clone(),
         keepalive_secs: env.settings.keepalive_secs,
         known_hosts: env.known_hosts.clone(),
+        save_secrets: env.store.is_some_and(|s| s.bookmark(bookmark.id).is_some()),
     }
 }
 
@@ -223,7 +228,7 @@ impl Tab {
         let (pane, rx) = new_pane(new_id, size, env);
         if self.state().is_closed() {
             *pane.status.lock() = PaneStatus::Failed(crate::i18n::t("Not connected.").into());
-            tcore::write_status(
+            tcore::end_session(
                 &mut pane.feeder.lock(),
                 crate::i18n::t("[Connection closed. Press Enter or ⌘R to reconnect.]"),
             );
@@ -265,7 +270,7 @@ impl Tab {
             // and must not mark the reconnected pane as ended.
             pane.generation.fetch_add(1, Ordering::Relaxed);
             pane.status = Arc::new(Mutex::new(PaneStatus::Starting));
-            tcore::write_status(
+            tcore::end_session(
                 &mut pane.feeder.lock(),
                 &format!("— {} —", crate::i18n::t("reconnecting")),
             );
@@ -274,8 +279,42 @@ impl Tab {
         }
     }
 
+    /// Starts a new shell in an ended pane on the current connection, leaving the other panes
+    /// alone. Returns false when the connection is gone (the whole tab must reconnect).
+    pub fn restart_pane(&mut self, id: PaneId) -> bool {
+        if !self.state().is_connected() {
+            return false;
+        }
+        let first = self.panes.first().is_some_and(|p| p.id == id);
+        let bookmark = self.bookmark.clone();
+        let Some(pane) = self.panes.iter_mut().find(|p| p.id == id) else {
+            return false;
+        };
+        if pane.is_live() {
+            return true;
+        }
+        let (tx, rx) = mpsc::unbounded_channel();
+        pane.input = tx;
+        pane.generation.fetch_add(1, Ordering::Relaxed);
+        pane.status = Arc::new(Mutex::new(PaneStatus::Starting));
+        self.conn
+            .open_shell(pane_start(pane, rx, &bookmark, first, None));
+        true
+    }
+
     pub fn disconnect(&self) {
         self.conn.disconnect();
+    }
+
+    /// SFTP transfers that have not finished yet.
+    pub fn running_transfers(&self) -> usize {
+        self.sftp.as_ref().map_or(0, |p| {
+            p.transfers
+                .items
+                .iter()
+                .filter(|t| !t.is_finished())
+                .count()
+        })
     }
 
     /// Whether any pane is waiting for something or alive (for "close tab?" confirmation).

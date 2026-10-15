@@ -24,8 +24,6 @@ impl Mods {
 pub struct KeyModes {
     /// DECCKM: cursor keys send SS3 sequences.
     pub app_cursor: bool,
-    /// Option sends ESC-prefixed keys (Meta) instead of composing characters.
-    pub option_as_meta: bool,
 }
 
 const ESC: u8 = 0x1b;
@@ -93,11 +91,10 @@ pub fn encode_key(key: Key, mods: Mods, modes: KeyModes) -> Option<Vec<u8>> {
         Key::Escape => alt_prefix(vec![ESC]),
         Key::Space if mods.ctrl => alt_prefix(vec![0]),
         _ => {
+            // Option as Meta for printable keys is applied to the text event instead, so it
+            // follows the keyboard layout.
             if mods.ctrl {
                 return ctrl_byte(key).map(|b| alt_prefix(vec![b]));
-            }
-            if mods.alt && modes.option_as_meta {
-                return meta_char(key, mods.shift).map(|c| vec![ESC, c]);
             }
             return None;
         }
@@ -122,39 +119,6 @@ fn ctrl_byte(key: Key) -> Option<u8> {
     })
 }
 
-/// Character for Meta+key with a US layout (used only when Option acts as Meta).
-fn meta_char(key: Key, shift: bool) -> Option<u8> {
-    if let Some(c) = letter(key) {
-        return Some(if shift { c.to_ascii_uppercase() } else { c });
-    }
-    let (plain, shifted) = match key {
-        Key::Num0 => (b'0', b')'),
-        Key::Num1 => (b'1', b'!'),
-        Key::Num2 => (b'2', b'@'),
-        Key::Num3 => (b'3', b'#'),
-        Key::Num4 => (b'4', b'$'),
-        Key::Num5 => (b'5', b'%'),
-        Key::Num6 => (b'6', b'^'),
-        Key::Num7 => (b'7', b'&'),
-        Key::Num8 => (b'8', b'*'),
-        Key::Num9 => (b'9', b'('),
-        Key::Minus => (b'-', b'_'),
-        Key::Equals => (b'=', b'+'),
-        Key::OpenBracket => (b'[', b'{'),
-        Key::CloseBracket => (b']', b'}'),
-        Key::Backslash => (b'\\', b'|'),
-        Key::Semicolon => (b';', b':'),
-        Key::Quote => (b'\'', b'"'),
-        Key::Comma => (b',', b'<'),
-        Key::Period => (b'.', b'>'),
-        Key::Slash => (b'/', b'?'),
-        Key::Backtick => (b'`', b'~'),
-        Key::Space => (b' ', b' '),
-        _ => return None,
-    };
-    Some(if shift { shifted } else { plain })
-}
-
 fn letter(key: Key) -> Option<u8> {
     use Key::*;
     const LETTERS: [Key; 26] = [
@@ -164,13 +128,6 @@ fn letter(key: Key) -> Option<u8> {
         .iter()
         .position(|k| *k == key)
         .map(|i| b'a' + i as u8)
-}
-
-/// Whether a key event with these modifiers produces bytes itself, so the text event that
-/// usually follows it must be ignored (e.g. Ctrl+C, or Option+B in Meta mode).
-pub fn key_consumes_text(key: Key, mods: Mods, modes: KeyModes) -> bool {
-    (mods.ctrl && ctrl_byte(key).is_some())
-        || (mods.alt && modes.option_as_meta && meta_char(key, mods.shift).is_some())
 }
 
 /// Wraps pasted text for the remote: normalizes newlines to CR and adds bracketed-paste markers
@@ -286,10 +243,7 @@ mod tests {
     #[test]
     fn cursor_keys_and_modes() {
         assert_eq!(k(Key::ArrowUp, NONE), b"\x1b[A");
-        let app = KeyModes {
-            app_cursor: true,
-            ..Default::default()
-        };
+        let app = KeyModes { app_cursor: true };
         assert_eq!(encode_key(Key::ArrowUp, NONE, app).unwrap(), b"\x1bOA");
         let shift = Mods {
             shift: true,
@@ -326,15 +280,12 @@ mod tests {
             encode_key(Key::A, NONE, KeyModes::default()).is_none(),
             "plain text goes via text events"
         );
-        let meta = KeyModes {
-            option_as_meta: true,
-            ..Default::default()
-        };
+        // Option+letter is text (prefixed with ESC by the terminal in Meta mode); keys that
+        // are not text carry the Alt modifier themselves.
         let alt = Mods { alt: true, ..NONE };
-        assert_eq!(encode_key(Key::B, alt, meta).unwrap(), b"\x1bb");
         assert!(encode_key(Key::B, alt, KeyModes::default()).is_none());
-        assert!(key_consumes_text(Key::C, CTRL, KeyModes::default()));
-        assert!(!key_consumes_text(Key::C, NONE, KeyModes::default()));
+        assert_eq!(k(Key::Enter, alt), b"\x1b\r");
+        assert_eq!(k(Key::ArrowLeft, alt), b"\x1b[1;3D");
     }
 
     #[test]

@@ -28,9 +28,17 @@ pub struct Script {
 impl Script {
     pub fn from_env() -> Self {
         let steps = std::env::var("PELER_DEV_SCRIPT")
-            .map(|s| s.split(";;").map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect())
+            .map(|s| {
+                s.split(";;")
+                    .map(|x| x.trim().to_string())
+                    .filter(|x| !x.is_empty())
+                    .collect()
+            })
             .unwrap_or_default();
-        Self { steps, ..Default::default() }
+        Self {
+            steps,
+            ..Default::default()
+        }
     }
 
     /// The next step to run now, if any.
@@ -45,7 +53,8 @@ impl Script {
         self.wait_until = None;
         let step = self.steps.pop_front()?;
         if let Some(ms) = step.strip_prefix("sleep ") {
-            self.wait_until = Some(Instant::now() + Duration::from_millis(ms.trim().parse().unwrap_or(500)));
+            self.wait_until =
+                Some(Instant::now() + Duration::from_millis(ms.trim().parse().unwrap_or(500)));
             return None;
         }
         // Give injected events a few frames to be processed before the next step.
@@ -65,7 +74,10 @@ impl Script {
 }
 
 pub fn unescape(s: &str) -> String {
-    s.replace("\\r", "\r").replace("\\n", "\n").replace("\\e", "\x1b").replace("\\t", "\t")
+    s.replace("\\r", "\r")
+        .replace("\\n", "\n")
+        .replace("\\e", "\x1b")
+        .replace("\\t", "\t")
 }
 
 // ----- named rectangles (widgets the script can click) ------------------------------------------
@@ -98,7 +110,14 @@ fn window() -> Option<Retained<NSWindow>> {
         })
 }
 
-fn key_event(down: bool, flags: NSEventModifierFlags, chars: &str, unmod: &str, code: u16, wn: isize) -> Option<Retained<NSEvent>> {
+fn key_event(
+    down: bool,
+    flags: NSEventModifierFlags,
+    chars: &str,
+    unmod: &str,
+    code: u16,
+    wn: isize,
+) -> Option<Retained<NSEvent>> {
     NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
         if down { NSEventType::KeyDown } else { NSEventType::KeyUp },
         NSPoint::new(0.0, 0.0),
@@ -135,17 +154,18 @@ fn key_code(c: char) -> (u16, bool) {
 fn press(flags: NSEventModifierFlags, chars: &str, unmod: &str, code: u16) {
     let Some(w) = window() else { return };
     let wn = w.windowNumber();
-    let (Some(down), Some(up)) = (key_event(true, flags, chars, unmod, code, wn), key_event(false, flags, chars, unmod, code, wn)) else {
+    let (Some(down), Some(up)) = (
+        key_event(true, flags, chars, unmod, code, wn),
+        key_event(false, flags, chars, unmod, code, wn),
+    ) else {
         return;
     };
-    if flags.contains(NSEventModifierFlags::Command) {
-        if let Some(mtm) = MainThreadMarker::new() {
-            if let Some(menu) = NSApplication::sharedApplication(mtm).mainMenu() {
-                if menu.performKeyEquivalent(&down) {
-                    return;
-                }
-            }
-        }
+    if flags.contains(NSEventModifierFlags::Command)
+        && let Some(mtm) = MainThreadMarker::new()
+        && let Some(menu) = NSApplication::sharedApplication(mtm).mainMenu()
+        && menu.performKeyEquivalent(&down)
+    {
+        return;
     }
     w.sendEvent(&down);
     w.sendEvent(&up);
@@ -155,7 +175,11 @@ fn press(flags: NSEventModifierFlags, chars: &str, unmod: &str, code: u16) {
 pub fn type_text(text: &str) {
     for c in text.chars() {
         let (code, shift) = key_code(c);
-        let flags = if shift { NSEventModifierFlags::Shift } else { NSEventModifierFlags::empty() };
+        let flags = if shift {
+            NSEventModifierFlags::Shift
+        } else {
+            NSEventModifierFlags::empty()
+        };
         let s = c.to_string();
         press(flags, &s, &s.to_lowercase(), code);
     }
@@ -192,7 +216,10 @@ pub fn key(spec: &str) {
         _ => return,
     };
     let unmod = chars.clone();
-    let chars = if flags.contains(NSEventModifierFlags::Control) && chars.len() == 1 && chars.as_bytes()[0].is_ascii_alphabetic() {
+    let chars = if flags.contains(NSEventModifierFlags::Control)
+        && chars.len() == 1
+        && chars.as_bytes()[0].is_ascii_alphabetic()
+    {
         ((chars.as_bytes()[0].to_ascii_lowercase() - b'a' + 1) as char).to_string()
     } else {
         chars

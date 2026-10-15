@@ -47,12 +47,33 @@ pub struct TermView {
     pub id: Option<Id>,
     preedit: String,
     scroll_accum: f32,
-    suppress_text: bool,
     reported_button: Option<MouseButton>,
     last_report_cell: Option<(usize, usize)>,
     pub grid: Option<GridSize>,
+    /// Cell size in physical pixels last reported to the remote.
+    cell_px: Option<(u32, u32)>,
     blink_epoch: f64,
     was_focused: bool,
+    /// The context menu is open (it must keep being shown even in mouse-reporting mode).
+    menu_open: bool,
+}
+
+impl TermView {
+    /// Records that this pane no longer has focus (its tab was left): the remote program gets
+    /// a focus-out report if it asked for them. Returns the bytes to send.
+    pub fn blur(&mut self, shared: &TermShared, alive: bool) -> Vec<u8> {
+        self.preedit.clear();
+        if !std::mem::take(&mut self.was_focused) {
+            return Vec::new();
+        }
+        let mut term = shared.term.lock();
+        term.is_focused = false;
+        if alive && term.mode().contains(TermMode::FOCUS_IN_OUT) {
+            b"\x1b[O".to_vec()
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 impl TermView {
@@ -176,10 +197,10 @@ fn box_lines(c: char) -> Option<[u8; 4]> {
         '━' => [0, 2, 0, 2],
         '│' => [1, 0, 1, 0],
         '┃' => [2, 0, 2, 0],
-        '┌' | '╭' => [0, 1, 1, 0],
-        '┐' | '╮' => [0, 0, 1, 1],
-        '└' | '╰' => [1, 1, 0, 0],
-        '┘' | '╯' => [1, 0, 0, 1],
+        '┌' => [0, 1, 1, 0],
+        '┐' => [0, 0, 1, 1],
+        '└' => [1, 1, 0, 0],
+        '┘' => [1, 0, 0, 1],
         '├' => [1, 1, 1, 0],
         '┤' => [1, 0, 1, 1],
         '┬' => [0, 1, 1, 1],
@@ -205,6 +226,24 @@ fn box_lines(c: char) -> Option<[u8; 4]> {
         '╦' => [0, 3, 3, 3],
         '╩' => [3, 3, 0, 3],
         '╬' => [3, 3, 3, 3],
+        '╒' => [0, 3, 1, 0],
+        '╓' => [0, 1, 3, 0],
+        '╕' => [0, 0, 1, 3],
+        '╖' => [0, 0, 3, 1],
+        '╘' => [1, 3, 0, 0],
+        '╙' => [3, 1, 0, 0],
+        '╛' => [1, 0, 0, 3],
+        '╜' => [3, 0, 0, 1],
+        '╞' => [1, 3, 1, 0],
+        '╟' => [3, 1, 3, 0],
+        '╡' => [1, 0, 1, 3],
+        '╢' => [3, 0, 3, 1],
+        '╤' => [0, 3, 1, 3],
+        '╥' => [0, 1, 3, 1],
+        '╧' => [1, 3, 0, 3],
+        '╨' => [3, 1, 0, 1],
+        '╪' => [1, 3, 1, 3],
+        '╫' => [3, 1, 3, 1],
         '╴' => [0, 0, 0, 1],
         '╵' => [1, 0, 0, 0],
         '╶' => [0, 1, 0, 0],
@@ -218,37 +257,95 @@ fn box_lines(c: char) -> Option<[u8; 4]> {
 fn draw_special(painter: &egui::Painter, c: char, r: Rect, color: Color32, ppp: f32) -> bool {
     let px = 1.0 / ppp;
     let snap = |v: f32| (v * ppp).round() / ppp;
+    if let Some((dx, dy)) = match c {
+        '╭' => Some((1.0, 1.0)),
+        '╮' => Some((-1.0, 1.0)),
+        '╰' => Some((1.0, -1.0)),
+        '╯' => Some((-1.0, -1.0)),
+        _ => None,
+    } {
+        // Rounded corner: straight to the arc, a quarter circle, straight to the other edge.
+        let (cx, cy) = (snap(r.center().x), snap(r.center().y));
+        let rad = (r.width().min(r.height()) / 2.0).floor();
+        let center = pos2(cx + dx * rad, cy + dy * rad);
+        let mut points = vec![pos2(cx, if dy > 0.0 { r.bottom() } else { r.top() })];
+        for i in 0..=8 {
+            let a = std::f32::consts::FRAC_PI_2 * i as f32 / 8.0;
+            points.push(center + vec2(-dx * rad * a.cos(), -dy * rad * a.sin()));
+        }
+        points.push(pos2(if dx > 0.0 { r.right() } else { r.left() }, cy));
+        painter.add(egui::Shape::line(points, Stroke::new(px.max(1.0), color)));
+        return true;
+    }
     if let Some(lines) = box_lines(c) {
         let cx = snap(r.center().x);
         let cy = snap(r.center().y);
         let light = px.max(1.0);
-        for (dir, weight) in lines.iter().enumerate() {
-            if *weight == 0 {
+        // Distance of a double line's strokes from the center line.
+        let gap = light * 1.5;
+        let width = |wt: u8| if wt == 2 { light * 2.0 } else { light };
+        // How far a perpendicular arm's nearest stroke sits from the center, and half its width.
+        let near = |wt: u8| if wt == 3 { gap } else { 0.0 };
+        let half = |wt: u8| width(wt) / 2.0;
+        for (dir, &wt) in lines.iter().enumerate() {
+            if wt == 0 {
                 continue;
             }
-            let w = if *weight == 2 { light * 2.0 } else { light };
-            let segs: Vec<f32> = if *weight == 3 {
-                vec![-light * 1.5, light * 1.5]
+            let opposite = lines[(dir + 2) % 4];
+            // The two perpendicular arms: for a vertical arm right (+) then left (-), for a
+            // horizontal arm down (+) then up (-).
+            let (p_plus, p_minus) = if dir % 2 == 0 {
+                (lines[1], lines[3])
             } else {
-                vec![0.0]
+                (lines[2], lines[0])
             };
-            for off in segs {
+            let w = width(wt);
+            // Each stroke: offset across the arm, and `t`, where it ends measured from the
+            // center toward the arm's edge (negative = past the center).
+            let mut strokes: Vec<(f32, f32)> = Vec::new();
+            if wt == 3 {
+                for (side, p, q) in [(1.0, p_plus, p_minus), (-1.0, p_minus, p_plus)] {
+                    let t = if p > 0 {
+                        near(p) - half(p) // stop at the perpendicular line on this side
+                    } else if opposite > 0 {
+                        -light / 2.0 // straight through
+                    } else if q > 0 {
+                        -(near(q) + half(q)) // outer stroke of a corner: to the far side
+                    } else {
+                        -light / 2.0
+                    };
+                    strokes.push((side * gap, t));
+                }
+            } else {
+                let t = if opposite > 0 {
+                    -w / 2.0
+                } else if p_plus > 0 && p_minus > 0 {
+                    near(p_plus).max(near(p_minus)) - half(p_plus).max(half(p_minus))
+                } else if p_plus > 0 || p_minus > 0 {
+                    let q = p_plus.max(p_minus);
+                    -(near(q) + half(q))
+                } else {
+                    -w / 2.0
+                };
+                strokes.push((0.0, t));
+            }
+            for (off, t) in strokes {
                 let rect = match dir {
                     0 => Rect::from_min_max(
                         pos2(cx + off - w / 2.0, r.top()),
-                        pos2(cx + off + w / 2.0, cy + w / 2.0),
+                        pos2(cx + off + w / 2.0, cy - t),
                     ),
                     1 => Rect::from_min_max(
-                        pos2(cx - w / 2.0, cy + off - w / 2.0),
+                        pos2(cx + t, cy + off - w / 2.0),
                         pos2(r.right(), cy + off + w / 2.0),
                     ),
                     2 => Rect::from_min_max(
-                        pos2(cx + off - w / 2.0, cy - w / 2.0),
+                        pos2(cx + off - w / 2.0, cy + t),
                         pos2(cx + off + w / 2.0, r.bottom()),
                     ),
                     _ => Rect::from_min_max(
                         pos2(r.left(), cy + off - w / 2.0),
-                        pos2(cx + w / 2.0, cy + off + w / 2.0),
+                        pos2(cx - t, cy + off + w / 2.0),
                     ),
                 };
                 painter.rect_filled(rect, CornerRadius::ZERO, color);
@@ -356,17 +453,30 @@ pub fn show(
         cols: (((rect.width() - 2.0 * PAD) / cell.x).floor() as usize).max(tcore::MIN_COLS),
         rows: (((rect.height() - 2.0 * PAD) / cell.y).floor() as usize).max(tcore::MIN_ROWS),
     };
-    if view.grid != Some(size) {
+    // Pixel sizes go out in physical pixels everywhere (pty request, window-change, CSI 14 t),
+    // and are re-sent when only the font changes.
+    let cell_px = ((cell.x * ppp).round() as u32, (cell.y * ppp).round() as u32);
+    if view.grid != Some(size) || view.cell_px != Some(cell_px) {
         view.grid = Some(size);
-        tcore::resize(shared, size, cell.x, cell.y);
+        view.cell_px = Some(cell_px);
+        tcore::resize(shared, size, cell_px.0 as f32, cell_px.1 as f32);
         out.resized = Some((
             size,
-            (size.cols as f32 * cell.x * ppp) as u32,
-            (size.rows as f32 * cell.y * ppp) as u32,
+            size.cols as u32 * cell_px.0,
+            size.rows as u32 * cell_px.1,
         ));
     }
 
     // ----- focus -------------------------------------------------------------------------
+    // Keys are only taken in a frame that began with this terminal focused: when it takes
+    // focus during the frame (e.g. after Enter in the sidebar search released it), that
+    // frame's keys were meant for the other widget.
+    let had_focus = ui.memory(|m| m.had_focus_last_frame(id));
+    if ui.memory(|m| m.has_focus(id)) {
+        // Arrows and Tab belong to the remote program, never to egui's focus navigation (which
+        // is decided before the focus filter below applies on the first focused frame).
+        ui.memory_mut(|m| m.move_focus(egui::FocusDirection::None));
+    }
     let response = ui.interact(rect, id, Sense::click_and_drag());
     if response.clicked_by(PointerButton::Primary)
         || response.drag_started_by(PointerButton::Primary)
@@ -376,6 +486,8 @@ pub fn show(
         out.activated = true;
         if input_enabled {
             ui.memory_mut(|m| m.request_focus(id));
+            // Taking focus ends any composition (macOS sends nothing for it).
+            view.preedit.clear();
         }
     }
     if active && input_enabled && ui.memory(|m| m.focused().is_none()) {
@@ -386,6 +498,9 @@ pub fn show(
     out.focused = focused;
     if focused {
         ui.memory_mut(|m| m.set_focus_lock_filter(id, TERM_FILTER));
+    } else {
+        // A composition left behind when focus moved away would hide the cursor.
+        view.preedit.clear();
     }
 
     let mut term = shared.term.lock();
@@ -403,11 +518,13 @@ pub fn show(
     }
 
     // ----- keyboard ----------------------------------------------------------------------
-    if focused {
+    if focused && had_focus {
         let events = ui.input(|i| i.filtered_events(&TERM_FILTER));
+        // Option as Meta: text typed with Option held goes out as ESC + the character the
+        // layout produces without Option (winit delivers it that way), for any layout.
+        let meta = style.option_as_meta && ui.input(|i| i.modifiers.alt && !i.modifiers.ctrl);
         let modes = KeyModes {
             app_cursor: mode.contains(TermMode::APP_CURSOR),
-            option_as_meta: style.option_as_meta,
         };
         let mut typed = Vec::new();
         for event in events {
@@ -441,14 +558,16 @@ pub fn show(
                         }
                         continue;
                     }
-                    view.suppress_text = input::key_consumes_text(key, mods, modes);
                     if let Some(bytes) = input::encode_key(key, mods, modes) {
                         typed.extend(bytes);
                     }
                 }
                 Event::Text(text) => {
-                    if std::mem::take(&mut view.suppress_text) || !alive {
+                    if !alive {
                         continue;
+                    }
+                    if meta {
+                        typed.push(0x1b);
                     }
                     typed.extend_from_slice(text.as_bytes());
                 }
@@ -1012,12 +1131,12 @@ pub fn show(
     }
 
     // Context menu.
-    // In mouse-reporting mode the right button belongs to the remote program (Shift+right-click
-    // still opens the menu).
-    if mouse_mode && !shift_held {
+    // In mouse-reporting mode the right button belongs to the remote program: Shift+right-click
+    // opens the menu, which then stays open after Shift is released.
+    if mouse_mode && !shift_held && !view.menu_open {
         return out;
     }
-    response.context_menu(|ui| {
+    let menu = response.context_menu(|ui| {
         let term = shared.term.lock();
         let has_sel = term.selection.as_ref().is_some_and(|s| !s.is_empty());
         drop(term);
@@ -1049,6 +1168,7 @@ pub fn show(
             ui.close();
         }
     });
+    view.menu_open = menu.is_some();
     out
 }
 
@@ -1067,9 +1187,15 @@ pub fn select_all(shared: &TermShared) {
     term.selection = Some(sel);
 }
 
+/// Clears the scrollback. While a full-screen program has the alternate screen, the history
+/// belongs to the normal screen: it is cleared as soon as the program leaves.
 pub fn clear_scrollback(shared: &TermShared) {
     let mut term = shared.term.lock();
-    term.grid_mut().clear_history();
+    if term.mode().contains(TermMode::ALT_SCREEN) {
+        shared.notes.lock().clear_history_pending = true;
+    } else {
+        term.grid_mut().clear_history();
+    }
     term.selection = None;
 }
 

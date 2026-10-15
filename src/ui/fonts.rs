@@ -88,7 +88,12 @@ const CJK_FALLBACKS: &[(&str, &str)] = &[
 const SYMBOLS: (&str, &str) = ("symbols", "/System/Library/Fonts/Apple Symbols.ttf");
 const UI_FONT: (&str, &str) = ("ui-sf", "/System/Library/Fonts/SFNS.ttf");
 
-/// Memory-maps a font file once for the life of the process.
+/// Largest font file loaded.
+const MAX_FONT_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Loads a font file once for the life of the process. System fonts are memory-mapped (they
+/// don't change while the app runs); a font the user picked is read into memory, since
+/// replacing a mapped file under the app would crash it.
 fn mapped(path: &Path) -> Option<&'static [u8]> {
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, &'static [u8]>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
@@ -97,18 +102,39 @@ fn mapped(path: &Path) -> Option<&'static [u8]> {
         return Some(bytes);
     }
     let file = std::fs::File::open(path).ok()?;
-    // SAFETY: system and user font files are not modified while the app runs; the mapping is
-    // read-only and lives for the rest of the process.
-    let map = unsafe { memmap2::Mmap::map(&file) }.ok()?;
-    let bytes: &'static [u8] = Box::leak(Box::new(map));
+    let meta = file.metadata().ok()?;
+    if !meta.is_file() || meta.len() > MAX_FONT_BYTES {
+        return None;
+    }
+    let bytes: &'static [u8] = if path.starts_with("/System/Library/") {
+        // SAFETY: system font files are read-only (sealed system volume); the mapping lives
+        // for the rest of the process.
+        let map = unsafe { memmap2::Mmap::map(&file) }.ok()?;
+        Box::leak(Box::new(map))
+    } else {
+        let mut data = Vec::new();
+        std::io::Read::read_to_end(&mut std::io::Read::take(&file, MAX_FONT_BYTES), &mut data)
+            .ok()?;
+        Box::leak(data.into_boxed_slice())
+    };
     cache.insert(path.to_path_buf(), bytes);
     Some(bytes)
+}
+
+/// Whether `bytes` holds a usable font at `index` (egui panics on a font it can't parse, so
+/// every face is checked before it is handed over).
+fn is_usable_font(bytes: &[u8], index: u32) -> bool {
+    use skrifa::MetadataProvider;
+    skrifa::FontRef::from_index(bytes, index).is_ok_and(|f| f.charmap().map('M').is_some())
 }
 
 fn add_face(defs: &mut FontDefinitions, key: &str, path: &Path, index: u32) -> bool {
     let Some(bytes) = mapped(path) else {
         return false;
     };
+    if !is_usable_font(bytes, index) {
+        return false;
+    }
     let mut data = FontData::from_static(bytes);
     data.index = index;
     defs.font_data.insert(key.to_string(), Arc::new(data));
@@ -209,8 +235,13 @@ pub fn has_real_face(choice: &FontChoice, bold: bool, italic: bool) -> bool {
     preset(choice).is_some_and(|p| p.path.is_some() && p.faces[idx].is_some())
 }
 
-pub fn apply(ctx: &egui::Context, choice: &FontChoice, load_cjk: bool) {
-    ctx.set_fonts(definitions(choice, load_cjk));
+/// Installs the fonts. Returns false when a font file the user picked could not be used (the
+/// built-in Hack font is used instead).
+pub fn apply(ctx: &egui::Context, choice: &FontChoice, load_cjk: bool) -> bool {
+    let defs = definitions(choice, load_cjk);
+    let ok = preset(choice).is_some() || defs.font_data.contains_key(TERM_REGULAR);
+    ctx.set_fonts(defs);
+    ok
 }
 
 /// The saved font, or Menlo when nothing is chosen yet.

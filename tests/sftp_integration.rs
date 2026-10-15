@@ -39,6 +39,7 @@ fn connect(rt: &tokio::runtime::Runtime, server: &TestServer) -> (Connection, re
         },
         keepalive_secs: 30,
         known_hosts: server.dir.path().join("kh"),
+        save_secrets: true,
     };
     let conn = Connection::start(rt.handle(), egui::Context::default(), spec);
     wait_for(15, "host key prompt", || {
@@ -157,19 +158,23 @@ fn file_operations_and_transfers() {
     let src = local.join("big.bin");
     random_file(&src, 40 * 1024 * 1024);
     let started = Instant::now();
-    let up = transfers.upload(rt.handle(), sftp.clone(), src.clone(), &base, || {});
+    let up = transfers
+        .upload(rt.handle(), sftp.clone(), src.clone(), &base, || {})
+        .unwrap();
     assert_eq!(wait_transfer(&up, 120), TransferState::Done);
     let up_secs = started.elapsed().as_secs_f64();
     let back = local.join("back");
     std::fs::create_dir(&back).unwrap();
     let started = Instant::now();
-    let down = transfers.download(
-        rt.handle(),
-        sftp.clone(),
-        remote_join(&base, "big.bin"),
-        &back,
-        || {},
-    );
+    let down = transfers
+        .download(
+            rt.handle(),
+            sftp.clone(),
+            remote_join(&base, "big.bin"),
+            &back,
+            || {},
+        )
+        .unwrap();
     assert_eq!(wait_transfer(&down, 120), TransferState::Done);
     let down_secs = started.elapsed().as_secs_f64();
     assert!(
@@ -196,18 +201,22 @@ fn file_operations_and_transfers() {
         std::fs::set_permissions(tree.join("run.sh"), std::fs::Permissions::from_mode(0o755))
             .unwrap();
     }
-    let up = transfers.upload(rt.handle(), sftp.clone(), tree.clone(), &base, || {});
+    let up = transfers
+        .upload(rt.handle(), sftp.clone(), tree.clone(), &base, || {})
+        .unwrap();
     assert_eq!(wait_transfer(&up, 60), TransferState::Done);
     assert_eq!(up.files_done.load(std::sync::atomic::Ordering::Relaxed), 4);
     let back2 = local.join("back2");
     std::fs::create_dir(&back2).unwrap();
-    let down = transfers.download(
-        rt.handle(),
-        sftp.clone(),
-        remote_join(&base, "tree"),
-        &back2,
-        || {},
-    );
+    let down = transfers
+        .download(
+            rt.handle(),
+            sftp.clone(),
+            remote_join(&base, "tree"),
+            &back2,
+            || {},
+        )
+        .unwrap();
     assert_eq!(wait_transfer(&down, 60), TransferState::Done);
     for rel in ["one.txt", "sub/two.txt", "sub/deeper/three.bin", "run.sh"] {
         assert!(
@@ -228,11 +237,15 @@ fn file_operations_and_transfers() {
     // Cancelling removes the partial file.
     let huge = local.join("huge.bin");
     random_file(&huge, 200 * 1024 * 1024);
-    let up = transfers.upload(rt.handle(), sftp.clone(), huge, &base, || {});
+    let up = transfers
+        .upload(rt.handle(), sftp.clone(), huge, &base, || {})
+        .unwrap();
     // A second transfer takes the other slot, so the next one has to wait in the queue.
     let other_dir = remote_join(&base, "other");
     rt.block_on(remote::mkdir(&sftp, &other_dir)).unwrap();
-    let busy = transfers.upload(rt.handle(), sftp.clone(), src.clone(), &other_dir, || {});
+    let busy = transfers
+        .upload(rt.handle(), sftp.clone(), src.clone(), &other_dir, || {})
+        .unwrap();
     // A queued upload that replaces an existing file, cancelled before it starts, must leave
     // the existing remote file untouched.
     let keep_remote = remote_join(&base, "keep.txt");
@@ -243,13 +256,15 @@ fn file_operations_and_transfers() {
         rt.block_on(f.close()).unwrap();
     }
     std::fs::write(local.join("keep.txt"), "replacement").unwrap();
-    let queued = transfers.upload(
-        rt.handle(),
-        sftp.clone(),
-        local.join("keep.txt"),
-        &base,
-        || {},
-    );
+    let queued = transfers
+        .upload(
+            rt.handle(),
+            sftp.clone(),
+            local.join("keep.txt"),
+            &base,
+            || {},
+        )
+        .unwrap();
     queued.cancel();
     wait_for(30, "transfer progress", || {
         (up.done.load(std::sync::atomic::Ordering::Relaxed) > 0).then_some(())
@@ -271,13 +286,15 @@ fn file_operations_and_transfers() {
         rt.block_on(f.write_all(b"remote")).unwrap();
         rt.block_on(f.close()).unwrap();
     }
-    let down = transfers.download(
-        rt.handle(),
-        sftp.clone(),
-        remote_join(&base, "victim.txt"),
-        &back,
-        || {},
-    );
+    let down = transfers
+        .download(
+            rt.handle(),
+            sftp.clone(),
+            remote_join(&base, "victim.txt"),
+            &back,
+            || {},
+        )
+        .unwrap();
     assert_eq!(wait_transfer(&down, 30), TransferState::Done);
     assert_eq!(
         std::fs::read_to_string(back.join("victim.txt")).unwrap(),
@@ -294,13 +311,15 @@ fn file_operations_and_transfers() {
     });
 
     // Errors are reported, not hidden.
-    let missing = transfers.download(
-        rt.handle(),
-        sftp.clone(),
-        remote_join(&base, "nope.bin"),
-        &back,
-        || {},
-    );
+    let missing = transfers
+        .download(
+            rt.handle(),
+            sftp.clone(),
+            remote_join(&base, "nope.bin"),
+            &back,
+            || {},
+        )
+        .unwrap();
     match wait_transfer(&missing, 30) {
         TransferState::Failed(msg) => assert!(msg.contains("no such file"), "{msg}"),
         other => panic!("{other:?}"),
@@ -324,25 +343,29 @@ fn one_gigabyte_round_trip() {
     random_file(&src, 1024 * 1024 * 1024);
     let mut transfers = Transfers::default();
     let t0 = Instant::now();
-    let up = transfers.upload(
-        rt.handle(),
-        sftp.clone(),
-        src.clone(),
-        remote_dir.to_str().unwrap(),
-        || {},
-    );
+    let up = transfers
+        .upload(
+            rt.handle(),
+            sftp.clone(),
+            src.clone(),
+            remote_dir.to_str().unwrap(),
+            || {},
+        )
+        .unwrap();
     assert_eq!(wait_transfer(&up, 1800), TransferState::Done);
     let up_s = t0.elapsed().as_secs_f64();
     let back = dir.join("back");
     std::fs::create_dir(&back).unwrap();
     let t0 = Instant::now();
-    let down = transfers.download(
-        rt.handle(),
-        sftp,
-        remote_join(remote_dir.to_str().unwrap(), "gig.bin"),
-        &back,
-        || {},
-    );
+    let down = transfers
+        .download(
+            rt.handle(),
+            sftp,
+            remote_join(remote_dir.to_str().unwrap(), "gig.bin"),
+            &back,
+            || {},
+        )
+        .unwrap();
     assert_eq!(wait_transfer(&down, 1800), TransferState::Done);
     let down_s = t0.elapsed().as_secs_f64();
     let sha = |p: &Path| {

@@ -59,6 +59,8 @@ pub struct UiNotes {
     pub clipboard: Option<String>,
     /// Set whenever new output arrived; the UI uses it to mark inactive tabs.
     pub activity: bool,
+    /// "Clear Scrollback" was chosen on the alternate screen: clear when it is left.
+    pub clear_history_pending: bool,
 }
 
 /// Colours used to answer OSC 4/10/11 queries (kept in sync with the active scheme).
@@ -158,6 +160,15 @@ impl Feeder {
         {
             let mut term = self.shared.term.lock();
             self.parser.advance(&mut *term, bytes);
+            if !term
+                .mode()
+                .contains(alacritty_terminal::term::TermMode::ALT_SCREEN)
+            {
+                let mut notes = self.shared.notes.lock();
+                if std::mem::take(&mut notes.clear_history_pending) {
+                    term.grid_mut().clear_history();
+                }
+            }
         }
         let repaint = self.parser.sync_bytes_count() < bytes.len();
         if repaint {
@@ -240,6 +251,24 @@ pub fn write_status(feeder: &mut Feeder, text: &str) {
     let _ = feeder.feed(line.as_bytes());
 }
 
+/// Ends a session in this terminal before showing `text`: shows any pending synchronized
+/// output, drops half-received escape sequences, and switches off the modes a full-screen
+/// program may have left on (alternate screen, mouse and focus reporting, bracketed paste,
+/// application cursor keys, hidden cursor, scroll region). The last output stays visible and a
+/// reconnect starts from a clean terminal.
+pub fn end_session(feeder: &mut Feeder, text: &str) {
+    {
+        let mut term = feeder.shared.term.lock();
+        feeder.parser.stop_sync(&mut *term);
+    }
+    feeder.parser = Processor::new();
+    const RESET: &str = "\x1b[?1049l\x1b[r\x1b[?6l\x1b[4l\x1b(B\x1b[?1l\x1b>\x1b[?25h\x1b[?7h\
+        \x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1004l\x1b[?2004l\x1b[0m";
+    let _ = feeder.feed(RESET.as_bytes());
+    write_status(feeder, text);
+    let _ = feeder.drain_events();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,5 +325,32 @@ mod tests {
         assert!(f.sync_deadline().is_some());
         f.flush_sync();
         assert_eq!(row_text(&f, 0), "synced");
+    }
+
+    #[test]
+    fn end_session_resets_modes() {
+        use alacritty_terminal::term::TermMode;
+        let mut f = make();
+        // A full-screen app with mouse reporting, cut off in the middle of an OSC sequence.
+        f.feed(
+            b"\x1b[?1049h\x1b[?1000h\x1b[?1006h\x1b[?1004h\x1b[?2004h\x1b[?25l\x1b[?1h\x1b]0;half",
+        );
+        end_session(&mut f, "closed");
+        let mode = *f.shared.term.lock().mode();
+        assert!(!mode.contains(TermMode::ALT_SCREEN));
+        assert!(!mode.intersects(TermMode::MOUSE_MODE | TermMode::FOCUS_IN_OUT));
+        assert!(!mode.contains(TermMode::BRACKETED_PASTE | TermMode::APP_CURSOR));
+        assert!(mode.contains(TermMode::SHOW_CURSOR));
+        // The status line is not swallowed by the unfinished OSC.
+        let term = f.shared.term.lock();
+        let text: String = (0..term.screen_lines() as i32)
+            .map(|l| {
+                let row = &term.grid()[Line(l)];
+                (0..term.columns())
+                    .map(|c| row[Column(c)].c)
+                    .collect::<String>()
+            })
+            .collect();
+        assert!(text.contains("closed"), "{text:?}");
     }
 }

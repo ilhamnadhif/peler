@@ -15,6 +15,8 @@ pub enum ConnError {
     Unreachable(String),
     HostKeyRejected,
     HostKeyChanged,
+    /// The server's key is marked `@revoked` in a known_hosts file.
+    HostKeyRevoked,
     AuthFailed(String),
     /// The user dismissed a password/passphrase prompt.
     Cancelled,
@@ -35,6 +37,10 @@ impl ConnError {
             ConnError::HostKeyRejected => t("Host key not accepted.").into(),
             ConnError::HostKeyChanged => {
                 t("The server's host key has changed. Connection refused to protect you.").into()
+            }
+            ConnError::HostKeyRevoked => {
+                t("The server's host key is marked as revoked in known_hosts. Connection refused.")
+                    .into()
             }
             ConnError::AuthFailed(m) => tf("Authentication failed: {}", &[m]),
             ConnError::Cancelled => t("Cancelled.").into(),
@@ -88,6 +94,8 @@ pub enum Prompt {
         algorithm: String,
         fingerprint: String,
         status: HostKeyStatus,
+        /// For a changed key: the keys recorded before (algorithm and fingerprint).
+        known: Vec<String>,
         reply: oneshot::Sender<bool>,
     },
     Secret {

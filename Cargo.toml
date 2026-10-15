@@ -13,9 +13,10 @@ base64 = "0.23.1"
 chacha20poly1305 = "0.11.0"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde", "std"] }
 dirs = "7.0.0"
-eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts", "wgpu"] }
+eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "persistence"] }
 egui_extras = { version = "0.36.2", default-features = false }
 getrandom = "0.4.3"
+hmac = "0.13.0"
 keyring = { version = "4.2.0", default-features = false, features = ["apple-native-keyring-store", "v1"] }
 log = "0.4.34"
 memmap2 = "0.9.11"
@@ -26,9 +27,12 @@ russh = "0.64.1"
 russh-sftp = "3.0.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+sha1 = "0.11.0"
 sys-locale = "0.3.2"
 thiserror = "2.0.21"
 tokio = { version = "1.53.3", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "fs"] }
+tokio-util = "0.7.20"
+skrifa = "0.44.0"
 uuid = { version = "1.28.0", features = ["v4", "serde", "v5"] }
 winit = "0.30"
 
@@ -54,40 +58,13 @@ codegen-units = 1
 strip = true
 # Keep unwinding: a panic inside one session's task must not take the whole app down.
 panic = "unwind"
-
-# Size-optimize large dependencies that are not on a hot path (shader translation, GPU setup,
-# font parsing, accessibility). Keeps the universal .app comfortably under 30 MB.
-[profile.release.package.naga]
-opt-level = "s"
-[profile.release.package.wgpu-core]
-opt-level = "s"
-[profile.release.package.wgpu-hal]
-opt-level = "s"
-[profile.release.package.wgpu]
-opt-level = "s"
-[profile.release.package.accesskit_consumer]
-opt-level = "s"
-[profile.release.package.accesskit_macos]
-opt-level = "s"
-[profile.release.package.read-fonts]
-opt-level = "s"
 [profile.release.package.winit]
 opt-level = "s"
 [profile.release.package.muda]
 opt-level = "s"
 [profile.release.package.rfd]
 opt-level = "s"
-[profile.release.package.skrifa]
-opt-level = "s"
-[profile.release.package.harfrust]
-opt-level = "s"
-[profile.release.package.vello_common]
-opt-level = "s"
-[profile.release.package.vello_cpu]
-opt-level = "s"
 [profile.release.package.objc2-app-kit]
 opt-level = "s"
 [profile.release.package.objc2-foundation]
-opt-level = "s"
-[profile.release.package.accesskit]
 opt-level = "s"
