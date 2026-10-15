@@ -41,7 +41,12 @@ pub struct QuickCommand {
 
 impl QuickCommand {
     pub fn new(name: &str, command: &str) -> Self {
-        Self { id: Uuid::new_v4(), name: name.into(), command: command.into(), run: true }
+        Self {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            command: command.into(),
+            run: true,
+        }
     }
 }
 

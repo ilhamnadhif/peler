@@ -27,26 +27,57 @@ pub const PRESETS: &[FontPreset] = &[
     FontPreset {
         name: "Menlo",
         path: Some("/System/Library/Fonts/Menlo.ttc"),
-        faces: [Some((None, 0)), Some((None, 1)), Some((None, 2)), Some((None, 3))],
+        faces: [
+            Some((None, 0)),
+            Some((None, 1)),
+            Some((None, 2)),
+            Some((None, 3)),
+        ],
     },
     FontPreset {
         name: "SF Mono",
         path: Some("/System/Library/Fonts/SFNSMono.ttf"),
-        faces: [Some((None, 0)), None, Some((Some("/System/Library/Fonts/SFNSMonoItalic.ttf"), 0)), None],
+        faces: [
+            Some((None, 0)),
+            None,
+            Some((Some("/System/Library/Fonts/SFNSMonoItalic.ttf"), 0)),
+            None,
+        ],
     },
-    FontPreset { name: "Monaco", path: Some("/System/Library/Fonts/Monaco.ttf"), faces: [Some((None, 0)), None, None, None] },
+    FontPreset {
+        name: "Monaco",
+        path: Some("/System/Library/Fonts/Monaco.ttf"),
+        faces: [Some((None, 0)), None, None, None],
+    },
     FontPreset {
         name: "Courier New",
         path: Some("/System/Library/Fonts/Supplemental/Courier New.ttf"),
         faces: [
             Some((None, 0)),
-            Some((Some("/System/Library/Fonts/Supplemental/Courier New Bold.ttf"), 0)),
-            Some((Some("/System/Library/Fonts/Supplemental/Courier New Italic.ttf"), 0)),
-            Some((Some("/System/Library/Fonts/Supplemental/Courier New Bold Italic.ttf"), 0)),
+            Some((
+                Some("/System/Library/Fonts/Supplemental/Courier New Bold.ttf"),
+                0,
+            )),
+            Some((
+                Some("/System/Library/Fonts/Supplemental/Courier New Italic.ttf"),
+                0,
+            )),
+            Some((
+                Some("/System/Library/Fonts/Supplemental/Courier New Bold Italic.ttf"),
+                0,
+            )),
         ],
     },
-    FontPreset { name: "Andale Mono", path: Some("/System/Library/Fonts/Supplemental/Andale Mono.ttf"), faces: [Some((None, 0)), None, None, None] },
-    FontPreset { name: "Hack (built-in)", path: None, faces: [None, None, None, None] },
+    FontPreset {
+        name: "Andale Mono",
+        path: Some("/System/Library/Fonts/Supplemental/Andale Mono.ttf"),
+        faces: [Some((None, 0)), None, None, None],
+    },
+    FontPreset {
+        name: "Hack (built-in)",
+        path: None,
+        faces: [None, None, None, None],
+    },
 ];
 
 const CJK_FALLBACKS: &[(&str, &str)] = &[
@@ -75,7 +106,9 @@ fn mapped(path: &Path) -> Option<&'static [u8]> {
 }
 
 fn add_face(defs: &mut FontDefinitions, key: &str, path: &Path, index: u32) -> bool {
-    let Some(bytes) = mapped(path) else { return false };
+    let Some(bytes) = mapped(path) else {
+        return false;
+    };
     let mut data = FontData::from_static(bytes);
     data.index = index;
     defs.font_data.insert(key.to_string(), Arc::new(data));
@@ -92,7 +125,10 @@ pub fn preset(choice: &FontChoice) -> Option<&'static FontPreset> {
 pub fn definitions(choice: &FontChoice, load_cjk: bool) -> FontDefinitions {
     let mut defs = FontDefinitions::default();
     // egui's bundled fonts: Hack, Ubuntu-Light, NotoEmoji-Regular, emoji-icon-font.
-    let emoji: Vec<String> = ["NotoEmoji-Regular", "emoji-icon-font"].iter().map(|s| s.to_string()).collect();
+    let emoji: Vec<String> = ["NotoEmoji-Regular", "emoji-icon-font"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
 
     let mut fallbacks: Vec<String> = Vec::new();
     if add_face(&mut defs, SYMBOLS.0, Path::new(SYMBOLS.1), 0) {
@@ -124,10 +160,15 @@ pub fn definitions(choice: &FontChoice, load_cjk: bool) -> FontDefinitions {
                 }
             }
         }
-        (None, Some(path)) => {
-            if add_face(&mut defs, TERM_REGULAR, &crate::paths::expand_tilde(path), choice.index) {
-                faces[0] = Some(TERM_REGULAR.to_string());
-            }
+        (None, Some(path))
+            if add_face(
+                &mut defs,
+                TERM_REGULAR,
+                &crate::paths::expand_tilde(path),
+                choice.index,
+            ) =>
+        {
+            faces[0] = Some(TERM_REGULAR.to_string());
         }
         _ => {}
     }
@@ -138,7 +179,8 @@ pub fn definitions(choice: &FontChoice, load_cjk: bool) -> FontDefinitions {
         family.push("Hack".into());
         family.extend(fallbacks.iter().cloned());
         family.dedup();
-        defs.families.insert(FontFamily::Name((*key).into()), family);
+        defs.families
+            .insert(FontFamily::Name((*key).into()), family);
     }
     let mut mono = vec![regular, "Hack".to_string()];
     mono.extend(fallbacks.iter().cloned());
@@ -174,7 +216,11 @@ pub fn apply(ctx: &egui::Context, choice: &FontChoice, load_cjk: bool) {
 /// The saved font, or Menlo when nothing is chosen yet.
 pub fn effective_choice(choice: &FontChoice) -> FontChoice {
     if choice.name.is_empty() && choice.path.is_none() {
-        FontChoice { name: "Menlo".into(), path: None, index: 0 }
+        FontChoice {
+            name: "Menlo".into(),
+            path: None,
+            index: 0,
+        }
     } else {
         choice.clone()
     }

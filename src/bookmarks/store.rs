@@ -38,8 +38,8 @@ impl BookmarkStore {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
         };
-        let file: StoreFile = serde_json::from_slice(&data)
-            .with_context(|| format!("parsing {}", path.display()))?;
+        let file: StoreFile =
+            serde_json::from_slice(&data).with_context(|| format!("parsing {}", path.display()))?;
         if file.schema_version > STORE_SCHEMA_VERSION {
             bail!(
                 "{} was written by a newer version of the app (schema {})",
@@ -53,7 +53,10 @@ impl BookmarkStore {
     }
 
     pub fn save(&self, path: &Path) -> Result<()> {
-        let file = StoreFile { schema_version: STORE_SCHEMA_VERSION, store: self.clone() };
+        let file = StoreFile {
+            schema_version: STORE_SCHEMA_VERSION,
+            store: self.clone(),
+        };
         let json = serde_json::to_vec_pretty(&file)?;
         paths::write_private(path, &json).with_context(|| format!("writing {}", path.display()))
     }
@@ -107,10 +110,10 @@ impl BookmarkStore {
         loop {
             let before = out.len();
             for g in &self.groups {
-                if let Some(p) = g.parent {
-                    if out.contains(&p) {
-                        out.insert(g.id);
-                    }
+                if let Some(p) = g.parent
+                    && out.contains(&p)
+                {
+                    out.insert(g.id);
                 }
             }
             if out.len() == before {
@@ -157,7 +160,9 @@ impl BookmarkStore {
         if group.is_some_and(|g| self.group(g).is_none()) {
             return;
         }
-        let Some(mut b) = self.remove_bookmark(id) else { return };
+        let Some(mut b) = self.remove_bookmark(id) else {
+            return;
+        };
         b.group = group;
         let idx = before
             .and_then(|bid| self.bookmarks.iter().position(|x| x.id == bid))
@@ -183,7 +188,9 @@ impl BookmarkStore {
     /// Deletes a group. Its bookmarks and sub-groups move up to the deleted group's parent, so
     /// deleting a group never deletes bookmarks.
     pub fn remove_group(&mut self, id: Uuid) {
-        let Some(idx) = self.groups.iter().position(|g| g.id == id) else { return };
+        let Some(idx) = self.groups.iter().position(|g| g.id == id) else {
+            return;
+        };
         let parent = self.groups[idx].parent;
         self.groups.remove(idx);
         for g in self.groups.iter_mut().filter(|g| g.parent == Some(id)) {
@@ -200,12 +207,14 @@ impl BookmarkStore {
         if before == Some(id) {
             return false;
         }
-        if let Some(p) = parent {
-            if self.group(p).is_none() || self.group_and_descendants(id).contains(&p) {
-                return false;
-            }
+        if let Some(p) = parent
+            && (self.group(p).is_none() || self.group_and_descendants(id).contains(&p))
+        {
+            return false;
         }
-        let Some(idx) = self.groups.iter().position(|g| g.id == id) else { return false };
+        let Some(idx) = self.groups.iter().position(|g| g.id == id) else {
+            return false;
+        };
         let mut g = self.groups.remove(idx);
         g.parent = parent;
         let idx = before
@@ -217,7 +226,11 @@ impl BookmarkStore {
 
     /// Finds a group by name under `parent`, creating it if needed.
     pub fn ensure_group(&mut self, name: &str, parent: Option<Uuid>) -> Uuid {
-        if let Some(g) = self.groups.iter().find(|g| g.parent == parent && g.name == name) {
+        if let Some(g) = self
+            .groups
+            .iter()
+            .find(|g| g.parent == parent && g.name == name)
+        {
             return g.id;
         }
         self.add_group(name, parent)
@@ -247,7 +260,11 @@ impl BookmarkStore {
                     self.groups[i].parent = None;
                     break;
                 }
-                cur = self.groups.iter().find(|g| g.id == p).and_then(|g| g.parent);
+                cur = self
+                    .groups
+                    .iter()
+                    .find(|g| g.id == p)
+                    .and_then(|g| g.parent);
             }
         }
         for b in &mut self.bookmarks {
@@ -263,7 +280,12 @@ mod tests {
     use super::*;
 
     fn bm(name: &str, group: Option<Uuid>) -> Bookmark {
-        Bookmark { name: name.into(), host: format!("{name}.example"), group, ..Default::default() }
+        Bookmark {
+            name: name.into(),
+            host: format!("{name}.example"),
+            group,
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -285,8 +307,15 @@ mod tests {
     fn missing_file_is_empty_and_newer_schema_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("none.json");
-        assert_eq!(BookmarkStore::load(&path).unwrap(), BookmarkStore::default());
-        std::fs::write(&path, r#"{"schema_version": 99, "groups": [], "bookmarks": []}"#).unwrap();
+        assert_eq!(
+            BookmarkStore::load(&path).unwrap(),
+            BookmarkStore::default()
+        );
+        std::fs::write(
+            &path,
+            r#"{"schema_version": 99, "groups": [], "bookmarks": []}"#,
+        )
+        .unwrap();
         let err = BookmarkStore::load(&path).unwrap_err().to_string();
         assert!(err.contains("newer"), "{err}");
     }
@@ -346,6 +375,9 @@ mod tests {
         s.sanitize();
         assert!(s.groups.iter().any(|g| g.parent.is_none()));
         assert_eq!(s.bookmarks[0].group, None);
-        assert_eq!(s.group_and_descendants(a).len() + s.group_and_descendants(b).len(), 3);
+        assert_eq!(
+            s.group_and_descendants(a).len() + s.group_and_descendants(b).len(),
+            3
+        );
     }
 }

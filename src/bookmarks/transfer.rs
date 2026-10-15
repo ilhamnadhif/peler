@@ -55,11 +55,19 @@ pub fn export(
         ExportScope::All => store.bookmarks.clone(),
         ExportScope::Group(gid) => {
             let set = store.group_and_descendants(*gid);
-            store.bookmarks.iter().filter(|b| b.group.is_some_and(|g| set.contains(&g))).cloned().collect()
+            store
+                .bookmarks
+                .iter()
+                .filter(|b| b.group.is_some_and(|g| set.contains(&g)))
+                .cloned()
+                .collect()
         }
-        ExportScope::Selected(ids) => {
-            store.bookmarks.iter().filter(|b| ids.contains(&b.id)).cloned().collect()
-        }
+        ExportScope::Selected(ids) => store
+            .bookmarks
+            .iter()
+            .filter(|b| ids.contains(&b.id))
+            .cloned()
+            .collect(),
     };
 
     // Keep every group on the path to an exported bookmark so the tree survives the trip,
@@ -69,7 +77,11 @@ pub fn export(
         ExportScope::Group(gid) => store.group_and_descendants(*gid),
         ExportScope::Selected(_) => HashSet::new(),
     };
-    let starts: Vec<Uuid> = bookmarks.iter().filter_map(|b| b.group).chain(keep.clone()).collect();
+    let starts: Vec<Uuid> = bookmarks
+        .iter()
+        .filter_map(|b| b.group)
+        .chain(keep.clone())
+        .collect();
     for start in starts {
         let mut cur = Some(start);
         while let Some(gid) = cur {
@@ -79,7 +91,12 @@ pub fn export(
             cur = store.group(gid).and_then(|g| g.parent);
         }
     }
-    let groups: Vec<Group> = store.groups.iter().filter(|g| keep.contains(&g.id)).cloned().collect();
+    let groups: Vec<Group> = store
+        .groups
+        .iter()
+        .filter(|g| keep.contains(&g.id))
+        .cloned()
+        .collect();
 
     let credentials = match passphrase {
         Some(pass) => {
@@ -124,8 +141,13 @@ pub enum MatchedBy {
 pub enum ItemStatus {
     New,
     /// Already present with the same content: nothing to do.
-    Identical { existing: Uuid },
-    Conflict { existing: Uuid, matched_by: MatchedBy },
+    Identical {
+        existing: Uuid,
+    },
+    Conflict {
+        existing: Uuid,
+        matched_by: MatchedBy,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -172,7 +194,8 @@ pub struct Incoming {
 /// Detects the file format and parses it. `ssh_config_name` hints that a non-JSON file should
 /// be read as an OpenSSH config.
 pub fn read_import(data: &[u8]) -> Result<Incoming> {
-    let text = std::str::from_utf8(data).map_err(|_| anyhow!("{}", t("The file is not UTF-8 text.")))?;
+    let text =
+        std::str::from_utf8(data).map_err(|_| anyhow!("{}", t("The file is not UTF-8 text.")))?;
     let value: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(json_err) => {
@@ -180,7 +203,13 @@ pub fn read_import(data: &[u8]) -> Result<Incoming> {
             if !hosts.is_empty() {
                 return Ok(from_ssh_config(&hosts));
             }
-            bail!("{}", tf("The file is not valid JSON or an SSH config file: {}", &[&json_err.to_string()]));
+            bail!(
+                "{}",
+                tf(
+                    "The file is not valid JSON or an SSH config file: {}",
+                    &[&json_err.to_string()]
+                )
+            );
         }
     };
     if value.get("schema_version").is_some() {
@@ -189,11 +218,19 @@ pub fn read_import(data: &[u8]) -> Result<Incoming> {
     if electerm::looks_like_electerm(&value) {
         return electerm::read(&value);
     }
-    bail!("{}", t("Unrecognized file format: expected a peler export, an Electerm bookmark export or an SSH config."))
+    bail!(
+        "{}",
+        t(
+            "Unrecognized file format: expected a peler export, an Electerm bookmark export or an SSH config."
+        )
+    )
 }
 
 fn read_peler(value: serde_json::Value) -> Result<Incoming> {
-    let version = value.get("schema_version").and_then(|v| v.as_u64()).unwrap_or(0);
+    let version = value
+        .get("schema_version")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     if version > EXPORT_SCHEMA_VERSION as u64 {
         bail!(
             "{}",
@@ -206,12 +243,26 @@ fn read_peler(value: serde_json::Value) -> Result<Incoming> {
     if version == 0 {
         bail!("Invalid schema_version in export file.");
     }
-    let file: ExportFile = serde_json::from_value(value)
-        .map_err(|e| anyhow!("{}", tf("The export file is damaged or incomplete: {}", &[&e.to_string()])))?;
+    let file: ExportFile = serde_json::from_value(value).map_err(|e| {
+        anyhow!(
+            "{}",
+            tf(
+                "The export file is damaged or incomplete: {}",
+                &[&e.to_string()]
+            )
+        )
+    })?;
     let mut warnings = Vec::new();
     let ids: HashSet<Uuid> = file.groups.iter().map(|g| g.id).collect();
-    if file.bookmarks.iter().any(|b| b.group.is_some_and(|g| !ids.contains(&g))) {
-        warnings.push(t("Some bookmarks refer to missing groups; they will be placed at the top level.").into());
+    if file
+        .bookmarks
+        .iter()
+        .any(|b| b.group.is_some_and(|g| !ids.contains(&g)))
+    {
+        warnings.push(
+            t("Some bookmarks refer to missing groups; they will be placed at the top level.")
+                .into(),
+        );
     }
     Ok(Incoming {
         kind: SourceKind::Peler,
@@ -230,7 +281,10 @@ pub fn from_ssh_config(hosts: &[ssh_config::SshConfigHost]) -> Incoming {
         .iter()
         .map(|h| Bookmark {
             // Stable id per alias so re-importing the same config matches by id.
-            id: Uuid::new_v5(&Uuid::NAMESPACE_URL, format!("ssh-config:{}", h.alias).as_bytes()),
+            id: Uuid::new_v5(
+                &Uuid::NAMESPACE_URL,
+                format!("ssh-config:{}", h.alias).as_bytes(),
+            ),
             name: h.alias.clone(),
             host: h.hostname.clone().unwrap_or_else(|| h.alias.clone()),
             port: h.port.unwrap_or(super::DEFAULT_PORT),
@@ -269,30 +323,46 @@ impl ImportPlan {
                     });
                 }
             }
-            incoming.groups.iter().map(|g| (g.id, temp.group_path(Some(group_map[&g.id])))).collect()
+            incoming
+                .groups
+                .iter()
+                .map(|g| (g.id, temp.group_path(Some(group_map[&g.id]))))
+                .collect()
         };
 
         let mut items = Vec::new();
         let mut endpoint_taken = HashSet::new();
         for mut b in incoming.bookmarks {
-            let group_path = b.group.and_then(|g| names.get(&g).cloned()).unwrap_or_default();
+            let group_path = b
+                .group
+                .and_then(|g| names.get(&g).cloned())
+                .unwrap_or_default();
             b.group = b.group.and_then(|g| group_map.get(&g).copied());
             let secrets = incoming.secrets.get(&b.id).cloned().unwrap_or_default();
-            let existing = store.bookmark(b.id).map(|e| (e, MatchedBy::Id)).or_else(|| {
-                store
-                    .bookmarks
-                    .iter()
-                    .find(|e| e.same_endpoint(&b) && !endpoint_taken.contains(&e.id))
-                    .map(|e| (e, MatchedBy::Endpoint))
-            });
+            let existing = store
+                .bookmark(b.id)
+                .map(|e| (e, MatchedBy::Id))
+                .or_else(|| {
+                    store
+                        .bookmarks
+                        .iter()
+                        .find(|e| e.same_endpoint(&b) && !endpoint_taken.contains(&e.id))
+                        .map(|e| (e, MatchedBy::Endpoint))
+                });
             let status = match existing {
                 Some((e, by)) => {
                     endpoint_taken.insert(e.id);
-                    let same = Bookmark { id: e.id, ..b.clone() } == *e;
+                    let same = Bookmark {
+                        id: e.id,
+                        ..b.clone()
+                    } == *e;
                     if same && secrets.is_empty() {
                         ItemStatus::Identical { existing: e.id }
                     } else {
-                        ItemStatus::Conflict { existing: e.id, matched_by: by }
+                        ItemStatus::Conflict {
+                            existing: e.id,
+                            matched_by: by,
+                        }
                     }
                 }
                 None => ItemStatus::New,
@@ -301,7 +371,13 @@ impl ImportPlan {
                 ItemStatus::New => Resolution::Add,
                 _ => Resolution::Skip,
             };
-            items.push(ImportItem { incoming: b, group_path, secrets, status, resolution });
+            items.push(ImportItem {
+                incoming: b,
+                group_path,
+                secrets,
+                status,
+                resolution,
+            });
         }
 
         ImportPlan {
@@ -315,7 +391,9 @@ impl ImportPlan {
 
     /// Decrypts the exported credentials and attaches them to the matching items.
     pub fn unlock_credentials(&mut self, passphrase: &str) -> Result<usize> {
-        let Some(blob) = &self.encrypted_credentials else { return Ok(0) };
+        let Some(blob) = &self.encrypted_credentials else {
+            return Ok(0);
+        };
         let plain = crypto::decrypt(passphrase, blob)?;
         let map: BTreeMap<Uuid, SecretSet> = serde_json::from_slice(&plain)
             .map_err(|e| anyhow!("Decrypted credentials are malformed: {e}"))?;
@@ -326,7 +404,10 @@ impl ImportPlan {
                 n += 1;
                 // Identical bookmark but new credentials: offer to update.
                 if let ItemStatus::Identical { existing } = item.status {
-                    item.status = ItemStatus::Conflict { existing, matched_by: MatchedBy::Id };
+                    item.status = ItemStatus::Conflict {
+                        existing,
+                        matched_by: MatchedBy::Id,
+                    };
                 }
             }
         }
@@ -335,7 +416,10 @@ impl ImportPlan {
     }
 
     pub fn conflicts(&self) -> usize {
-        self.items.iter().filter(|i| matches!(i.status, ItemStatus::Conflict { .. })).count()
+        self.items
+            .iter()
+            .filter(|i| matches!(i.status, ItemStatus::Conflict { .. }))
+            .count()
     }
 
     /// Sets the same resolution on every conflicting item.
@@ -429,15 +513,19 @@ fn map_groups(groups: &[Group], store: &BookmarkStore) -> HashMap<Uuid, Uuid> {
     while !pending.is_empty() && guard <= groups.len() {
         guard += 1;
         pending.retain(|g| {
-            let parent_ready = g.parent.is_none_or(|p| map.contains_key(&p) || !incoming_ids.contains(&p));
+            let parent_ready = g
+                .parent
+                .is_none_or(|p| map.contains_key(&p) || !incoming_ids.contains(&p));
             if !parent_ready {
                 return true;
             }
             let parent = g.parent.and_then(|p| map.get(&p).copied());
             let local = if store.group(g.id).is_some() {
                 g.id
-            } else if let Some(same) =
-                store.groups.iter().find(|x| x.parent == parent && x.name == g.name)
+            } else if let Some(same) = store
+                .groups
+                .iter()
+                .find(|x| x.parent == parent && x.name == g.name)
             {
                 same.id
             } else {
@@ -480,18 +568,36 @@ mod tests {
             host: "db.internal".into(),
             port: 2222,
             username: "postgres".into(),
-            auth: Auth::Key { path: "~/.ssh/id_ed25519".into() },
+            auth: Auth::Key {
+                path: "~/.ssh/id_ed25519".into(),
+            },
             group: Some(db),
             ..Default::default()
         });
-        s.upsert_bookmark(Bookmark { name: "loose".into(), host: "1.2.3.4".into(), ..Default::default() });
+        s.upsert_bookmark(Bookmark {
+            name: "loose".into(),
+            host: "1.2.3.4".into(),
+            ..Default::default()
+        });
         s
     }
 
     fn secrets_for(store: &BookmarkStore) -> HashMap<Uuid, SecretSet> {
         let mut m = HashMap::new();
-        m.insert(store.bookmarks[0].id, SecretSet { password: Some("hunter2".into()), ..Default::default() });
-        m.insert(store.bookmarks[1].id, SecretSet { passphrase: Some("key pass".into()), ..Default::default() });
+        m.insert(
+            store.bookmarks[0].id,
+            SecretSet {
+                password: Some("hunter2".into()),
+                ..Default::default()
+            },
+        );
+        m.insert(
+            store.bookmarks[1].id,
+            SecretSet {
+                passphrase: Some("key pass".into()),
+                ..Default::default()
+            },
+        );
         m
     }
 
@@ -505,7 +611,10 @@ mod tests {
         .unwrap();
         let json = serde_json::to_vec_pretty(&file).unwrap();
         let text = String::from_utf8(json.clone()).unwrap();
-        assert!(!text.contains("hunter2") && !text.contains("key pass"), "secrets must be encrypted");
+        assert!(
+            !text.contains("hunter2") && !text.contains("key pass"),
+            "secrets must be encrypted"
+        );
 
         let mut dst = BookmarkStore::default();
         let mut plan = ImportPlan::new(read_import(&json).unwrap(), &dst);
@@ -528,7 +637,10 @@ mod tests {
     #[test]
     fn export_without_passphrase_has_no_credentials() {
         let src = sample_store();
-        let file = export(&src, &ExportScope::All, None, |_| panic!("must not read secrets")).unwrap();
+        let file = export(&src, &ExportScope::All, None, |_| {
+            panic!("must not read secrets")
+        })
+        .unwrap();
         assert!(file.credentials.is_none());
         let v = serde_json::to_value(&file).unwrap();
         for key in ["schema_version", "exported_at", "groups", "bookmarks"] {
@@ -541,17 +653,26 @@ mod tests {
         let src = sample_store();
         let prod = src.groups[0].id;
         let db = src.groups[1].id;
-        let f = export(&src, &ExportScope::Group(db), None, |_| SecretSet::default()).unwrap();
+        let f = export(&src, &ExportScope::Group(db), None, |_| {
+            SecretSet::default()
+        })
+        .unwrap();
         assert_eq!(f.bookmarks.len(), 1);
         let gids: Vec<_> = f.groups.iter().map(|g| g.id).collect();
         assert_eq!(gids, [prod, db], "ancestors are kept so the path survives");
 
-        let f = export(&src, &ExportScope::Group(prod), None, |_| SecretSet::default()).unwrap();
+        let f = export(&src, &ExportScope::Group(prod), None, |_| {
+            SecretSet::default()
+        })
+        .unwrap();
         assert_eq!(f.bookmarks.len(), 2);
         assert_eq!(f.groups.len(), 3, "includes the empty sub-group");
 
         let loose = src.bookmarks[2].id;
-        let f = export(&src, &ExportScope::Selected(vec![loose]), None, |_| SecretSet::default()).unwrap();
+        let f = export(&src, &ExportScope::Selected(vec![loose]), None, |_| {
+            SecretSet::default()
+        })
+        .unwrap();
         assert_eq!(f.bookmarks.len(), 1);
         assert!(f.groups.is_empty());
     }
@@ -562,8 +683,11 @@ mod tests {
         let src = local.clone();
         // Changed copy of web-1 (same id) and a different-id bookmark to the same endpoint as pg.
         local.bookmarks[0].notes = "local edit".into();
-        let pg_endpoint_twin =
-            Bookmark { id: Uuid::new_v4(), notes: "twin".into(), ..src.bookmarks[1].clone() };
+        let pg_endpoint_twin = Bookmark {
+            id: Uuid::new_v4(),
+            notes: "twin".into(),
+            ..src.bookmarks[1].clone()
+        };
         let file = ExportFile {
             schema_version: 1,
             exported_at: Utc::now(),
@@ -575,8 +699,20 @@ mod tests {
         let json = serde_json::to_vec(&file).unwrap();
         let mut plan = ImportPlan::new(read_import(&json).unwrap(), &local);
         assert_eq!(plan.conflicts(), 2);
-        assert!(matches!(plan.items[0].status, ItemStatus::Conflict { matched_by: MatchedBy::Id, .. }));
-        assert!(matches!(plan.items[1].status, ItemStatus::Conflict { matched_by: MatchedBy::Endpoint, .. }));
+        assert!(matches!(
+            plan.items[0].status,
+            ItemStatus::Conflict {
+                matched_by: MatchedBy::Id,
+                ..
+            }
+        ));
+        assert!(matches!(
+            plan.items[1].status,
+            ItemStatus::Conflict {
+                matched_by: MatchedBy::Endpoint,
+                ..
+            }
+        ));
         assert_eq!(plan.summary(), (0, 0, 2), "conflicts default to skip");
 
         plan.items[0].resolution = Resolution::Overwrite;
@@ -592,7 +728,8 @@ mod tests {
 
     #[test]
     fn rejects_newer_schema_and_garbage() {
-        let err = read_import(br#"{"schema_version": 7, "groups": [], "bookmarks": []}"#).unwrap_err();
+        let err =
+            read_import(br#"{"schema_version": 7, "groups": [], "bookmarks": []}"#).unwrap_err();
         assert!(err.to_string().contains("newer"), "{err}");
         let err = read_import(br#"{"schema_version": 1, "bookmarks": [{"name": 3}]}"#).unwrap_err();
         assert!(err.to_string().contains("damaged"), "{err}");
@@ -605,21 +742,36 @@ mod tests {
         let mut local = BookmarkStore::default();
         let prod = local.add_group("Production", None);
         let src = sample_store();
-        let json = serde_json::to_vec(&export(&src, &ExportScope::All, None, |_| SecretSet::default()).unwrap()).unwrap();
+        let json = serde_json::to_vec(
+            &export(&src, &ExportScope::All, None, |_| SecretSet::default()).unwrap(),
+        )
+        .unwrap();
         let plan = ImportPlan::new(read_import(&json).unwrap(), &local);
         plan.apply(&mut local);
-        assert_eq!(local.child_groups(None).filter(|g| g.name == "Production").count(), 1);
+        assert_eq!(
+            local
+                .child_groups(None)
+                .filter(|g| g.name == "Production")
+                .count(),
+            1
+        );
         assert_eq!(local.bookmarks[0].group, Some(prod));
         assert_eq!(local.child_groups(Some(prod)).count(), 2);
     }
 
     #[test]
     fn ssh_config_import_is_idempotent() {
-        let hosts = ssh_config::parse_str("Host a\n HostName 1.1.1.1\n User u\n IdentityFile ~/.ssh/k\n");
+        let hosts =
+            ssh_config::parse_str("Host a\n HostName 1.1.1.1\n User u\n IdentityFile ~/.ssh/k\n");
         let mut store = BookmarkStore::default();
         ImportPlan::new(from_ssh_config(&hosts), &store).apply(&mut store);
         assert_eq!(store.bookmarks.len(), 1);
-        assert_eq!(store.bookmarks[0].auth, Auth::Key { path: "~/.ssh/k".into() });
+        assert_eq!(
+            store.bookmarks[0].auth,
+            Auth::Key {
+                path: "~/.ssh/k".into()
+            }
+        );
         let plan = ImportPlan::new(from_ssh_config(&hosts), &store);
         assert_eq!(plan.summary(), (0, 0, 1));
     }

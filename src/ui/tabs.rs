@@ -74,11 +74,19 @@ pub struct PromptInput {
 }
 
 fn spec(bookmark: &Bookmark, env: &Env) -> ConnectSpec {
-    ConnectSpec { bookmark: bookmark.clone(), keepalive_secs: env.settings.keepalive_secs, known_hosts: env.known_hosts.clone() }
+    ConnectSpec {
+        bookmark: bookmark.clone(),
+        keepalive_secs: env.settings.keepalive_secs,
+        known_hosts: env.known_hosts.clone(),
+    }
 }
 
 fn new_pane(id: PaneId, size: GridSize, env: &Env) -> (Pane, mpsc::UnboundedReceiver<PaneInput>) {
-    let config = tcore::term_config(env.settings.scrollback, env.settings.cursor_style, env.settings.cursor_blink);
+    let config = tcore::term_config(
+        env.settings.scrollback,
+        env.settings.cursor_style,
+        env.settings.cursor_blink,
+    );
     let (shared, events) = tcore::new_terminal(config, size, QueryPalette::from(env.scheme));
     let feeder = Arc::new(Mutex::new(Feeder::new(shared.clone(), events)));
     let (tx, rx) = mpsc::unbounded_channel();
@@ -93,10 +101,20 @@ fn new_pane(id: PaneId, size: GridSize, env: &Env) -> (Pane, mpsc::UnboundedRece
     (pane, rx)
 }
 
-fn pane_start(pane: &Pane, rx: mpsc::UnboundedReceiver<PaneInput>, bookmark: &Bookmark, first: bool) -> PaneStart {
+fn pane_start(
+    pane: &Pane,
+    rx: mpsc::UnboundedReceiver<PaneInput>,
+    bookmark: &Bookmark,
+    first: bool,
+) -> PaneStart {
     let (cols, rows, px_w, px_h) = {
         let w = *pane.shared.window.lock();
-        (w.num_cols as u32, w.num_lines as u32, w.num_cols as u32 * w.cell_width as u32, w.num_lines as u32 * w.cell_height as u32)
+        (
+            w.num_cols as u32,
+            w.num_lines as u32,
+            w.num_cols as u32 * w.cell_width as u32,
+            w.num_lines as u32 * w.cell_height as u32,
+        )
     };
     PaneStart {
         feeder: pane.feeder.clone(),
@@ -107,7 +125,11 @@ fn pane_start(pane: &Pane, rx: mpsc::UnboundedReceiver<PaneInput>, bookmark: &Bo
         px_w,
         px_h,
         start_dir: bookmark.start_dir.clone(),
-        startup_command: if first { bookmark.startup_command.clone() } else { String::new() },
+        startup_command: if first {
+            bookmark.startup_command.clone()
+        } else {
+            String::new()
+        },
         status: pane.status.clone(),
     }
 }
@@ -154,10 +176,14 @@ impl Tab {
 
     /// Splits the focused pane, opening a new shell on the same connection.
     pub fn split(&mut self, new_id: PaneId, dir: SplitDir, env: &Env) {
-        let size = self.focused_pane().and_then(|p| p.view.grid).unwrap_or(GridSize { cols: 80, rows: 24 });
+        let size = self
+            .focused_pane()
+            .and_then(|p| p.view.grid)
+            .unwrap_or(GridSize { cols: 80, rows: 24 });
         let (pane, rx) = new_pane(new_id, size, env);
         if self.state().is_connected() || !self.state().is_closed() {
-            self.conn.open_shell(pane_start(&pane, rx, &self.bookmark, false));
+            self.conn
+                .open_shell(pane_start(&pane, rx, &self.bookmark, false));
         }
         self.panes.push(pane);
         self.layout.split(self.focused, new_id, dir);
@@ -190,8 +216,12 @@ impl Tab {
             let (tx, rx) = mpsc::unbounded_channel();
             pane.input = tx;
             *pane.status.lock() = PaneStatus::Starting;
-            tcore::write_status(&mut pane.feeder.lock(), &format!("— {} —", crate::i18n::t("reconnecting")));
-            self.conn.open_shell(pane_start(pane, rx, &bookmark, i == 0));
+            tcore::write_status(
+                &mut pane.feeder.lock(),
+                &format!("— {} —", crate::i18n::t("reconnecting")),
+            );
+            self.conn
+                .open_shell(pane_start(pane, rx, &bookmark, i == 0));
         }
     }
 
@@ -225,7 +255,11 @@ impl Tab {
     /// Applies terminal settings (scrollback, cursor, colours) to every pane.
     pub fn apply_settings(&self, settings: &Settings, scheme: &Scheme) {
         for p in &self.panes {
-            let config = tcore::term_config(settings.scrollback, settings.cursor_style, settings.cursor_blink);
+            let config = tcore::term_config(
+                settings.scrollback,
+                settings.cursor_style,
+                settings.cursor_blink,
+            );
             p.shared.term.lock().set_options(config);
             *p.shared.palette.lock() = QueryPalette::from(scheme);
         }

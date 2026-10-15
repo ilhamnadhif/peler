@@ -21,8 +21,11 @@ pub enum SecretKind {
 }
 
 impl SecretKind {
-    pub const ALL: [SecretKind; 3] =
-        [SecretKind::Password, SecretKind::Passphrase, SecretKind::PrivateKey];
+    pub const ALL: [SecretKind; 3] = [
+        SecretKind::Password,
+        SecretKind::Passphrase,
+        SecretKind::PrivateKey,
+    ];
 
     fn suffix(self) -> &'static str {
         match self {
@@ -182,10 +185,24 @@ mod tests {
         let id = Uuid::new_v4();
         assert_eq!(get(id, SecretKind::Password).unwrap(), None);
         set(id, SecretKind::Password, Some("pw")).unwrap();
-        store_set(id, &SecretSet { passphrase: Some("pp".into()), ..Default::default() }).unwrap();
+        store_set(
+            id,
+            &SecretSet {
+                passphrase: Some("pp".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let other = Uuid::new_v4();
         copy_all(id, other);
-        assert_eq!(load_set(other), SecretSet { password: Some("pw".into()), passphrase: Some("pp".into()), private_key: None });
+        assert_eq!(
+            load_set(other),
+            SecretSet {
+                password: Some("pw".into()),
+                passphrase: Some("pp".into()),
+                private_key: None
+            }
+        );
         set(id, SecretKind::Password, Some("")).unwrap();
         assert!(!has(id, SecretKind::Password));
         delete_all(other);

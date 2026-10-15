@@ -13,8 +13,12 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::Context;
 use parking_lot::Mutex;
-use russh::client::{self, AuthResult, DisconnectReason, Handle, KeyboardInteractiveAuthResponse, Msg};
-use russh::keys::{HashAlg, PrivateKey, PrivateKeyWithHashAlg, PublicKeyOrCertificate, known_hosts};
+use russh::client::{
+    self, AuthResult, DisconnectReason, Handle, KeyboardInteractiveAuthResponse, Msg,
+};
+use russh::keys::{
+    HashAlg, PrivateKey, PrivateKeyWithHashAlg, PublicKeyOrCertificate, known_hosts,
+};
 use russh::{ChannelMsg, ChannelWriteHalf, Disconnect, MethodKind, Pty, cipher, kex, mac};
 use russh_sftp::client::SftpSession;
 use tokio::sync::{Notify, mpsc, oneshot};
@@ -46,7 +50,12 @@ pub struct ConnectSpec {
 #[derive(Debug)]
 pub enum PaneInput {
     Data(Vec<u8>),
-    Resize { cols: u32, rows: u32, px_w: u32, px_h: u32 },
+    Resize {
+        cols: u32,
+        rows: u32,
+        px_w: u32,
+        px_h: u32,
+    },
     Close,
 }
 
@@ -109,7 +118,9 @@ impl Connection {
 
     /// Opens a shell channel once the connection is up (queued until then).
     pub fn open_shell(&self, pane: PaneStart) {
-        if let Err(mpsc::error::SendError(ConnCmd::OpenShell(pane))) = self.cmd_tx.send(ConnCmd::OpenShell(pane)) {
+        if let Err(mpsc::error::SendError(ConnCmd::OpenShell(pane))) =
+            self.cmd_tx.send(ConnCmd::OpenShell(pane))
+        {
             fail_pane(&pane, t("Not connected."));
         }
     }
@@ -117,7 +128,9 @@ impl Connection {
     /// Opens an SFTP session on this connection.
     pub fn open_sftp(&self) -> oneshot::Receiver<Result<SftpSession, String>> {
         let (tx, rx) = oneshot::channel();
-        if let Err(mpsc::error::SendError(ConnCmd::OpenSftp(tx))) = self.cmd_tx.send(ConnCmd::OpenSftp(tx)) {
+        if let Err(mpsc::error::SendError(ConnCmd::OpenSftp(tx))) =
+            self.cmd_tx.send(ConnCmd::OpenSftp(tx))
+        {
             let _ = tx.send(Err(t("Not connected.").into()));
         }
         rx
@@ -160,9 +173,10 @@ impl SshHandler {
             match known_hosts::check_known_hosts_path(&self.host, self.port, key, path) {
                 Ok(true) => Some(HostKeyCheck::Known),
                 Ok(false) => None,
-                Err(russh::keys::Error::KeyChanged { line }) => {
-                    Some(HostKeyCheck::Changed { file: path.to_path_buf(), line })
-                }
+                Err(russh::keys::Error::KeyChanged { line }) => Some(HostKeyCheck::Changed {
+                    file: path.to_path_buf(),
+                    line,
+                }),
                 Err(_) => None,
             }
         };
@@ -187,7 +201,10 @@ enum HostKeyCheck {
 impl client::Handler for SshHandler {
     type Error = anyhow::Error;
 
-    async fn check_server_key(&mut self, server_public_key: &PublicKeyOrCertificate) -> Result<bool, Self::Error> {
+    async fn check_server_key(
+        &mut self,
+        server_public_key: &PublicKeyOrCertificate,
+    ) -> Result<bool, Self::Error> {
         let key = server_public_key.public_key();
         let check = self.check_files(&key)?;
         let status = match &check {
@@ -198,13 +215,15 @@ impl client::Handler for SshHandler {
         let algorithm = key.algorithm().as_str().to_string();
         let fingerprint = key.fingerprint(HashAlg::Sha256).to_string();
         let (host, port) = (self.host.clone(), self.port);
-        let accepted = ask(&self.shared, &self.ctx, &self.prompting, |reply| Prompt::HostKey {
-            host,
-            port,
-            algorithm,
-            fingerprint,
-            status,
-            reply,
+        let accepted = ask(&self.shared, &self.ctx, &self.prompting, |reply| {
+            Prompt::HostKey {
+                host,
+                port,
+                algorithm,
+                fingerprint,
+                status,
+                reply,
+            }
         })
         .await
         .unwrap_or(false);
@@ -214,20 +233,27 @@ impl client::Handler for SshHandler {
             }
             return Ok(false);
         }
-        if let HostKeyCheck::Changed { file, line } = &check {
-            if *file == self.known_hosts {
-                keys::forget_known_host_line(file, *line)?;
-            }
+        if let HostKeyCheck::Changed { file, line } = &check
+            && *file == self.known_hosts
+        {
+            keys::forget_known_host_line(file, *line)?;
         }
         paths::ensure_private_dir(self.known_hosts.parent().unwrap_or(paths::data_dir()))?;
         known_hosts::learn_known_hosts_path(&self.host, self.port, &key, &self.known_hosts)?;
         Ok(true)
     }
 
-    async fn disconnected(&mut self, reason: DisconnectReason<Self::Error>) -> Result<(), Self::Error> {
+    async fn disconnected(
+        &mut self,
+        reason: DisconnectReason<Self::Error>,
+    ) -> Result<(), Self::Error> {
         let (message, result) = match reason {
             DisconnectReason::ReceivedDisconnect(info) => {
-                let m = if info.message.trim().is_empty() { format!("{:?}", info.reason_code) } else { info.message.clone() };
+                let m = if info.message.trim().is_empty() {
+                    format!("{:?}", info.reason_code)
+                } else {
+                    info.message.clone()
+                };
                 (m, Ok(()))
             }
             DisconnectReason::Error(e) => (format!("{e:#}"), Err(e)),
@@ -299,7 +325,12 @@ pub fn client_config(legacy: bool, keepalive_secs: u64) -> client::Config {
         ]);
         p.kex = kexes.into();
         let mut ciphers: Vec<cipher::Name> = p.cipher.to_vec();
-        ciphers.extend([cipher::AES_128_GCM, cipher::AES_256_CBC, cipher::AES_192_CBC, cipher::AES_128_CBC]);
+        ciphers.extend([
+            cipher::AES_128_GCM,
+            cipher::AES_256_CBC,
+            cipher::AES_192_CBC,
+            cipher::AES_128_CBC,
+        ]);
         p.cipher = ciphers.into();
         let mut macs: Vec<mac::Name> = p.mac.to_vec();
         macs.extend([mac::HMAC_SHA1_ETM, mac::HMAC_SHA1]);
@@ -314,15 +345,19 @@ fn classify_russh(e: anyhow::Error, key_changed: bool, host: &str) -> ConnError 
         return match re {
             russh::Error::UnknownKey if key_changed => ConnError::HostKeyChanged,
             russh::Error::UnknownKey => ConnError::HostKeyRejected,
-            russh::Error::Version => ConnError::Other(tf("{} did not answer as an SSH server.", &[host])),
+            russh::Error::Version => {
+                ConnError::Other(tf("{} did not answer as an SSH server.", &[host]))
+            }
             russh::Error::NoCommonAlgo { .. } => ConnError::Other(tf(
                 "No common algorithm with the server ({}). Try enabling legacy algorithms in the bookmark.",
                 &[&re.to_string()],
             )),
-            russh::Error::Disconnect | russh::Error::HUP => {
-                ConnError::Disconnected(t("the server closed the connection during the handshake").into())
+            russh::Error::Disconnect | russh::Error::HUP => ConnError::Disconnected(
+                t("the server closed the connection during the handshake").into(),
+            ),
+            russh::Error::IO(io) if io.kind() == std::io::ErrorKind::ConnectionRefused => {
+                ConnError::Refused
             }
-            russh::Error::IO(io) if io.kind() == std::io::ErrorKind::ConnectionRefused => ConnError::Refused,
             russh::Error::IO(io) => ConnError::Unreachable(io.to_string()),
             _ => ConnError::Other(re.to_string()),
         };
@@ -357,7 +392,9 @@ async fn tcp_connect(host: &str, port: u16) -> Result<tokio::net::TcpStream, Con
                 stream.set_nodelay(true).ok();
                 return Ok(stream);
             }
-            Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => last = ConnError::Refused,
+            Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => {
+                last = ConnError::Refused
+            }
             Ok(Err(e)) if e.kind() == std::io::ErrorKind::TimedOut => last = ConnError::Timeout,
             Ok(Err(e)) => last = ConnError::Unreachable(e.to_string()),
             Err(_) => last = ConnError::Timeout,
@@ -373,7 +410,12 @@ struct Flags {
     closed: Arc<Notify>,
 }
 
-async fn establish(spec: &ConnectSpec, shared: &Arc<Mutex<ConnShared>>, ctx: &Context, flags: &Flags) -> Result<SshHandle, ConnError> {
+async fn establish(
+    spec: &ConnectSpec,
+    shared: &Arc<Mutex<ConnShared>>,
+    ctx: &Context,
+    flags: &Flags,
+) -> Result<SshHandle, ConnError> {
     let b = &spec.bookmark;
     let host = b.host.trim().to_string();
     let stream = tcp_connect(&host, b.port).await?;
@@ -415,7 +457,10 @@ fn local_user() -> String {
 }
 
 async fn keychain_get(id: uuid::Uuid, kind: SecretKind) -> Option<String> {
-    tokio::task::spawn_blocking(move || secrets::get(id, kind).ok().flatten()).await.ok().flatten()
+    tokio::task::spawn_blocking(move || secrets::get(id, kind).ok().flatten())
+        .await
+        .ok()
+        .flatten()
 }
 
 async fn keychain_set(id: uuid::Uuid, kind: SecretKind, value: String) {
@@ -425,12 +470,17 @@ async fn keychain_set(id: uuid::Uuid, kind: SecretKind, value: String) {
 fn methods(r: &AuthResult) -> Vec<MethodKind> {
     match r {
         AuthResult::Success => Vec::new(),
-        AuthResult::Failure { remaining_methods, .. } => remaining_methods.iter().cloned().collect(),
+        AuthResult::Failure {
+            remaining_methods, ..
+        } => remaining_methods.iter().cloned().collect(),
     }
 }
 
 fn method_list(m: &[MethodKind]) -> String {
-    m.iter().map(|k| <&'static str>::from(k)).collect::<Vec<_>>().join(", ")
+    m.iter()
+        .map(<&'static str>::from)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 async fn authenticate(
@@ -441,32 +491,47 @@ async fn authenticate(
     prompting: &AtomicBool,
 ) -> Result<(), ConnError> {
     let b = &spec.bookmark;
-    let user = if b.username.trim().is_empty() { local_user() } else { b.username.trim().to_string() };
+    let user = if b.username.trim().is_empty() {
+        local_user()
+    } else {
+        b.username.trim().to_string()
+    };
     let other = |e: russh::Error| ConnError::Other(e.to_string());
 
     let key_text = match &b.auth {
         Auth::Password => None,
         Auth::Key { path } => {
             let path = paths::expand_tilde(path);
-            Some((keys::read_key_file(&path).map_err(|e| ConnError::KeyFile(e.to_string()))?, path.display().to_string()))
+            Some((
+                keys::read_key_file(&path).map_err(|e| ConnError::KeyFile(e.to_string()))?,
+                path.display().to_string(),
+            ))
         }
         Auth::KeychainKey => {
             let text = keychain_get(b.id, SecretKind::PrivateKey)
                 .await
-                .ok_or_else(|| ConnError::KeyFile(t("the private key is missing from the Keychain").into()))?;
+                .ok_or_else(|| {
+                    ConnError::KeyFile(t("the private key is missing from the Keychain").into())
+                })?;
             Some((text, "Keychain".to_string()))
         }
     };
 
     let mut fallback_methods: Option<Vec<MethodKind>> = None;
     if let Some((text, label)) = key_text {
-        let mut passphrase = if keys::is_encrypted(&text) { keychain_get(b.id, SecretKind::Passphrase).await } else { None };
+        let mut passphrase = if keys::is_encrypted(&text) {
+            keychain_get(b.id, SecretKind::Passphrase).await
+        } else {
+            None
+        };
         let mut save = false;
         let mut attempts = 0;
         let key: PrivateKey = loop {
             match keys::decode_key(&text, passphrase.as_deref()) {
                 Ok(k) => break k,
-                Err(e @ (KeyLoadError::NeedsPassphrase | KeyLoadError::WrongPassphrase)) if attempts < MAX_ATTEMPTS => {
+                Err(e @ (KeyLoadError::NeedsPassphrase | KeyLoadError::WrongPassphrase))
+                    if attempts < MAX_ATTEMPTS =>
+                {
                     let retry = e == KeyLoadError::WrongPassphrase;
                     let message = label.clone();
                     let answer = ask(shared, ctx, prompting, |reply| Prompt::Secret {
@@ -489,15 +554,16 @@ async fn authenticate(
         };
         let result = auth_publickey(handle, &user, key).await.map_err(other)?;
         if result.success() {
-            if save {
-                if let Some(p) = passphrase {
-                    keychain_set(b.id, SecretKind::Passphrase, p).await;
-                }
+            if save && let Some(p) = passphrase {
+                keychain_set(b.id, SecretKind::Passphrase, p).await;
             }
             return Ok(());
         }
         let remaining = methods(&result);
-        if !remaining.iter().any(|m| matches!(m, MethodKind::Password | MethodKind::KeyboardInteractive)) {
+        if !remaining
+            .iter()
+            .any(|m| matches!(m, MethodKind::Password | MethodKind::KeyboardInteractive))
+        {
             return Err(ConnError::AuthFailed(tf(
                 "the server rejected the key for user {} (server accepts: {})",
                 &[&user, &method_list(&remaining)],
@@ -507,7 +573,11 @@ async fn authenticate(
     }
 
     // Password (and keyboard-interactive, which many PAM setups use for passwords).
-    let mut stored = if fallback_methods.is_none() { keychain_get(b.id, SecretKind::Password).await } else { None };
+    let mut stored = if fallback_methods.is_none() {
+        keychain_get(b.id, SecretKind::Password).await
+    } else {
+        None
+    };
     let mut attempts = 0;
     let mut retry = false;
     loop {
@@ -529,7 +599,10 @@ async fn authenticate(
                 (answer.value, answer.save)
             }
         };
-        let result = handle.authenticate_password(&user, &password).await.map_err(other)?;
+        let result = handle
+            .authenticate_password(&user, &password)
+            .await
+            .map_err(other)?;
         let mut ok = result.success();
         let remaining = methods(&result);
         if !ok && remaining.contains(&MethodKind::KeyboardInteractive) {
@@ -541,7 +614,11 @@ async fn authenticate(
             }
             return Ok(());
         }
-        if !ok && !remaining.iter().any(|m| matches!(m, MethodKind::Password | MethodKind::KeyboardInteractive)) {
+        if !ok
+            && !remaining
+                .iter()
+                .any(|m| matches!(m, MethodKind::Password | MethodKind::KeyboardInteractive))
+        {
             return Err(ConnError::AuthFailed(tf(
                 "password login is not allowed for {} (server accepts: {})",
                 &[&user, &method_list(&remaining)],
@@ -555,7 +632,11 @@ async fn authenticate(
     }
 }
 
-async fn auth_publickey(handle: &mut SshHandle, user: &str, key: PrivateKey) -> Result<AuthResult, russh::Error> {
+async fn auth_publickey(
+    handle: &mut SshHandle,
+    user: &str,
+    key: PrivateKey,
+) -> Result<AuthResult, russh::Error> {
     let key = Arc::new(key);
     if key.algorithm().is_rsa() {
         let candidates: Vec<Option<HashAlg>> = match handle.best_supported_rsa_hash().await? {
@@ -564,7 +645,9 @@ async fn auth_publickey(handle: &mut SshHandle, user: &str, key: PrivateKey) -> 
         };
         let mut last = None;
         for hash in candidates {
-            let r = handle.authenticate_publickey(user, PrivateKeyWithHashAlg::new(key.clone(), hash)).await?;
+            let r = handle
+                .authenticate_publickey(user, PrivateKeyWithHashAlg::new(key.clone(), hash))
+                .await?;
             if r.success() {
                 return Ok(r);
             }
@@ -572,7 +655,9 @@ async fn auth_publickey(handle: &mut SshHandle, user: &str, key: PrivateKey) -> 
         }
         return Ok(last.expect("at least one candidate"));
     }
-    handle.authenticate_publickey(user, PrivateKeyWithHashAlg::new(key, None)).await
+    handle
+        .authenticate_publickey(user, PrivateKeyWithHashAlg::new(key, None))
+        .await
 }
 
 /// Keyboard-interactive login: password-like hidden prompts get the password, anything else
@@ -586,13 +671,20 @@ async fn keyboard_interactive(
     prompting: &AtomicBool,
 ) -> Result<bool, ConnError> {
     let other = |e: russh::Error| ConnError::Other(e.to_string());
-    let mut response = handle.authenticate_keyboard_interactive_start(user, None::<String>).await.map_err(other)?;
+    let mut response = handle
+        .authenticate_keyboard_interactive_start(user, None::<String>)
+        .await
+        .map_err(other)?;
     let mut password_used = false;
     for _ in 0..8 {
         match response {
             KeyboardInteractiveAuthResponse::Success => return Ok(true),
             KeyboardInteractiveAuthResponse::Failure { .. } => return Ok(false),
-            KeyboardInteractiveAuthResponse::InfoRequest { name, instructions, prompts } => {
+            KeyboardInteractiveAuthResponse::InfoRequest {
+                name,
+                instructions,
+                prompts,
+            } => {
                 let mut answers = Vec::new();
                 for p in prompts {
                     if !p.echo && p.prompt.to_lowercase().contains("password") && !password_used {
@@ -620,7 +712,10 @@ async fn keyboard_interactive(
                     .ok_or(ConnError::Cancelled)?;
                     answers.push(answer.value);
                 }
-                response = handle.authenticate_keyboard_interactive_respond(answers).await.map_err(other)?;
+                response = handle
+                    .authenticate_keyboard_interactive_respond(answers)
+                    .await
+                    .map_err(other)?;
             }
         }
     }
@@ -750,8 +845,14 @@ fn handle_cmd(cmd: ConnCmd, handle: &Arc<SshHandle>, ctx: &Context) -> bool {
 }
 
 async fn open_sftp(handle: &SshHandle) -> Result<SftpSession, String> {
-    let channel = handle.channel_open_session().await.map_err(|e| e.to_string())?;
-    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
+    let channel = handle
+        .channel_open_session()
+        .await
+        .map_err(|e| e.to_string())?;
+    channel
+        .request_subsystem(true, "sftp")
+        .await
+        .map_err(|e| e.to_string())?;
     // Bigger write packets and a deeper write pipeline: with the defaults uploads are capped at
     // 16 x 32 KiB per round trip. More than 16 concurrent reads measured slower, so reads keep
     // the default depth.
@@ -764,7 +865,12 @@ async fn open_sftp(handle: &SshHandle) -> Result<SftpSession, String> {
     };
     SftpSession::new_with_config(channel.into_stream(), config)
         .await
-        .map_err(|e| tf("SFTP is not available on this server ({})", &[&e.to_string()]))
+        .map_err(|e| {
+            tf(
+                "SFTP is not available on this server ({})",
+                &[&e.to_string()],
+            )
+        })
 }
 
 // ----- shells ---------------------------------------------------------------------------------
@@ -791,11 +897,30 @@ fn remote_lang() -> String {
 }
 
 async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
-    let PaneStart { feeder, input_tx, mut input_rx, cols, rows, px_w, px_h, start_dir, startup_command, status } = pane;
+    let PaneStart {
+        feeder,
+        input_tx,
+        mut input_rx,
+        cols,
+        rows,
+        px_w,
+        px_h,
+        start_dir,
+        startup_command,
+        status,
+    } = pane;
     let open = async {
         let channel = handle.channel_open_session().await?;
-        let modes = [(Pty::ECHO, 1), (Pty::ICRNL, 1), (Pty::IUTF8, 1), (Pty::TTY_OP_ISPEED, 38400), (Pty::TTY_OP_OSPEED, 38400)];
-        channel.request_pty(false, "xterm-256color", cols, rows, px_w, px_h, &modes).await?;
+        let modes = [
+            (Pty::ECHO, 1),
+            (Pty::ICRNL, 1),
+            (Pty::IUTF8, 1),
+            (Pty::TTY_OP_ISPEED, 38400),
+            (Pty::TTY_OP_OSPEED, 38400),
+        ];
+        channel
+            .request_pty(false, "xterm-256color", cols, rows, px_w, px_h, &modes)
+            .await?;
         // Like OpenSSH's default `SendEnv LANG LC_*`: without a UTF-8 locale the remote shell
         // mangles non-ASCII text. Servers that don't accept it simply ignore the request.
         channel.set_env(false, "LANG", remote_lang()).await?;
@@ -806,7 +931,10 @@ async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
         Ok(c) => c,
         Err(e) => {
             *status.lock() = PaneStatus::Failed(e.to_string());
-            tcore::write_status(&mut feeder.lock(), &tf("Could not open a shell: {}", &[&e.to_string()]));
+            tcore::write_status(
+                &mut feeder.lock(),
+                &tf("Could not open a shell: {}", &[&e.to_string()]),
+            );
             ctx.request_repaint();
             return;
         }
@@ -818,7 +946,9 @@ async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
     let writer: Arc<ChannelWriteHalf<Msg>> = Arc::new(writer);
 
     if !start_dir.trim().is_empty() {
-        let _ = input_tx.send(PaneInput::Data(format!("{}\r", cd_command(&start_dir)).into_bytes()));
+        let _ = input_tx.send(PaneInput::Data(
+            format!("{}\r", cd_command(&start_dir)).into_bytes(),
+        ));
     }
     for line in startup_command.lines().filter(|l| !l.trim().is_empty()) {
         let _ = input_tx.send(PaneInput::Data(format!("{line}\r").into_bytes()));
@@ -831,7 +961,12 @@ async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
         while let Some(input) = input_rx.recv().await {
             let r = match input {
                 PaneInput::Data(bytes) => w.data_bytes(bytes).await,
-                PaneInput::Resize { cols, rows, px_w, px_h } => w.window_change(cols, rows, px_w, px_h).await,
+                PaneInput::Resize {
+                    cols,
+                    rows,
+                    px_w,
+                    px_h,
+                } => w.window_change(cols, rows, px_w, px_h).await,
                 PaneInput::Close => {
                     let _ = w.eof().await;
                     let _ = w.close().await;
@@ -879,7 +1014,10 @@ async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
     }
     write_task.abort();
     let message = match exit_status {
-        Some(code) => tf("[Session ended, exit code {}. Press Enter or ⌘R to reconnect.]", &[&code.to_string()]),
+        Some(code) => tf(
+            "[Session ended, exit code {}. Press Enter or ⌘R to reconnect.]",
+            &[&code.to_string()],
+        ),
         None => t("[Connection closed. Press Enter or ⌘R to reconnect.]").to_string(),
     };
     tcore::write_status(&mut feeder.lock(), &message);

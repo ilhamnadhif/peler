@@ -22,7 +22,9 @@ const DEFAULT_GROUP: &str = "default";
 
 pub fn looks_like_electerm(value: &Value) -> bool {
     match value {
-        Value::Array(items) => items.iter().any(|b| b.get("host").is_some() || b.get("title").is_some()),
+        Value::Array(items) => items
+            .iter()
+            .any(|b| b.get("host").is_some() || b.get("title").is_some()),
         Value::Object(map) => {
             map.get("bookmarks").is_some_and(Value::is_array) && !map.contains_key("schema_version")
         }
@@ -32,27 +34,43 @@ pub fn looks_like_electerm(value: &Value) -> bool {
 
 /// Stable ids derived from Electerm ids, so importing the same file twice matches by id.
 fn bookmark_uuid(id: &str) -> Uuid {
-    Uuid::new_v5(&Uuid::NAMESPACE_URL, format!("electerm:bookmark:{id}").as_bytes())
+    Uuid::new_v5(
+        &Uuid::NAMESPACE_URL,
+        format!("electerm:bookmark:{id}").as_bytes(),
+    )
 }
 
 fn group_uuid(id: &str) -> Uuid {
-    Uuid::new_v5(&Uuid::NAMESPACE_URL, format!("electerm:group:{id}").as_bytes())
+    Uuid::new_v5(
+        &Uuid::NAMESPACE_URL,
+        format!("electerm:group:{id}").as_bytes(),
+    )
 }
 
 fn s<'a>(v: &'a Value, key: &str) -> &'a str {
-    v.get(key).and_then(Value::as_str).map(str::trim).unwrap_or("")
+    v.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .unwrap_or("")
 }
 
 fn ids(v: &Value, key: &str) -> Vec<String> {
     v.get(key)
         .and_then(Value::as_array)
-        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|x| x.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
 fn port(v: &Value) -> u16 {
     match v.get("port") {
-        Some(Value::Number(n)) => n.as_u64().and_then(|p| u16::try_from(p).ok()).unwrap_or(DEFAULT_PORT),
+        Some(Value::Number(n)) => n
+            .as_u64()
+            .and_then(|p| u16::try_from(p).ok())
+            .unwrap_or(DEFAULT_PORT),
         Some(Value::String(t)) => t.trim().parse().unwrap_or(DEFAULT_PORT),
         _ => DEFAULT_PORT,
     }
@@ -73,13 +91,20 @@ pub fn read(value: &Value) -> Result<Incoming> {
     let (raw_groups, raw_bookmarks, profiles): (Vec<Value>, Vec<Value>, Vec<Value>) = match value {
         Value::Array(items) => (Vec::new(), items.clone(), Vec::new()),
         Value::Object(map) => {
-            let arr = |k: &str| map.get(k).and_then(Value::as_array).cloned().unwrap_or_default();
+            let arr = |k: &str| {
+                map.get(k)
+                    .and_then(Value::as_array)
+                    .cloned()
+                    .unwrap_or_default()
+            };
             (arr("bookmarkGroups"), arr("bookmarks"), arr("profiles"))
         }
         _ => bail!("Not an Electerm export."),
     };
-    let profiles: HashMap<&str, &Value> =
-        profiles.iter().filter_map(|p| Some((p.get("id")?.as_str()?, p))).collect();
+    let profiles: HashMap<&str, &Value> = profiles
+        .iter()
+        .filter_map(|p| Some((p.get("id")?.as_str()?, p)))
+        .collect();
 
     // --- groups: build parent links from bookmarkGroupIds (first parent wins) -----------------
     let mut by_id: HashMap<String, &Value> = HashMap::new();
@@ -94,7 +119,11 @@ pub fn read(value: &Value) -> Result<Incoming> {
     let mut parent_of: HashMap<String, String> = HashMap::new();
     for id in &order {
         for child in ids(by_id[id], "bookmarkGroupIds") {
-            if child != *id && child != DEFAULT_GROUP && by_id.contains_key(&child) && !parent_of.contains_key(&child) {
+            if child != *id
+                && child != DEFAULT_GROUP
+                && by_id.contains_key(&child)
+                && !parent_of.contains_key(&child)
+            {
                 parent_of.insert(child, id.clone());
             }
         }
@@ -115,7 +144,12 @@ pub fn read(value: &Value) -> Result<Incoming> {
     // Depth-first order: roots in file order, children in bookmarkGroupIds order. Electerm's
     // "default" group maps to the top level.
     let mut tree_order: Vec<String> = Vec::new();
-    fn visit(id: &str, by_id: &HashMap<String, &Value>, parent_of: &HashMap<String, String>, out: &mut Vec<String>) {
+    fn visit(
+        id: &str,
+        by_id: &HashMap<String, &Value>,
+        parent_of: &HashMap<String, String>,
+        out: &mut Vec<String>,
+    ) {
         if out.iter().any(|x| x == id) {
             return;
         }
@@ -142,7 +176,11 @@ pub fn read(value: &Value) -> Result<Incoming> {
             let title = s(by_id[id], "title");
             Group {
                 id: group_uuid(id),
-                name: if title.is_empty() { id.clone() } else { title.to_string() },
+                name: if title.is_empty() {
+                    id.clone()
+                } else {
+                    title.to_string()
+                },
                 parent: parent_of.get(id).and_then(|p| local_group(p)),
             }
         })
@@ -176,7 +214,12 @@ pub fn read(value: &Value) -> Result<Incoming> {
     let ordered: Vec<String> = listed_order
         .into_iter()
         .filter(|id| raw_by_id.contains_key(id))
-        .chain(file_order.iter().filter(|id| !group_of.contains_key(*id)).cloned())
+        .chain(
+            file_order
+                .iter()
+                .filter(|id| !group_of.contains_key(*id))
+                .cloned(),
+        )
         .collect();
 
     let mut bookmarks = Vec::new();
@@ -211,7 +254,10 @@ pub fn read(value: &Value) -> Result<Incoming> {
 
         let mut secret = SecretSet::default();
         let mut password = field("password");
-        let encrypted_flag = b.get("passwordEncrypted").and_then(Value::as_bool).unwrap_or(false);
+        let encrypted_flag = b
+            .get("passwordEncrypted")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         if encrypted_flag && !s(b, "password").is_empty() {
             password = legacy_decode(s(b, "password"));
         }
@@ -219,7 +265,11 @@ pub fn read(value: &Value) -> Result<Incoming> {
         let key_path = field("privateKeyPath");
         let passphrase = field("passphrase");
         let auth = if !key_text.is_empty() {
-            secret.private_key = Some(if key_text.ends_with('\n') { key_text } else { key_text + "\n" });
+            secret.private_key = Some(if key_text.ends_with('\n') {
+                key_text
+            } else {
+                key_text + "\n"
+            });
             Auth::KeychainKey
         } else if !key_path.is_empty() {
             Auth::Key { path: key_path }
@@ -249,8 +299,14 @@ pub fn read(value: &Value) -> Result<Incoming> {
                     .join("\n")
             })
             .unwrap_or_default();
-        for (key, label) in [("connectionHoppings", t("jump hosts")), ("sshTunnels", t("port forwarding"))] {
-            if b.get(key).and_then(Value::as_array).is_some_and(|a| !a.is_empty()) {
+        for (key, label) in [
+            ("connectionHoppings", t("jump hosts")),
+            ("sshTunnels", t("port forwarding")),
+        ] {
+            if b.get(key)
+                .and_then(Value::as_array)
+                .is_some_and(|a| !a.is_empty())
+            {
                 dropped_features.insert(label);
             }
         }
@@ -286,15 +342,23 @@ pub fn read(value: &Value) -> Result<Incoming> {
     if !skipped_types.is_empty() {
         skipped_types.sort();
         skipped_types.dedup();
-        warnings.push(tf("Skipped bookmarks that are not SSH connections: {}.", &[&skipped_types.join(", ")]));
+        warnings.push(tf(
+            "Skipped bookmarks that are not SSH connections: {}.",
+            &[&skipped_types.join(", ")],
+        ));
     }
     if !dropped_features.is_empty() {
         let mut f: Vec<_> = dropped_features.into_iter().collect();
         f.sort();
-        warnings.push(tf("These Electerm settings are not supported and were left out: {}.", &[&f.join(", ")]));
+        warnings.push(tf(
+            "These Electerm settings are not supported and were left out: {}.",
+            &[&f.join(", ")],
+        ));
     }
     if !secrets.is_empty() {
-        warnings.push(t("Passwords and keys from the file will be stored in the macOS Keychain.").into());
+        warnings.push(
+            t("Passwords and keys from the file will be stored in the macOS Keychain.").into(),
+        );
     }
     if bookmarks.is_empty() {
         bail!("{}", t("The Electerm file contains no SSH bookmarks."));
@@ -323,29 +387,59 @@ mod tests {
         let incoming = read_import(SAMPLE.as_bytes()).unwrap();
         assert_eq!(incoming.kind, SourceKind::Electerm);
         let names: Vec<_> = incoming.groups.iter().map(|g| g.name.as_str()).collect();
-        assert_eq!(names, ["Production", "Databases"], "'default' maps to the top level");
+        assert_eq!(
+            names,
+            ["Production", "Databases"],
+            "'default' maps to the top level"
+        );
         assert_eq!(incoming.groups[1].parent, Some(incoming.groups[0].id));
 
         let bm: Vec<_> = incoming.bookmarks.iter().map(|b| b.name.as_str()).collect();
-        assert_eq!(bm, ["web-01 (password)", "pg-primary (inline key + passphrase)", "pg-replica (key file path)"]);
+        assert_eq!(
+            bm,
+            [
+                "web-01 (password)",
+                "pg-primary (inline key + passphrase)",
+                "pg-replica (key file path)"
+            ]
+        );
         let web = &incoming.bookmarks[0];
         assert_eq!(web.group, Some(incoming.groups[0].id));
         assert_eq!(web.start_dir, "/var/www/site");
         assert_eq!(web.startup_command, "sudo -i");
         assert_eq!(web.username, "deploy");
-        assert_eq!(incoming.secrets[&web.id].password.as_deref(), Some("Sup3r$ecret-w3b"));
+        assert_eq!(
+            incoming.secrets[&web.id].password.as_deref(),
+            Some("Sup3r$ecret-w3b")
+        );
 
         let pg = &incoming.bookmarks[1];
         assert_eq!(pg.auth, Auth::KeychainKey);
         assert_eq!(pg.port, 2222);
         assert_eq!(pg.group, Some(incoming.groups[1].id));
         let pg_secret = &incoming.secrets[&pg.id];
-        assert!(pg_secret.private_key.as_deref().unwrap().starts_with("-----BEGIN OPENSSH"));
+        assert!(
+            pg_secret
+                .private_key
+                .as_deref()
+                .unwrap()
+                .starts_with("-----BEGIN OPENSSH")
+        );
         assert_eq!(pg_secret.passphrase.as_deref(), Some("k3y-passphrase"));
         assert!(pg_secret.password.is_none());
 
-        assert_eq!(incoming.bookmarks[2].auth, Auth::Key { path: "~/.ssh/db_ed25519".into() });
-        assert!(incoming.warnings.iter().any(|w| w.contains("local") && w.contains("telnet")));
+        assert_eq!(
+            incoming.bookmarks[2].auth,
+            Auth::Key {
+                path: "~/.ssh/db_ed25519".into()
+            }
+        );
+        assert!(
+            incoming
+                .warnings
+                .iter()
+                .any(|w| w.contains("local") && w.contains("telnet"))
+        );
         assert!(incoming.warnings.iter().any(|w| w.contains("jump hosts")));
     }
 
@@ -369,7 +463,11 @@ mod tests {
 
     #[test]
     fn profiles_and_legacy_passwords() {
-        let enc: String = "pw!".encode_utf16().enumerate().map(|(i, c)| char::from_u32(c as u32 + i as u32 + 1).unwrap()).collect();
+        let enc: String = "pw!"
+            .encode_utf16()
+            .enumerate()
+            .map(|(i, c)| char::from_u32(c as u32 + i as u32 + 1).unwrap())
+            .collect();
         let data = serde_json::json!({
             "bookmarks": [
                 {"id": "a", "host": "h", "authType": "profiles", "profile": "p1"},
@@ -380,8 +478,14 @@ mod tests {
         });
         let inc = read(&data).unwrap();
         assert_eq!(inc.bookmarks[0].username, "prof-user");
-        assert_eq!(inc.secrets[&inc.bookmarks[0].id].password.as_deref(), Some("prof-pw"));
-        assert_eq!(inc.secrets[&inc.bookmarks[1].id].password.as_deref(), Some("pw!"));
+        assert_eq!(
+            inc.secrets[&inc.bookmarks[0].id].password.as_deref(),
+            Some("prof-pw")
+        );
+        assert_eq!(
+            inc.secrets[&inc.bookmarks[1].id].password.as_deref(),
+            Some("pw!")
+        );
         assert_eq!(legacy_decode(""), "");
     }
 

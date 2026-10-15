@@ -90,10 +90,18 @@ fn split_args(s: &str) -> Vec<String> {
 
 fn parse_text(text: &str, blocks: &mut Vec<Block>, depth: usize) {
     for line in text.lines() {
-        let Some((key, args)) = split_line(line) else { continue };
+        let Some((key, args)) = split_line(line) else {
+            continue;
+        };
         match key.as_str() {
-            "host" => blocks.push(Block { patterns: args, ..Default::default() }),
-            "match" => blocks.push(Block { is_match: true, ..Default::default() }),
+            "host" => blocks.push(Block {
+                patterns: args,
+                ..Default::default()
+            }),
+            "match" => blocks.push(Block {
+                is_match: true,
+                ..Default::default()
+            }),
             "include" if depth < 8 => {
                 for arg in args {
                     for file in expand_include(&arg) {
@@ -117,11 +125,16 @@ fn expand_include(arg: &str) -> Vec<PathBuf> {
     } else {
         paths::home_dir().join(".ssh").join(arg)
     };
-    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
     if !name.contains(['*', '?']) {
         return vec![path];
     }
-    let Some(dir) = path.parent() else { return vec![] };
+    let Some(dir) = path.parent() else {
+        return vec![];
+    };
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .into_iter()
         .flatten()
@@ -129,7 +142,8 @@ fn expand_include(arg: &str) -> Vec<PathBuf> {
         .map(|e| e.path())
         .filter(|p| {
             p.is_file()
-                && p.file_name().is_some_and(|n| glob_match(&name, &n.to_string_lossy()))
+                && p.file_name()
+                    .is_some_and(|n| glob_match(&name, &n.to_string_lossy()))
         })
         .collect();
     files.sort();
@@ -143,7 +157,9 @@ pub fn glob_match(pattern: &str, text: &str) -> bool {
             None => t.is_empty(),
             Some('*') => (0..=t.len()).any(|i| rec(&p[1..], &t[i..])),
             Some('?') => !t.is_empty() && rec(&p[1..], &t[1..]),
-            Some(c) => t.first().is_some_and(|tc| tc.eq_ignore_ascii_case(c)) && rec(&p[1..], &t[1..]),
+            Some(c) => {
+                t.first().is_some_and(|tc| tc.eq_ignore_ascii_case(c)) && rec(&p[1..], &t[1..])
+            }
         }
     }
     let p: Vec<char> = pattern.chars().collect();
@@ -183,7 +199,10 @@ fn resolve(blocks: &[Block]) -> Vec<SshConfigHost> {
     aliases
         .into_iter()
         .map(|alias| {
-            let mut h = SshConfigHost { alias: alias.clone(), ..Default::default() };
+            let mut h = SshConfigHost {
+                alias: alias.clone(),
+                ..Default::default()
+            };
             for block in blocks.iter().filter(|b| block_matches(b, &alias)) {
                 for (key, value) in &block.options {
                     match key.as_str() {
@@ -244,7 +263,11 @@ Match host foo
         assert_eq!(web.user.as_deref(), Some("fallback"));
         assert_eq!(web.identity_file.as_deref(), Some("~/.ssh/id_web"));
         let db = &hosts[2];
-        assert_eq!(db.user.as_deref(), Some("fallback"), "first obtained value wins");
+        assert_eq!(
+            db.user.as_deref(),
+            Some("fallback"),
+            "first obtained value wins"
+        );
         assert_eq!(db.port, Some(22));
         assert_eq!(db.identity_file.as_deref(), Some("~/.ssh/id_ed25519"));
     }
@@ -254,7 +277,10 @@ Match host foo
         assert!(glob_match("*.lan", "pi.LAN"));
         assert!(glob_match("web-??", "web-01"));
         assert!(!glob_match("web-??", "web-1"));
-        assert_eq!(split_args(r#""/path with space/key" x"#), ["/path with space/key", "x"]);
+        assert_eq!(
+            split_args(r#""/path with space/key" x"#),
+            ["/path with space/key", "x"]
+        );
     }
 
     #[test]
@@ -263,8 +289,11 @@ Match host foo
         let inc = dir.path().join("extra.conf");
         std::fs::write(&inc, "Host extra\n  HostName 1.2.3.4\n").unwrap();
         let main = dir.path().join("config");
-        std::fs::write(&main, format!("Include {}\nHost main\n  User me\n", inc.display()))
-            .unwrap();
+        std::fs::write(
+            &main,
+            format!("Include {}\nHost main\n  User me\n", inc.display()),
+        )
+        .unwrap();
         let hosts = parse_file(&main).unwrap();
         assert_eq!(hosts.len(), 2);
         assert_eq!(hosts[0].alias, "extra");

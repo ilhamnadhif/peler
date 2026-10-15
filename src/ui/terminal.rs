@@ -12,8 +12,8 @@ use alacritty_terminal::term::{self, TermMode};
 use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor};
 use eframe::egui::emath::GuiRounding as _;
 use eframe::egui::{
-    self, Color32, CornerRadius, Event, EventFilter, FontFamily, FontId, Id, ImeEvent, Key, MouseWheelUnit,
-    PointerButton, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
+    self, Color32, CornerRadius, Event, EventFilter, FontFamily, FontId, Id, ImeEvent, Key,
+    MouseWheelUnit, PointerButton, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
 };
 
 use crate::term::core::{self as tcore, GridSize, TermShared};
@@ -21,8 +21,12 @@ use crate::term::input::{self, KeyModes, Mods, MouseAction, MouseButton};
 use crate::term::scheme::{Scheme, xterm_256};
 use crate::ui::fonts;
 
-pub const TERM_FILTER: EventFilter =
-    EventFilter { tab: true, horizontal_arrows: true, vertical_arrows: true, escape: true };
+pub const TERM_FILTER: EventFilter = EventFilter {
+    tab: true,
+    horizontal_arrows: true,
+    vertical_arrows: true,
+    escape: true,
+};
 pub const PAD: f32 = 6.0;
 const DIM_FACTOR: f32 = 0.66;
 
@@ -74,7 +78,11 @@ fn rgb(c: alacritty_terminal::vte::ansi::Rgb) -> Color32 {
 }
 
 fn mul(c: Color32, f: f32) -> Color32 {
-    Color32::from_rgb((c.r() as f32 * f) as u8, (c.g() as f32 * f) as u8, (c.b() as f32 * f) as u8)
+    Color32::from_rgb(
+        (c.r() as f32 * f) as u8,
+        (c.g() as f32 * f) as u8,
+        (c.b() as f32 * f) as u8,
+    )
 }
 
 /// Palette lookup honouring OSC 4/10/11/12 overrides.
@@ -98,7 +106,11 @@ fn resolve_fg(color: Color, flags: Flags, colors: &Colors, scheme: &Scheme) -> C
     let dim = flags.contains(Flags::DIM);
     match color {
         Color::Spec(c) => {
-            if dim { mul(rgb(c), DIM_FACTOR) } else { rgb(c) }
+            if dim {
+                mul(rgb(c), DIM_FACTOR)
+            } else {
+                rgb(c)
+            }
         }
         Color::Named(n) => palette(if dim { n.to_dim() } else { n } as usize, colors, scheme),
         Color::Indexed(i) => {
@@ -201,13 +213,29 @@ fn draw_special(painter: &egui::Painter, c: char, r: Rect, color: Color32, ppp: 
                 continue;
             }
             let w = if *weight == 2 { light * 2.0 } else { light };
-            let segs: Vec<f32> = if *weight == 3 { vec![-light * 1.5, light * 1.5] } else { vec![0.0] };
+            let segs: Vec<f32> = if *weight == 3 {
+                vec![-light * 1.5, light * 1.5]
+            } else {
+                vec![0.0]
+            };
             for off in segs {
                 let rect = match dir {
-                    0 => Rect::from_min_max(pos2(cx + off - w / 2.0, r.top()), pos2(cx + off + w / 2.0, cy + w / 2.0)),
-                    1 => Rect::from_min_max(pos2(cx - w / 2.0, cy + off - w / 2.0), pos2(r.right(), cy + off + w / 2.0)),
-                    2 => Rect::from_min_max(pos2(cx + off - w / 2.0, cy - w / 2.0), pos2(cx + off + w / 2.0, r.bottom())),
-                    _ => Rect::from_min_max(pos2(r.left(), cy + off - w / 2.0), pos2(cx + w / 2.0, cy + off + w / 2.0)),
+                    0 => Rect::from_min_max(
+                        pos2(cx + off - w / 2.0, r.top()),
+                        pos2(cx + off + w / 2.0, cy + w / 2.0),
+                    ),
+                    1 => Rect::from_min_max(
+                        pos2(cx - w / 2.0, cy + off - w / 2.0),
+                        pos2(r.right(), cy + off + w / 2.0),
+                    ),
+                    2 => Rect::from_min_max(
+                        pos2(cx + off - w / 2.0, cy - w / 2.0),
+                        pos2(cx + off + w / 2.0, r.bottom()),
+                    ),
+                    _ => Rect::from_min_max(
+                        pos2(r.left(), cy + off - w / 2.0),
+                        pos2(cx + w / 2.0, cy + off + w / 2.0),
+                    ),
                 };
                 painter.rect_filled(rect, CornerRadius::ZERO, color);
             }
@@ -226,15 +254,24 @@ fn draw_special(painter: &egui::Painter, c: char, r: Rect, color: Color32, ppp: 
     };
     match c {
         '█' => fill(r, color),
-        '▀' => fill(Rect::from_min_max(r.min, pos2(r.right(), snap(r.center().y))), color),
+        '▀' => fill(
+            Rect::from_min_max(r.min, pos2(r.right(), snap(r.center().y))),
+            color,
+        ),
         '▄' => fill(frac(0.5, true), color),
         '▌' => fill(frac(0.5, false), color),
-        '▐' => fill(Rect::from_min_max(pos2(snap(r.center().x), r.top()), r.max), color),
+        '▐' => fill(
+            Rect::from_min_max(pos2(snap(r.center().x), r.top()), r.max),
+            color,
+        ),
         '░' => fill(r, color.gamma_multiply(0.25)),
         '▒' => fill(r, color.gamma_multiply(0.5)),
         '▓' => fill(r, color.gamma_multiply(0.75)),
         '▁'..='▇' => fill(frac((c as u32 - '▁' as u32 + 1) as f32 / 8.0, true), color),
-        '▉'..='▏' => fill(frac((8 - (c as u32 - '▉' as u32 + 1)) as f32 / 8.0, false), color),
+        '▉'..='▏' => fill(
+            frac((8 - (c as u32 - '▉' as u32 + 1)) as f32 / 8.0, false),
+            color,
+        ),
         _ => return false,
     }
     true
@@ -258,7 +295,11 @@ fn cell_at(pos: Pos2, origin: Pos2, cell: Vec2, size: GridSize) -> (usize, usize
     let y = (pos.y - origin.y).max(0.0);
     let col = ((x / cell.x) as usize).min(size.cols - 1);
     let row = ((y / cell.y) as usize).min(size.rows - 1);
-    let side = if x - col as f32 * cell.x > cell.x / 2.0 { Side::Right } else { Side::Left };
+    let side = if x - col as f32 * cell.x > cell.x / 2.0 {
+        Side::Right
+    } else {
+        Side::Left
+    };
     (col, row, side)
 }
 
@@ -267,7 +308,11 @@ fn grid_point(offset: usize, col: usize, row: usize) -> Point {
 }
 
 fn mods_of(m: egui::Modifiers) -> Mods {
-    Mods { shift: m.shift, alt: m.alt, ctrl: m.ctrl }
+    Mods {
+        shift: m.shift,
+        alt: m.alt,
+        ctrl: m.ctrl,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -282,7 +327,14 @@ pub fn show(
     alive: bool,
 ) -> TermResponse {
     let mut out = TermResponse::default();
-    let id = *view.id.get_or_insert_with(|| Id::new(("terminal", rect.min.x as i64, rect.min.y as i64, ui.next_auto_id())));
+    let id = *view.id.get_or_insert_with(|| {
+        Id::new((
+            "terminal",
+            rect.min.x as i64,
+            rect.min.y as i64,
+            ui.next_auto_id(),
+        ))
+    });
     let ppp = ui.ctx().pixels_per_point();
     let cell = style.cell;
     let origin = (rect.min + vec2(PAD, PAD)).round_to_pixels(ppp);
@@ -293,7 +345,11 @@ pub fn show(
     if view.grid != Some(size) {
         view.grid = Some(size);
         tcore::resize(shared, size, cell.x, cell.y);
-        out.resized = Some((size, (size.cols as f32 * cell.x * ppp) as u32, (size.rows as f32 * cell.y * ppp) as u32));
+        out.resized = Some((
+            size,
+            (size.cols as f32 * cell.x * ppp) as u32,
+            (size.rows as f32 * cell.y * ppp) as u32,
+        ));
     }
 
     // ----- focus -------------------------------------------------------------------------
@@ -326,7 +382,8 @@ pub fn show(
     let has_focus_now = focused && window_focused;
     if has_focus_now != view.was_focused {
         if mode.contains(TermMode::FOCUS_IN_OUT) && alive {
-            out.input.extend_from_slice(if has_focus_now { b"\x1b[I" } else { b"\x1b[O" });
+            out.input
+                .extend_from_slice(if has_focus_now { b"\x1b[I" } else { b"\x1b[O" });
         }
         view.was_focused = has_focus_now;
     }
@@ -334,11 +391,19 @@ pub fn show(
     // ----- keyboard ----------------------------------------------------------------------
     if focused {
         let events = ui.input(|i| i.filtered_events(&TERM_FILTER));
-        let modes = KeyModes { app_cursor: mode.contains(TermMode::APP_CURSOR), option_as_meta: style.option_as_meta };
+        let modes = KeyModes {
+            app_cursor: mode.contains(TermMode::APP_CURSOR),
+            option_as_meta: style.option_as_meta,
+        };
         let mut typed = Vec::new();
         for event in events {
             match event {
-                Event::Key { key, pressed: true, modifiers, .. } => {
+                Event::Key {
+                    key,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } => {
                     if modifiers.command {
                         continue; // app shortcuts
                     }
@@ -374,7 +439,10 @@ pub fn show(
                     typed.extend_from_slice(text.as_bytes());
                 }
                 Event::Paste(text) if alive => {
-                    typed.extend(input::encode_paste(&text, mode.contains(TermMode::BRACKETED_PASTE)));
+                    typed.extend(input::encode_paste(
+                        &text,
+                        mode.contains(TermMode::BRACKETED_PASTE),
+                    ));
                 }
                 Event::Copy | Event::Cut => {
                     if let Some(text) = term.selection_to_string() {
@@ -409,7 +477,12 @@ pub fn show(
         let events = ui.input(|i| i.events.clone());
         for event in events {
             match event {
-                Event::PointerButton { pos, button, pressed, modifiers } => {
+                Event::PointerButton {
+                    pos,
+                    button,
+                    pressed,
+                    modifiers,
+                } => {
                     let b = match button {
                         PointerButton::Primary => MouseButton::Left,
                         PointerButton::Middle => MouseButton::Middle,
@@ -423,10 +496,16 @@ pub fn show(
                         continue;
                     }
                     let (col, row, _) = cell_at(pos, origin, cell, size);
-                    let action = if pressed { MouseAction::Press } else { MouseAction::Release };
+                    let action = if pressed {
+                        MouseAction::Press
+                    } else {
+                        MouseAction::Release
+                    };
                     view.reported_button = pressed.then_some(b);
                     view.last_report_cell = Some((col, row));
-                    if let Some(bytes) = input::encode_mouse(b, action, mods_of(modifiers), col, row, sgr) {
+                    if let Some(bytes) =
+                        input::encode_mouse(b, action, mods_of(modifiers), col, row, sgr)
+                    {
                         out.input.extend(bytes);
                     }
                 }
@@ -445,7 +524,9 @@ pub fn show(
                     view.last_report_cell = Some((col, row));
                     let b = view.reported_button.unwrap_or(MouseButton::None);
                     let mods = mods_of(ui.input(|i| i.modifiers));
-                    if let Some(bytes) = input::encode_mouse(b, MouseAction::Motion, mods, col, row, sgr) {
+                    if let Some(bytes) =
+                        input::encode_mouse(b, MouseAction::Motion, mods, col, row, sgr)
+                    {
                         out.input.extend(bytes);
                     }
                 }
@@ -454,54 +535,68 @@ pub fn show(
         }
     } else if input_enabled {
         let press_origin = ui.input(|i| i.pointer.press_origin());
-        if response.drag_started_by(PointerButton::Primary) {
-            if let Some(p) = press_origin {
-                let (col, row, side) = cell_at(p, origin, cell, size);
-                let ty = if ui.input(|i| i.modifiers.alt) { SelectionType::Block } else { SelectionType::Simple };
-                term.selection = Some(Selection::new(ty, grid_point(offset, col, row), side));
+        if response.drag_started_by(PointerButton::Primary)
+            && let Some(p) = press_origin
+        {
+            let (col, row, side) = cell_at(p, origin, cell, size);
+            let ty = if ui.input(|i| i.modifiers.alt) {
+                SelectionType::Block
+            } else {
+                SelectionType::Simple
+            };
+            term.selection = Some(Selection::new(ty, grid_point(offset, col, row), side));
+        }
+        if response.dragged_by(PointerButton::Primary)
+            && let Some(p) = response.interact_pointer_pos()
+        {
+            // Auto-scroll while dragging past the edges.
+            if p.y < rect.top() {
+                term.scroll_display(Scroll::Delta(1));
+                ui.ctx().request_repaint_after(Duration::from_millis(30));
+            } else if p.y > rect.bottom() {
+                term.scroll_display(Scroll::Delta(-1));
+                ui.ctx().request_repaint_after(Duration::from_millis(30));
+            }
+            let offset = term.grid().display_offset();
+            let (col, row, side) = cell_at(p, origin, cell, size);
+            if let Some(sel) = term.selection.as_mut() {
+                sel.update(grid_point(offset, col, row), side);
             }
         }
-        if response.dragged_by(PointerButton::Primary) {
-            if let Some(p) = response.interact_pointer_pos() {
-                // Auto-scroll while dragging past the edges.
-                if p.y < rect.top() {
-                    term.scroll_display(Scroll::Delta(1));
-                    ui.ctx().request_repaint_after(Duration::from_millis(30));
-                } else if p.y > rect.bottom() {
-                    term.scroll_display(Scroll::Delta(-1));
-                    ui.ctx().request_repaint_after(Duration::from_millis(30));
-                }
-                let offset = term.grid().display_offset();
-                let (col, row, side) = cell_at(p, origin, cell, size);
-                if let Some(sel) = term.selection.as_mut() {
-                    sel.update(grid_point(offset, col, row), side);
-                }
-            }
-        }
-        if response.drag_stopped() && style.copy_on_select {
-            if let Some(text) = term.selection_to_string() {
-                ui.ctx().copy_text(text);
-            }
+        if response.drag_stopped()
+            && style.copy_on_select
+            && let Some(text) = term.selection_to_string()
+        {
+            ui.ctx().copy_text(text);
         }
         if let Some(p) = hover {
             let (col, row, side) = cell_at(p, origin, cell, size);
             if response.triple_clicked() {
-                term.selection = Some(Selection::new(SelectionType::Lines, grid_point(offset, col, row), side));
+                term.selection = Some(Selection::new(
+                    SelectionType::Lines,
+                    grid_point(offset, col, row),
+                    side,
+                ));
             } else if response.double_clicked() {
-                term.selection = Some(Selection::new(SelectionType::Semantic, grid_point(offset, col, row), side));
+                term.selection = Some(Selection::new(
+                    SelectionType::Semantic,
+                    grid_point(offset, col, row),
+                    side,
+                ));
             } else if response.clicked_by(PointerButton::Primary) {
                 term.selection = None;
             }
-            if (response.double_clicked() || response.triple_clicked()) && style.copy_on_select {
-                if let Some(text) = term.selection_to_string() {
-                    ui.ctx().copy_text(text);
-                }
+            if (response.double_clicked() || response.triple_clicked())
+                && style.copy_on_select
+                && let Some(text) = term.selection_to_string()
+            {
+                ui.ctx().copy_text(text);
             }
         }
     }
 
     // Wheel: report, send arrows (alternate screen), or scroll the history.
-    if hover.is_some() && input_enabled {
+    if let (Some(hover_pos), true) = (hover, input_enabled) {
         let wheel: f32 = ui.input(|i| {
             i.events
                 .iter()
@@ -520,10 +615,16 @@ pub fn show(
         if lines != 0 {
             view.scroll_accum -= lines as f32;
             if mouse_mode && !shift_held {
-                let (col, row, _) = cell_at(hover.unwrap(), origin, cell, size);
-                let b = if lines > 0 { MouseButton::WheelUp } else { MouseButton::WheelDown };
+                let (col, row, _) = cell_at(hover_pos, origin, cell, size);
+                let b = if lines > 0 {
+                    MouseButton::WheelUp
+                } else {
+                    MouseButton::WheelDown
+                };
                 for _ in 0..lines.abs().min(10) {
-                    if let Some(bytes) = input::encode_mouse(b, MouseAction::Press, Mods::default(), col, row, sgr) {
+                    if let Some(bytes) =
+                        input::encode_mouse(b, MouseAction::Press, Mods::default(), col, row, sgr)
+                    {
                         out.input.extend(bytes);
                     }
                 }
@@ -538,7 +639,11 @@ pub fn show(
         }
     }
     if hover.is_some() {
-        ui.ctx().set_cursor_icon(if mouse_mode && !shift_held { egui::CursorIcon::Default } else { egui::CursorIcon::Text });
+        ui.ctx().set_cursor_icon(if mouse_mode && !shift_held {
+            egui::CursorIcon::Default
+        } else {
+            egui::CursorIcon::Text
+        });
     }
 
     // ----- render ------------------------------------------------------------------------
@@ -574,7 +679,9 @@ pub fn show(
     let mut cursor_cell: Option<(usize, usize, String, Color32, Color32, bool)> = None;
 
     for indexed in content.display_iter {
-        let Some(vp) = term::point_to_viewport(offset, indexed.point) else { continue };
+        let Some(vp) = term::point_to_viewport(offset, indexed.point) else {
+            continue;
+        };
         let (row, col) = (vp.line, vp.column.0);
         if row >= size.rows || col >= size.cols {
             continue;
@@ -594,11 +701,17 @@ pub fn show(
         if selected {
             bg = Some(scheme.selection);
         }
-        let width = if flags.contains(Flags::WIDE_CHAR) { 2 } else { 1 };
+        let width = if flags.contains(Flags::WIDE_CHAR) {
+            2
+        } else {
+            1
+        };
 
         // Background runs.
         match (&mut bg_run, bg) {
-            (Some((r, _, end, color)), Some(c)) if *r == row && *end == col && *color == c => *end = col + width,
+            (Some((r, _, end, color)), Some(c)) if *r == row && *end == col && *color == c => {
+                *end = col + width
+            }
             (_, Some(c)) => {
                 flush_bg(&mut bg_run);
                 bg_run = Some((row, col, col + width, c));
@@ -613,7 +726,9 @@ pub fn show(
         let hidden = flags.contains(Flags::HIDDEN);
         let underline = if flags.contains(Flags::DOUBLE_UNDERLINE) {
             2
-        } else if flags.intersects(Flags::UNDERCURL | Flags::DOTTED_UNDERLINE | Flags::DASHED_UNDERLINE) {
+        } else if flags
+            .intersects(Flags::UNDERCURL | Flags::DOTTED_UNDERLINE | Flags::DASHED_UNDERLINE)
+        {
             3
         } else if flags.contains(Flags::UNDERLINE) {
             1
@@ -625,7 +740,10 @@ pub fn show(
             bold: flags.contains(Flags::BOLD),
             italic: flags.contains(Flags::ITALIC),
             underline,
-            underline_color: indexed.cell.underline_color().map(|c| resolve_fg(c, flags, colors, scheme)),
+            underline_color: indexed
+                .cell
+                .underline_color()
+                .map(|c| resolve_fg(c, flags, colors, scheme)),
             strike: flags.contains(Flags::STRIKEOUT),
         };
 
@@ -651,12 +769,23 @@ pub fn show(
         }
         if simple {
             match &mut current {
-                Some((r, run)) if *r == row && run.col + run.text.len() == col && run.style == run_style => run.text.push(ch),
+                Some((r, run))
+                    if *r == row && run.col + run.text.len() == col && run.style == run_style =>
+                {
+                    run.text.push(ch)
+                }
                 _ => {
                     if let Some(run) = current.take() {
                         runs.push(run);
                     }
-                    current = Some((row, TextRun { col, text: ch.to_string(), style: run_style }));
+                    current = Some((
+                        row,
+                        TextRun {
+                            col,
+                            text: ch.to_string(),
+                            style: run_style,
+                        },
+                    ));
                 }
             }
         } else {
@@ -675,31 +804,52 @@ pub fn show(
         runs.push(run);
     }
 
-    let paint_text = |row: usize, col: usize, text: &str, st: &RunStyle, width: usize, color: Color32| {
-        let r = cell_rect(col, row, width.max(text.chars().count().min(1)));
-        if text.chars().count() == 1 && draw_special(&painter, text.chars().next().unwrap(), cell_rect(col, row, width), color, ppp) {
-            return;
-        }
-        let real_face = (!st.bold || style.real_bold) && (!st.italic || style.real_italic);
-        let fam = if real_face { family(st.bold, st.italic) } else { family(st.bold && style.real_bold, st.italic && style.real_italic) };
-        let font = FontId::new(style.font_size, fam);
-        let mut job = egui::text::LayoutJob::default();
-        job.append(text, 0.0, egui::TextFormat {
-            font_id: font,
-            color,
-            italics: st.italic && !style.real_italic,
-            line_height: Some(cell.y),
-            valign: egui::Align::Center,
-            ..Default::default()
-        });
-        job.wrap = egui::text::TextWrapping::no_max_width();
-        let galley = painter.layout_job(job);
-        let pos = pos2(r.left(), r.top());
-        if st.bold && !style.real_bold {
-            painter.galley(pos + vec2(0.5 / ppp.max(1.0) * 2.0 * 0.5, 0.0), galley.clone(), color);
-        }
-        painter.galley(pos, galley, color);
-    };
+    let paint_text =
+        |row: usize, col: usize, text: &str, st: &RunStyle, width: usize, color: Color32| {
+            let r = cell_rect(col, row, width.max(text.chars().count().min(1)));
+            if text.chars().count() == 1
+                && draw_special(
+                    &painter,
+                    text.chars().next().unwrap(),
+                    cell_rect(col, row, width),
+                    color,
+                    ppp,
+                )
+            {
+                return;
+            }
+            let real_face = (!st.bold || style.real_bold) && (!st.italic || style.real_italic);
+            let fam = if real_face {
+                family(st.bold, st.italic)
+            } else {
+                family(st.bold && style.real_bold, st.italic && style.real_italic)
+            };
+            let font = FontId::new(style.font_size, fam);
+            let mut job = egui::text::LayoutJob::default();
+            job.append(
+                text,
+                0.0,
+                egui::TextFormat {
+                    font_id: font,
+                    color,
+                    italics: st.italic && !style.real_italic,
+                    line_height: Some(cell.y),
+                    valign: egui::Align::Center,
+                    ..Default::default()
+                },
+            );
+            job.wrap = egui::text::TextWrapping::no_max_width();
+            let galley = painter.layout_job(job);
+            let pos = pos2(r.left(), r.top());
+            if st.bold && !style.real_bold {
+                painter.galley(
+                    pos + vec2(0.5 / ppp.max(1.0) * 2.0 * 0.5, 0.0),
+                    galley.clone(),
+                    color,
+                );
+            }
+            painter.galley(pos, galley, color);
+        };
     let decorate = |row: usize, col: usize, width: usize, st: &RunStyle| {
         let r = cell_rect(col, row, width);
         let thickness = (1.0 / ppp).max(1.0 / ppp * 1.0).max(0.5);
@@ -708,16 +858,31 @@ pub fn show(
             let y = snap(r.bottom() - thickness * 1.5);
             painter.hline(r.x_range(), y, Stroke::new(thickness.max(1.0), ucolor));
             if st.underline == 2 {
-                painter.hline(r.x_range(), y - 2.0, Stroke::new(thickness.max(1.0), ucolor));
+                painter.hline(
+                    r.x_range(),
+                    y - 2.0,
+                    Stroke::new(thickness.max(1.0), ucolor),
+                );
             }
         }
         if st.strike {
-            painter.hline(r.x_range(), snap(r.center().y), Stroke::new(thickness.max(1.0), st.fg));
+            painter.hline(
+                r.x_range(),
+                snap(r.center().y),
+                Stroke::new(thickness.max(1.0), st.fg),
+            );
         }
     };
 
     for (row, run) in &runs {
-        paint_text(*row, run.col, &run.text, &run.style, run.text.len(), run.style.fg);
+        paint_text(
+            *row,
+            run.col,
+            &run.text,
+            &run.style,
+            run.text.len(),
+            run.style.fg,
+        );
         decorate(*row, run.col, run.text.len(), &run.style);
     }
     for (row, col, text, st, width) in &singles {
@@ -730,12 +895,15 @@ pub fn show(
         let t = ui.input(|i| i.time) - view.blink_epoch;
         let phase = (t / 0.53).floor() as i64;
         let next = (phase + 1) as f64 * 0.53 - t;
-        ui.ctx().request_repaint_after(Duration::from_secs_f64(next.max(0.01)));
+        ui.ctx()
+            .request_repaint_after(Duration::from_secs_f64(next.max(0.01)));
         phase % 2 == 0
     } else {
         true
     };
-    let cursor_color = colors[NamedColor::Cursor as usize].map(rgb).unwrap_or(scheme.cursor);
+    let cursor_color = colors[NamedColor::Cursor as usize]
+        .map(rgb)
+        .unwrap_or(scheme.cursor);
     let mut cursor_rect = None;
     if let Some((row, col, text, fg, bg, wide)) = cursor_cell {
         let r = cell_rect(col, row, if wide { 2 } else { 1 });
@@ -743,23 +911,48 @@ pub fn show(
         if !view.preedit.is_empty() {
             // Drawn below.
         } else if !has_focus_now {
-            painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(1.0, cursor_color), StrokeKind::Inside);
+            painter.rect_stroke(
+                r,
+                CornerRadius::ZERO,
+                Stroke::new(1.0, cursor_color),
+                StrokeKind::Inside,
+            );
         } else if blink_on {
             match cursor.shape {
                 CursorShape::Beam => {
-                    painter.rect_filled(Rect::from_min_size(r.min, vec2(2.0f32.max(1.0 / ppp), r.height())), CornerRadius::ZERO, cursor_color);
+                    painter.rect_filled(
+                        Rect::from_min_size(r.min, vec2(2.0f32.max(1.0 / ppp), r.height())),
+                        CornerRadius::ZERO,
+                        cursor_color,
+                    );
                 }
                 CursorShape::Underline => {
-                    painter.rect_filled(Rect::from_min_max(pos2(r.left(), r.bottom() - 2.0), r.max), CornerRadius::ZERO, cursor_color);
+                    painter.rect_filled(
+                        Rect::from_min_max(pos2(r.left(), r.bottom() - 2.0), r.max),
+                        CornerRadius::ZERO,
+                        cursor_color,
+                    );
                 }
                 CursorShape::HollowBlock => {
-                    painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(1.0, cursor_color), StrokeKind::Inside);
+                    painter.rect_stroke(
+                        r,
+                        CornerRadius::ZERO,
+                        Stroke::new(1.0, cursor_color),
+                        StrokeKind::Inside,
+                    );
                 }
                 _ => {
                     painter.rect_filled(r, CornerRadius::ZERO, cursor_color);
                     let text_color = if bg == cursor_color { fg } else { bg };
                     if text.trim() != "" {
-                        let st = RunStyle { fg: text_color, bold: false, italic: false, underline: 0, underline_color: None, strike: false };
+                        let st = RunStyle {
+                            fg: text_color,
+                            bold: false,
+                            italic: false,
+                            underline: 0,
+                            underline_color: None,
+                            strike: false,
+                        };
                         paint_text(row, col, &text, &st, if wide { 2 } else { 1 }, text_color);
                     }
                 }
@@ -778,9 +971,16 @@ pub fn show(
             let r = Rect::from_min_size(anchor.min, vec2(galley.size().x.max(cell.x), cell.y));
             painter.rect_filled(r, CornerRadius::ZERO, default_bg);
             painter.galley(anchor.min, galley, scheme.foreground);
-            painter.hline(r.x_range(), r.bottom() - 1.0, Stroke::new(1.0, scheme.foreground));
+            painter.hline(
+                r.x_range(),
+                r.bottom() - 1.0,
+                Stroke::new(1.0, scheme.foreground),
+            );
         }
-        let to_global = ui.ctx().layer_transform_to_global(ui.layer_id()).unwrap_or_default();
+        let to_global = ui
+            .ctx()
+            .layer_transform_to_global(ui.layer_id())
+            .unwrap_or_default();
         ui.output_mut(|o| {
             o.ime = Some(egui::output::IMEOutput {
                 purpose: egui::IMEPurpose::Terminal,
@@ -796,14 +996,21 @@ pub fn show(
         let term = shared.term.lock();
         let has_sel = term.selection.as_ref().is_some_and(|s| !s.is_empty());
         drop(term);
-        if ui.add_enabled(has_sel, egui::Button::new(crate::i18n::t("Copy"))).clicked() {
+        if ui
+            .add_enabled(has_sel, egui::Button::new(crate::i18n::t("Copy")))
+            .clicked()
+        {
             if let Some(text) = shared.term.lock().selection_to_string() {
                 ui.ctx().copy_text(text);
             }
             ui.close();
         }
-        if ui.add_enabled(alive, egui::Button::new(crate::i18n::t("Paste"))).clicked() {
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+        if ui
+            .add_enabled(alive, egui::Button::new(crate::i18n::t("Paste")))
+            .clicked()
+        {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::RequestPaste);
             ui.memory_mut(|m| m.request_focus(id));
             ui.close();
         }

@@ -19,7 +19,8 @@ pub struct TestServer {
 
 pub fn keygen(path: &Path, kind: &str, pass: &str) {
     let mut cmd = Command::new("ssh-keygen");
-    cmd.args(["-q", "-t", kind, "-N", pass, "-C", "peler-test", "-f"]).arg(path);
+    cmd.args(["-q", "-t", kind, "-N", pass, "-C", "peler-test", "-f"])
+        .arg(path);
     if kind == "rsa" {
         cmd.args(["-b", "3072"]);
     }
@@ -27,7 +28,11 @@ pub fn keygen(path: &Path, kind: &str, pass: &str) {
 }
 
 fn free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+    TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
 }
 
 impl TestServer {
@@ -72,7 +77,15 @@ impl TestServer {
             assert!(Instant::now() < deadline, "sshd did not start");
             std::thread::sleep(Duration::from_millis(50));
         }
-        Self { port, dir, key, encrypted_key, rsa_key, ecdsa_key, child }
+        Self {
+            port,
+            dir,
+            key,
+            encrypted_key,
+            rsa_key,
+            ecdsa_key,
+            child,
+        }
     }
 
     pub fn host_public_key(&self) -> String {

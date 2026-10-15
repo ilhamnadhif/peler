@@ -48,7 +48,11 @@ pub fn encrypt(passphrase: &str, plaintext: &[u8]) -> Result<EncryptedBlob> {
     encrypt_with(passphrase, plaintext, DEFAULT_PARAMS)
 }
 
-pub fn encrypt_with(passphrase: &str, plaintext: &[u8], (m, t, p): (u32, u32, u32)) -> Result<EncryptedBlob> {
+pub fn encrypt_with(
+    passphrase: &str,
+    plaintext: &[u8],
+    (m, t, p): (u32, u32, u32),
+) -> Result<EncryptedBlob> {
     if passphrase.is_empty() {
         bail!("{}", crate::i18n::t("The passphrase must not be empty."));
     }
@@ -79,17 +83,26 @@ pub fn decrypt(passphrase: &str, blob: &EncryptedBlob) -> Result<Vec<u8>> {
     if blob.m_cost > 1024 * 1024 || blob.t_cost > 64 || blob.p_cost > 16 {
         bail!("Encryption parameters in the file are out of range.");
     }
-    let salt = B64.decode(&blob.salt).map_err(|_| anyhow!("Malformed salt."))?;
+    let salt = B64
+        .decode(&blob.salt)
+        .map_err(|_| anyhow!("Malformed salt."))?;
     let nonce: [u8; 24] = B64
         .decode(&blob.nonce)
         .ok()
         .and_then(|n| n.try_into().ok())
         .ok_or_else(|| anyhow!("Malformed nonce."))?;
-    let ciphertext = B64.decode(&blob.ciphertext).map_err(|_| anyhow!("Malformed ciphertext."))?;
+    let ciphertext = B64
+        .decode(&blob.ciphertext)
+        .map_err(|_| anyhow!("Malformed ciphertext."))?;
     let key = derive_key(passphrase, &salt, blob.m_cost, blob.t_cost, blob.p_cost)?;
     XChaCha20Poly1305::new(&key.into())
         .decrypt(&XNonce::from(nonce), ciphertext.as_slice())
-        .map_err(|_| anyhow!("{}", crate::i18n::t("Wrong passphrase, or the file has been modified.")))
+        .map_err(|_| {
+            anyhow!(
+                "{}",
+                crate::i18n::t("Wrong passphrase, or the file has been modified.")
+            )
+        })
 }
 
 #[cfg(test)]

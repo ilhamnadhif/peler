@@ -66,14 +66,30 @@ impl AppMenu {
         )
         .expect("app menu");
 
-        let new_bookmark = item(t("New Bookmark…"), acc(CMD, Code::KeyN), Action::NewBookmark { group: None });
-        let quick = item(t("Quick Connect…"), acc(CMD, Code::KeyK), Action::QuickConnect);
+        let new_bookmark = item(
+            t("New Bookmark…"),
+            acc(CMD, Code::KeyN),
+            Action::NewBookmark { group: None },
+        );
+        let quick = item(
+            t("Quick Connect…"),
+            acc(CMD, Code::KeyK),
+            Action::QuickConnect,
+        );
         let new_tab = item(t("New Tab"), acc(CMD, Code::KeyT), Action::NewTab);
         let close = item(t("Close"), acc(CMD, Code::KeyW), Action::CloseTabOrPane);
         let reconnect = item(t("Reconnect"), acc(CMD, Code::KeyR), Action::Reconnect);
         let import = item(t("Import Bookmarks…"), None, Action::Import);
-        let import_ssh = item(t("Import from ~/.ssh/config"), None, Action::ImportSshConfig);
-        let export = item(t("Export Bookmarks…"), acc(shift_cmd, Code::KeyE), Action::Export(ExportScope::All));
+        let import_ssh = item(
+            t("Import from ~/.ssh/config"),
+            None,
+            Action::ImportSshConfig,
+        );
+        let export = item(
+            t("Export Bookmarks…"),
+            acc(shift_cmd, Code::KeyE),
+            Action::Export(ExportScope::All),
+        );
         let file_menu = Submenu::with_items(
             t("File"),
             true,
@@ -96,22 +112,57 @@ impl AppMenu {
         let paste = item(t("Paste"), acc(CMD, Code::KeyV), Action::Paste);
         let cut = item(t("Cut"), acc(CMD, Code::KeyX), Action::Cut);
         let select_all = item(t("Select All"), None, Action::SelectAll);
-        let clear = item(t("Clear Scrollback"), acc(alt_cmd, Code::KeyK), Action::ClearScrollback);
+        let clear = item(
+            t("Clear Scrollback"),
+            acc(alt_cmd, Code::KeyK),
+            Action::ClearScrollback,
+        );
         let edit_menu = Submenu::with_items(
             t("Edit"),
             true,
-            &[&cut, &copy, &paste, &select_all, &PredefinedMenuItem::separator(), &clear],
+            &[
+                &cut,
+                &copy,
+                &paste,
+                &select_all,
+                &PredefinedMenuItem::separator(),
+                &clear,
+            ],
         )
         .expect("edit menu");
 
-        let sidebar = item(t("Show/Hide Sidebar"), acc(CMD, Code::KeyB), Action::ToggleSidebar);
-        let sftp = item(t("SFTP Panel"), acc(shift_cmd, Code::KeyF), Action::ToggleSftp);
+        let sidebar = item(
+            t("Show/Hide Sidebar"),
+            acc(CMD, Code::KeyB),
+            Action::ToggleSidebar,
+        );
+        let sftp = item(
+            t("SFTP Panel"),
+            acc(shift_cmd, Code::KeyF),
+            Action::ToggleSftp,
+        );
         let split_right = item(t("Split Right"), acc(CMD, Code::KeyD), Action::SplitRight);
-        let split_down = item(t("Split Down"), acc(shift_cmd, Code::KeyD), Action::SplitDown);
-        let next_pane = item(t("Next Pane"), acc(CMD, Code::BracketRight), Action::NextPane);
-        let prev_pane = item(t("Previous Pane"), acc(CMD, Code::BracketLeft), Action::PrevPane);
+        let split_down = item(
+            t("Split Down"),
+            acc(shift_cmd, Code::KeyD),
+            Action::SplitDown,
+        );
+        let next_pane = item(
+            t("Next Pane"),
+            acc(CMD, Code::BracketRight),
+            Action::NextPane,
+        );
+        let prev_pane = item(
+            t("Previous Pane"),
+            acc(CMD, Code::BracketLeft),
+            Action::PrevPane,
+        );
         let bigger = item(t("Bigger Text"), acc(CMD, Code::Equal), Action::FontBigger);
-        let smaller = item(t("Smaller Text"), acc(CMD, Code::Minus), Action::FontSmaller);
+        let smaller = item(
+            t("Smaller Text"),
+            acc(CMD, Code::Minus),
+            Action::FontSmaller,
+        );
         let reset = item(t("Actual Size"), acc(CMD, Code::Digit0), Action::FontReset);
         let view_menu = Submenu::with_items(
             t("View"),
@@ -134,8 +185,16 @@ impl AppMenu {
         )
         .expect("view menu");
 
-        let next_tab = item(t("Show Next Tab"), acc(shift_cmd, Code::BracketRight), Action::NextTab);
-        let prev_tab = item(t("Show Previous Tab"), acc(shift_cmd, Code::BracketLeft), Action::PrevTab);
+        let next_tab = item(
+            t("Show Next Tab"),
+            acc(shift_cmd, Code::BracketRight),
+            Action::NextTab,
+        );
+        let prev_tab = item(
+            t("Show Previous Tab"),
+            acc(shift_cmd, Code::BracketLeft),
+            Action::PrevTab,
+        );
         let window_menu = Submenu::with_items(
             t("Window"),
             true,
@@ -154,12 +213,22 @@ impl AppMenu {
         let shortcuts = item(t("Keyboard Shortcuts"), None, Action::Shortcuts);
         let help_menu = Submenu::with_items(t("Help"), true, &[&shortcuts]).expect("help menu");
 
-        let menu = Menu::with_items(&[&app_menu, &file_menu, &edit_menu, &view_menu, &window_menu, &help_menu])
-            .expect("menu bar");
+        let menu = Menu::with_items(&[
+            &app_menu,
+            &file_menu,
+            &edit_menu,
+            &view_menu,
+            &window_menu,
+            &help_menu,
+        ])
+        .expect("menu bar");
         menu.init_for_nsapp();
         window_menu.set_as_windows_menu_for_nsapp();
         help_menu.set_as_help_menu_for_nsapp();
-        Self { _menu: menu, actions }
+        Self {
+            _menu: menu,
+            actions,
+        }
     }
 
     pub fn action(&self, id: &MenuId) -> Option<Action> {

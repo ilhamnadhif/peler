@@ -18,7 +18,9 @@ pub enum KeyLoadError {
 impl std::fmt::Display for KeyLoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            KeyLoadError::NeedsPassphrase => f.write_str(t("the key is encrypted and needs a passphrase")),
+            KeyLoadError::NeedsPassphrase => {
+                f.write_str(t("the key is encrypted and needs a passphrase"))
+            }
             KeyLoadError::WrongPassphrase => f.write_str(t("wrong passphrase")),
             KeyLoadError::Unsupported(e) => f.write_str(&tf("unsupported key format ({})", &[e])),
             KeyLoadError::Io(e) => f.write_str(e),
@@ -29,9 +31,12 @@ impl std::fmt::Display for KeyLoadError {
 /// Whether key text is passphrase-protected (OpenSSH, PEM `Proc-Type` and PKCS#8).
 pub fn is_encrypted(text: &str) -> bool {
     if text.contains("-----BEGIN OPENSSH PRIVATE KEY-----") {
-        return ssh_key::PrivateKey::from_openssh(text).map(|k| k.is_encrypted()).unwrap_or(false);
+        return ssh_key::PrivateKey::from_openssh(text)
+            .map(|k| k.is_encrypted())
+            .unwrap_or(false);
     }
-    text.contains("-----BEGIN ENCRYPTED PRIVATE KEY-----") || text.contains("Proc-Type: 4,ENCRYPTED")
+    text.contains("-----BEGIN ENCRYPTED PRIVATE KEY-----")
+        || text.contains("Proc-Type: 4,ENCRYPTED")
 }
 
 pub fn read_key_file(path: &Path) -> Result<String, KeyLoadError> {
@@ -61,7 +66,9 @@ pub fn decode_key(text: &str, passphrase: Option<&str>) -> Result<PrivateKey, Ke
         }
         Err(e) => {
             let s = format!("{e:?}");
-            if encrypted && (s.contains("DecryptFailed") || s.contains("Pkcs1(") || s.contains("Der(")) {
+            if encrypted
+                && (s.contains("DecryptFailed") || s.contains("Pkcs1(") || s.contains("Der("))
+            {
                 Err(KeyLoadError::WrongPassphrase)
             } else {
                 Err(KeyLoadError::Unsupported(e.to_string()))
@@ -73,8 +80,12 @@ pub fn decode_key(text: &str, passphrase: Option<&str>) -> Result<PrivateKey, Ke
 /// Removes line `line` (1-based, as reported by russh's `KeyChanged`) from a known_hosts file.
 pub fn forget_known_host_line(path: &Path, line: usize) -> std::io::Result<()> {
     let text = std::fs::read_to_string(path)?;
-    let kept: Vec<&str> =
-        text.lines().enumerate().filter(|(i, _)| i + 1 != line).map(|(_, l)| l).collect();
+    let kept: Vec<&str> = text
+        .lines()
+        .enumerate()
+        .filter(|(i, _)| i + 1 != line)
+        .map(|(_, l)| l)
+        .collect();
     let mut out = kept.join("\n");
     if !out.is_empty() {
         out.push('\n');
@@ -103,19 +114,40 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let plain = keygen(dir.path(), "ed", "ed25519", "");
         assert!(!is_encrypted(&plain));
-        assert_eq!(decode_key(&plain, Some("ignored")).unwrap().algorithm().as_str(), "ssh-ed25519");
+        assert_eq!(
+            decode_key(&plain, Some("ignored"))
+                .unwrap()
+                .algorithm()
+                .as_str(),
+            "ssh-ed25519"
+        );
 
         let ecdsa = keygen(dir.path(), "ec", "ecdsa", "");
-        assert!(decode_key(&ecdsa, None).unwrap().algorithm().as_str().starts_with("ecdsa-sha2"));
+        assert!(
+            decode_key(&ecdsa, None)
+                .unwrap()
+                .algorithm()
+                .as_str()
+                .starts_with("ecdsa-sha2")
+        );
         let rsa = keygen(dir.path(), "rsa", "rsa", "");
         assert!(decode_key(&rsa, None).unwrap().algorithm().is_rsa());
 
         let enc = keygen(dir.path(), "enc", "ed25519", "secret");
         assert!(is_encrypted(&enc));
-        assert_eq!(decode_key(&enc, None).unwrap_err(), KeyLoadError::NeedsPassphrase);
-        assert_eq!(decode_key(&enc, Some("nope")).unwrap_err(), KeyLoadError::WrongPassphrase);
+        assert_eq!(
+            decode_key(&enc, None).unwrap_err(),
+            KeyLoadError::NeedsPassphrase
+        );
+        assert_eq!(
+            decode_key(&enc, Some("nope")).unwrap_err(),
+            KeyLoadError::WrongPassphrase
+        );
         assert!(decode_key(&enc, Some("secret")).is_ok());
-        assert!(matches!(decode_key("garbage", None), Err(KeyLoadError::Unsupported(_))));
+        assert!(matches!(
+            decode_key("garbage", None),
+            Err(KeyLoadError::Unsupported(_))
+        ));
     }
 
     #[test]

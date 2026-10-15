@@ -7,7 +7,7 @@ pub mod i18n;
 pub mod paths;
 pub mod secrets;
 pub mod settings;
-pub mod ssh;
 pub mod sftp;
+pub mod ssh;
 pub mod term;
 pub mod ui;

@@ -15,7 +15,12 @@ pub enum SplitDir {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Layout {
     Pane(PaneId),
-    Split { dir: SplitDir, ratio: f32, a: Box<Layout>, b: Box<Layout> },
+    Split {
+        dir: SplitDir,
+        ratio: f32,
+        a: Box<Layout>,
+        b: Box<Layout>,
+    },
 }
 
 /// A draggable divider; `path` addresses the split node (false = a, true = b at each level).
@@ -71,7 +76,9 @@ impl Layout {
     /// Removes a pane, letting its sibling take its space. Returns false if it is the last pane
     /// (the caller closes the tab instead) or was not found.
     pub fn remove(&mut self, target: PaneId) -> bool {
-        let Layout::Split { a, b, .. } = self else { return false };
+        let Layout::Split { a, b, .. } = self else {
+            return false;
+        };
         if matches!(**a, Layout::Pane(id) if id == target) {
             *self = std::mem::replace(&mut **b, Layout::Pane(0));
             return true;
@@ -91,12 +98,23 @@ impl Layout {
         (panes, dividers)
     }
 
-    fn arrange_into(&self, rect: Rect, path: &mut Vec<bool>, panes: &mut Vec<(PaneId, Rect)>, dividers: &mut Vec<Divider>) {
+    fn arrange_into(
+        &self,
+        rect: Rect,
+        path: &mut Vec<bool>,
+        panes: &mut Vec<(PaneId, Rect)>,
+        dividers: &mut Vec<Divider>,
+    ) {
         match self {
             Layout::Pane(id) => panes.push((*id, rect)),
             Layout::Split { dir, ratio, a, b } => {
                 let (ra, div, rb) = split_rect(rect, *dir, *ratio);
-                dividers.push(Divider { path: path.clone(), dir: *dir, rect: div, parent: rect });
+                dividers.push(Divider {
+                    path: path.clone(),
+                    dir: *dir,
+                    rect: div,
+                    parent: rect,
+                });
                 path.push(false);
                 a.arrange_into(ra, path, panes, dividers);
                 path.pop();
@@ -126,7 +144,11 @@ impl Layout {
         let panes = self.panes();
         let idx = panes.iter().position(|p| *p == current).unwrap_or(0);
         let n = panes.len();
-        panes[if forward { (idx + 1) % n } else { (idx + n - 1) % n }]
+        panes[if forward {
+            (idx + 1) % n
+        } else {
+            (idx + n - 1) % n
+        }]
     }
 }
 

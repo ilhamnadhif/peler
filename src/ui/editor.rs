@@ -23,10 +23,16 @@ pub struct Editor {
     key_files: Vec<String>,
 }
 
+#[allow(clippy::large_enum_variant)] // short-lived, returned once per frame
 pub enum EditorResult {
     Open,
     Cancel,
-    Save { bookmark: Bookmark, set: SecretSet, clear: Vec<SecretKind>, connect: bool },
+    Save {
+        bookmark: Bookmark,
+        set: SecretSet,
+        clear: Vec<SecretKind>,
+        connect: bool,
+    },
 }
 
 fn ssh_keys() -> Vec<String> {
@@ -39,9 +45,14 @@ fn ssh_keys() -> Vec<String> {
             let name = e.file_name().to_string_lossy().into_owned();
             let path = e.path();
             let looks_private = !name.ends_with(".pub")
-                && !matches!(name.as_str(), "known_hosts" | "known_hosts.old" | "config" | "authorized_keys")
+                && !matches!(
+                    name.as_str(),
+                    "known_hosts" | "known_hosts.old" | "config" | "authorized_keys"
+                )
                 && path.is_file()
-                && std::fs::read_to_string(&path).map(|s| s.contains("PRIVATE KEY-----")).unwrap_or(false);
+                && std::fs::read_to_string(&path)
+                    .map(|s| s.contains("PRIVATE KEY-----"))
+                    .unwrap_or(false);
             looks_private.then(|| format!("~/.ssh/{name}"))
         })
         .collect();
@@ -80,13 +91,12 @@ impl Editor {
             }
             self.draft.host = rest.to_string();
         }
-        if let Some((host, port)) = self.draft.host.clone().rsplit_once(':') {
-            if !host.contains(':') {
-                if let Ok(p) = port.parse::<u16>() {
-                    self.draft.host = host.to_string();
-                    self.port_text = p.to_string();
-                }
-            }
+        if let Some((host, port)) = self.draft.host.clone().rsplit_once(':')
+            && !host.contains(':')
+            && let Ok(p) = port.parse::<u16>()
+        {
+            self.draft.host = host.to_string();
+            self.port_text = p.to_string();
         }
         if self.draft.host.is_empty() {
             self.error = Some(t("Host is required.").into());
@@ -109,14 +119,23 @@ impl Editor {
                 return false;
             }
         }
-        self.draft.tags = self.tags_text.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        self.draft.tags = self
+            .tags_text
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
         self.error = None;
         true
     }
 
     pub fn show(&mut self, ctx: &egui::Context, store: &BookmarkStore) -> EditorResult {
         let mut result = EditorResult::Open;
-        let title = if self.is_new { t("New Bookmark") } else { t("Edit Bookmark") };
+        let title = if self.is_new {
+            t("New Bookmark")
+        } else {
+            t("Edit Bookmark")
+        };
         let modal = egui::Modal::new(egui::Id::new("bookmark-editor")).show(ctx, |ui| {
             ui.set_width(460.0);
             ui.heading(title);
@@ -183,11 +202,10 @@ impl Editor {
                                     }
                                 });
                             }
-                            if ui.button(t("Browse…")).clicked() {
-                                if let Some(p) = rfd::FileDialog::new().set_directory(paths::home_dir().join(".ssh")).pick_file() {
+                            if ui.button(t("Browse…")).clicked()
+                                && let Some(p) = rfd::FileDialog::new().set_directory(paths::home_dir().join(".ssh")).pick_file() {
                                     *path = paths::contract_tilde(&p);
                                 }
-                            }
                         });
                         ui.end_row();
                     }

@@ -88,20 +88,29 @@ impl Transfer {
     }
 
     pub fn is_finished(&self) -> bool {
-        matches!(self.state(), TransferState::Done | TransferState::Failed(_) | TransferState::Cancelled)
+        matches!(
+            self.state(),
+            TransferState::Done | TransferState::Failed(_) | TransferState::Cancelled
+        )
     }
 
     pub fn fraction(&self) -> f32 {
         let total = self.total.load(Ordering::Relaxed);
         if total == 0 {
-            return if self.state() == TransferState::Done { 1.0 } else { 0.0 };
+            return if self.state() == TransferState::Done {
+                1.0
+            } else {
+                0.0
+            };
         }
         (self.done.load(Ordering::Relaxed) as f64 / total as f64).min(1.0) as f32
     }
 
     /// Average bytes per second since the transfer started.
     pub fn speed(&self) -> f64 {
-        let Some(start) = *self.started.lock() else { return 0.0 };
+        let Some(start) = *self.started.lock() else {
+            return 0.0;
+        };
         let end = self.finished.lock().unwrap_or_else(Instant::now);
         let secs = end.duration_since(start).as_secs_f64().max(0.001);
         self.done.load(Ordering::Relaxed) as f64 / secs
@@ -126,7 +135,11 @@ pub struct Transfers {
 
 impl Default for Transfers {
     fn default() -> Self {
-        Self { items: Vec::new(), limiter: Arc::new(Semaphore::new(2)), next_id: 1 }
+        Self {
+            items: Vec::new(),
+            limiter: Arc::new(Semaphore::new(2)),
+            next_id: 1,
+        }
     }
 }
 
@@ -148,9 +161,18 @@ impl Transfers {
         remote_dir: &str,
         on_done: impl Fn() + Send + Sync + 'static,
     ) -> Arc<Transfer> {
-        let name = local.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let name = local
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let dest = remote_join(remote_dir, &name);
-        let t = Arc::new(Transfer::new(self.next_id, Direction::Upload, name, local, dest));
+        let t = Arc::new(Transfer::new(
+            self.next_id,
+            Direction::Upload,
+            name,
+            local,
+            dest,
+        ));
         self.next_id += 1;
         self.items.push(t.clone());
         let limiter = self.limiter.clone();
@@ -177,7 +199,13 @@ impl Transfers {
     ) -> Arc<Transfer> {
         let name = remote_name(&remote).to_string();
         let dest = local_dir.join(&name);
-        let t = Arc::new(Transfer::new(self.next_id, Direction::Download, name, dest, remote));
+        let t = Arc::new(Transfer::new(
+            self.next_id,
+            Direction::Download,
+            name,
+            dest,
+            remote,
+        ));
         self.next_id += 1;
         self.items.push(t.clone());
         let limiter = self.limiter.clone();
@@ -204,9 +232,13 @@ struct Plan {
 /// Walks a local file or folder (without following symlinked folders).
 fn plan_upload(local: &Path, dest: &str) -> Result<Plan, String> {
     let meta = std::fs::metadata(local).map_err(|e| format!("{}: {e}", local.display()))?;
-    let mut plan = Plan { dirs: Vec::new(), files: Vec::new() };
+    let mut plan = Plan {
+        dirs: Vec::new(),
+        files: Vec::new(),
+    };
     if !meta.is_dir() {
-        plan.files.push((local.to_path_buf(), dest.to_string(), meta.len()));
+        plan.files
+            .push((local.to_path_buf(), dest.to_string(), meta.len()));
         return Ok(plan);
     }
     let mut stack = vec![(local.to_path_buf(), dest.to_string())];
@@ -235,9 +267,13 @@ fn plan_upload(local: &Path, dest: &str) -> Result<Plan, String> {
 
 async fn run_upload(t: &Transfer, sftp: &Sftp) -> Result<(), String> {
     let (local, dest) = (t.local.clone(), t.remote.clone());
-    let plan = tokio::task::spawn_blocking(move || plan_upload(&local, &dest)).await.map_err(|e| e.to_string())??;
-    t.total.store(plan.files.iter().map(|f| f.2).sum(), Ordering::Relaxed);
-    t.files_total.store(plan.files.len() as u64, Ordering::Relaxed);
+    let plan = tokio::task::spawn_blocking(move || plan_upload(&local, &dest))
+        .await
+        .map_err(|e| e.to_string())??;
+    t.total
+        .store(plan.files.iter().map(|f| f.2).sum(), Ordering::Relaxed);
+    t.files_total
+        .store(plan.files.len() as u64, Ordering::Relaxed);
     for dir in &plan.dirs {
         if t.cancelled() {
             return Err(CANCELLED.into());
@@ -251,22 +287,42 @@ async fn run_upload(t: &Transfer, sftp: &Sftp) -> Result<(), String> {
     Ok(())
 }
 
-async fn upload_file(t: &Transfer, sftp: &Sftp, local: &Path, remote_path: &str, size: u64) -> Result<(), String> {
+async fn upload_file(
+    t: &Transfer,
+    sftp: &Sftp,
+    local: &Path,
+    remote_path: &str,
+    size: u64,
+) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
-    let mut src = tokio::fs::File::open(local).await.map_err(|e| format!("{}: {e}", local.display()))?;
-    let mode = src.metadata().await.map(|m| m.permissions().mode() & 0o777).ok();
-    let mut dst = sftp.create(remote_path).await.map_err(|e| format!("{remote_path}: {}", describe(&e)))?;
+    let mut src = tokio::fs::File::open(local)
+        .await
+        .map_err(|e| format!("{}: {e}", local.display()))?;
+    let mode = src
+        .metadata()
+        .await
+        .map(|m| m.permissions().mode() & 0o777)
+        .ok();
+    let mut dst = sftp
+        .create(remote_path)
+        .await
+        .map_err(|e| format!("{remote_path}: {}", describe(&e)))?;
     let mut buf = vec![0u8; CHUNK];
     let result: Result<(), String> = async {
         loop {
             if t.cancelled() {
                 return Err(CANCELLED.to_string());
             }
-            let n = src.read(&mut buf).await.map_err(|e| format!("{}: {e}", local.display()))?;
+            let n = src
+                .read(&mut buf)
+                .await
+                .map_err(|e| format!("{}: {e}", local.display()))?;
             if n == 0 {
                 break;
             }
-            dst.write_all(&buf[..n]).await.map_err(|e| format!("{remote_path}: {e}"))?;
+            dst.write_all(&buf[..n])
+                .await
+                .map_err(|e| format!("{remote_path}: {e}"))?;
             t.done.fetch_add(n as u64, Ordering::Relaxed);
         }
         Ok(())
@@ -282,7 +338,10 @@ async fn upload_file(t: &Transfer, sftp: &Sftp, local: &Path, remote_path: &str,
     }
     let written = sftp.metadata(remote_path).await.ok().and_then(|m| m.size);
     if written.is_some_and(|w| w != size) {
-        return Err(format!("{remote_path}: size check failed ({} of {size} bytes)", written.unwrap_or(0)));
+        return Err(format!(
+            "{remote_path}: size check failed ({} of {size} bytes)",
+            written.unwrap_or(0)
+        ));
     }
     Ok(())
 }
@@ -290,7 +349,10 @@ async fn upload_file(t: &Transfer, sftp: &Sftp, local: &Path, remote_path: &str,
 // ----- download -------------------------------------------------------------------------------
 
 async fn run_download(t: &Transfer, sftp: &Sftp) -> Result<(), String> {
-    let root = sftp.metadata(&t.remote).await.map_err(|e| format!("{}: {}", t.remote, describe(&e)))?;
+    let root = sftp
+        .metadata(&t.remote)
+        .await
+        .map_err(|e| format!("{}: {}", t.remote, describe(&e)))?;
     let mut dirs: Vec<PathBuf> = Vec::new();
     let mut files: Vec<(String, PathBuf, u64, Option<u32>)> = Vec::new();
     if root.file_type() == FileType::Dir {
@@ -300,8 +362,11 @@ async fn run_download(t: &Transfer, sftp: &Sftp) -> Result<(), String> {
                 return Err(CANCELLED.into());
             }
             dirs.push(local_dir.clone());
-            let mut entries: Vec<_> =
-                sftp.read_dir(&remote_dir).await.map_err(|e| format!("{remote_dir}: {}", describe(&e)))?.collect();
+            let mut entries: Vec<_> = sftp
+                .read_dir(&remote_dir)
+                .await
+                .map_err(|e| format!("{remote_dir}: {}", describe(&e)))?
+                .collect();
             entries.sort_by_key(|e| e.file_name());
             for e in entries {
                 let name = e.file_name();
@@ -312,18 +377,31 @@ async fn run_download(t: &Transfer, sftp: &Sftp) -> Result<(), String> {
                 let child = remote_join(&remote_dir, &name);
                 match attrs.file_type() {
                     FileType::Dir => stack.push((child, local_dir.join(&name))),
-                    FileType::File => files.push((child, local_dir.join(&name), attrs.size.unwrap_or(0), attrs.permissions)),
+                    FileType::File => files.push((
+                        child,
+                        local_dir.join(&name),
+                        attrs.size.unwrap_or(0),
+                        attrs.permissions,
+                    )),
                     _ => {}
                 }
             }
         }
     } else {
-        files.push((t.remote.clone(), t.local.clone(), root.size.unwrap_or(0), root.permissions));
+        files.push((
+            t.remote.clone(),
+            t.local.clone(),
+            root.size.unwrap_or(0),
+            root.permissions,
+        ));
     }
-    t.total.store(files.iter().map(|f| f.2).sum(), Ordering::Relaxed);
+    t.total
+        .store(files.iter().map(|f| f.2).sum(), Ordering::Relaxed);
     t.files_total.store(files.len() as u64, Ordering::Relaxed);
     for dir in &dirs {
-        tokio::fs::create_dir_all(dir).await.map_err(|e| format!("{}: {e}", dir.display()))?;
+        tokio::fs::create_dir_all(dir)
+            .await
+            .map_err(|e| format!("{}: {e}", dir.display()))?;
     }
     for (remote_path, local, size, mode) in &files {
         download_file(t, sftp, remote_path, local, *size, *mode).await?;
@@ -332,10 +410,22 @@ async fn run_download(t: &Transfer, sftp: &Sftp) -> Result<(), String> {
     Ok(())
 }
 
-async fn download_file(t: &Transfer, sftp: &Sftp, remote_path: &str, local: &Path, size: u64, mode: Option<u32>) -> Result<(), String> {
+async fn download_file(
+    t: &Transfer,
+    sftp: &Sftp,
+    remote_path: &str,
+    local: &Path,
+    size: u64,
+    mode: Option<u32>,
+) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
-    let mut src = sftp.open(remote_path).await.map_err(|e| format!("{remote_path}: {}", describe(&e)))?;
-    let mut dst = tokio::fs::File::create(local).await.map_err(|e| format!("{}: {e}", local.display()))?;
+    let mut src = sftp
+        .open(remote_path)
+        .await
+        .map_err(|e| format!("{remote_path}: {}", describe(&e)))?;
+    let mut dst = tokio::fs::File::create(local)
+        .await
+        .map_err(|e| format!("{}: {e}", local.display()))?;
     let mut buf = vec![0u8; CHUNK];
     let mut written = 0u64;
     let result: Result<(), String> = async {
@@ -343,15 +433,22 @@ async fn download_file(t: &Transfer, sftp: &Sftp, remote_path: &str, local: &Pat
             if t.cancelled() {
                 return Err(CANCELLED.to_string());
             }
-            let n = src.read(&mut buf).await.map_err(|e| format!("{remote_path}: {e}"))?;
+            let n = src
+                .read(&mut buf)
+                .await
+                .map_err(|e| format!("{remote_path}: {e}"))?;
             if n == 0 {
                 break;
             }
-            dst.write_all(&buf[..n]).await.map_err(|e| format!("{}: {e}", local.display()))?;
+            dst.write_all(&buf[..n])
+                .await
+                .map_err(|e| format!("{}: {e}", local.display()))?;
             written += n as u64;
             t.done.fetch_add(n as u64, Ordering::Relaxed);
         }
-        dst.flush().await.map_err(|e| format!("{}: {e}", local.display()))?;
+        dst.flush()
+            .await
+            .map_err(|e| format!("{}: {e}", local.display()))?;
         Ok(())
     }
     .await;
@@ -362,10 +459,14 @@ async fn download_file(t: &Transfer, sftp: &Sftp, remote_path: &str, local: &Pat
         return Err(e);
     }
     if written != size {
-        return Err(format!("{}: size check failed ({written} of {size} bytes)", local.display()));
+        return Err(format!(
+            "{}: size check failed ({written} of {size} bytes)",
+            local.display()
+        ));
     }
     if let Some(mode) = mode {
-        let _ = tokio::fs::set_permissions(local, std::fs::Permissions::from_mode(mode & 0o777)).await;
+        let _ =
+            tokio::fs::set_permissions(local, std::fs::Permissions::from_mode(mode & 0o777)).await;
     }
     Ok(())
 }

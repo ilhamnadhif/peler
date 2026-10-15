@@ -3,6 +3,7 @@
 use eframe::egui;
 
 fn main() -> eframe::Result {
+    peler::app::mark_process_start();
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Peler")
@@ -20,6 +21,13 @@ fn main() -> eframe::Result {
     };
     // Arguments: bookmark names or user@host[:port] to open on launch. Finder/launchd may pass
     // a `-psn_…` process serial number argument, which is ignored.
-    let targets: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with("-psn_")).collect();
-    eframe::run_native("Peler", options, Box::new(|cc| Ok(Box::new(peler::app::PelerApp::new(cc, targets)))))
+    let targets: Vec<String> = std::env::args()
+        .skip(1)
+        .filter(|a| !a.starts_with("-psn_"))
+        .collect();
+    eframe::run_native(
+        "Peler",
+        options,
+        Box::new(|cc| Ok(Box::new(peler::app::PelerApp::new(cc, targets)))),
+    )
 }

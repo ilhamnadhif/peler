@@ -38,7 +38,12 @@ pub fn sort_entries(entries: &mut [FileEntry], key: SortKey, descending: bool) {
         if dirs.is_ne() {
             return dirs;
         }
-        let name = || a.name.to_lowercase().cmp(&b.name.to_lowercase()).then(a.name.cmp(&b.name));
+        let name = || {
+            a.name
+                .to_lowercase()
+                .cmp(&b.name.to_lowercase())
+                .then(a.name.cmp(&b.name))
+        };
         let ord = match key {
             SortKey::Name => name(),
             SortKey::Size => a.size.cmp(&b.size).then_with(name),
@@ -54,10 +59,16 @@ pub fn list_local(dir: &Path) -> std::io::Result<Vec<FileEntry>> {
     let mut out = Vec::new();
     for entry in std::fs::read_dir(dir)? {
         let Ok(entry) = entry else { continue };
-        let Ok(link_meta) = entry.path().symlink_metadata() else { continue };
+        let Ok(link_meta) = entry.path().symlink_metadata() else {
+            continue;
+        };
         let is_symlink = link_meta.file_type().is_symlink();
         // Follow symlinks for type and size so linked folders can be opened.
-        let meta = if is_symlink { entry.path().metadata().unwrap_or(link_meta) } else { link_meta };
+        let meta = if is_symlink {
+            entry.path().metadata().unwrap_or(link_meta)
+        } else {
+            link_meta
+        };
         out.push(FileEntry {
             name: entry.file_name().to_string_lossy().into_owned(),
             is_dir: meta.is_dir(),
@@ -71,7 +82,9 @@ pub fn list_local(dir: &Path) -> std::io::Result<Vec<FileEntry>> {
 }
 
 pub fn unix_secs(t: SystemTime) -> Option<i64> {
-    t.duration_since(SystemTime::UNIX_EPOCH).ok().map(|d| d.as_secs() as i64)
+    t.duration_since(SystemTime::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs() as i64)
 }
 
 /// "1.4 MB" style sizes (decimal units, like Finder).
@@ -86,13 +99,27 @@ pub fn human_size(bytes: u64) -> String {
         v /= 1000.0;
         unit += 1;
     }
-    if v < 10.0 { format!("{v:.1} {}", UNITS[unit]) } else { format!("{v:.0} {}", UNITS[unit]) }
+    if v < 10.0 {
+        format!("{v:.1} {}", UNITS[unit])
+    } else {
+        format!("{v:.0} {}", UNITS[unit])
+    }
 }
 
 /// `rwxr-xr-x` from mode bits, with setuid/setgid/sticky shown like `ls`.
 pub fn mode_string(mode: u32) -> String {
     let mut s = String::with_capacity(9);
-    let bits = [(0o400, 'r'), (0o200, 'w'), (0o100, 'x'), (0o040, 'r'), (0o020, 'w'), (0o010, 'x'), (0o004, 'r'), (0o002, 'w'), (0o001, 'x')];
+    let bits = [
+        (0o400, 'r'),
+        (0o200, 'w'),
+        (0o100, 'x'),
+        (0o040, 'r'),
+        (0o020, 'w'),
+        (0o010, 'x'),
+        (0o004, 'r'),
+        (0o002, 'w'),
+        (0o001, 'x'),
+    ];
     for (bit, c) in bits {
         s.push(if mode & bit != 0 { c } else { '-' });
     }
@@ -146,7 +173,10 @@ pub fn remote_parent(path: &str) -> String {
 
 /// Final component of a remote path.
 pub fn remote_name(path: &str) -> &str {
-    path.trim_end_matches('/').rsplit('/').next().unwrap_or(path)
+    path.trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(path)
 }
 
 #[cfg(test)]

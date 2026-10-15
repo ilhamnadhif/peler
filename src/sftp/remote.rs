@@ -18,7 +18,9 @@ pub fn describe(e: &SftpError) -> String {
                 StatusCode::NoSuchFile => "no such file or directory",
                 StatusCode::PermissionDenied => "permission denied",
                 StatusCode::Failure if !st.error_message.is_empty() => st.error_message.as_str(),
-                StatusCode::Failure => "operation failed (the target may already exist or not be empty)",
+                StatusCode::Failure => {
+                    "operation failed (the target may already exist or not be empty)"
+                }
                 StatusCode::OpUnsupported => "not supported by the server",
                 StatusCode::NoConnection | StatusCode::ConnectionLost => "connection lost",
                 _ => st.error_message.as_str(),
@@ -30,7 +32,11 @@ pub fn describe(e: &SftpError) -> String {
     }
 }
 
-fn entry_from(name: String, attrs: &FileAttributes, link_target: Option<&FileAttributes>) -> FileEntry {
+fn entry_from(
+    name: String,
+    attrs: &FileAttributes,
+    link_target: Option<&FileAttributes>,
+) -> FileEntry {
     let is_symlink = attrs.file_type() == FileType::Symlink;
     let effective = link_target.unwrap_or(attrs);
     let is_dir = effective.file_type() == FileType::Dir;
@@ -38,7 +44,11 @@ fn entry_from(name: String, attrs: &FileAttributes, link_target: Option<&FileAtt
         name,
         is_dir,
         is_symlink,
-        size: if is_dir { 0 } else { effective.size.unwrap_or(0) },
+        size: if is_dir {
+            0
+        } else {
+            effective.size.unwrap_or(0)
+        },
         modified: attrs.mtime.map(i64::from),
         mode: attrs.permissions.map(|p| p & 0o7777),
     }
@@ -73,7 +83,10 @@ pub async fn canonicalize(sftp: &SftpSession, path: &str) -> Result<String, Stri
 }
 
 pub async fn is_dir(sftp: &SftpSession, path: &str) -> Result<bool, String> {
-    sftp.metadata(path).await.map(|m| m.file_type() == FileType::Dir).map_err(|e| describe(&e))
+    sftp.metadata(path)
+        .await
+        .map(|m| m.file_type() == FileType::Dir)
+        .map_err(|e| describe(&e))
 }
 
 pub async fn exists(sftp: &SftpSession, path: &str) -> bool {
@@ -98,14 +111,23 @@ pub async fn rename(sftp: &SftpSession, from: &str, to: &str) -> Result<(), Stri
 }
 
 pub async fn chmod(sftp: &SftpSession, path: &str, mode: u32) -> Result<(), String> {
-    sftp.set_metadata(path, FileAttributes { permissions: Some(mode), ..FileAttributes::empty() })
-        .await
-        .map_err(|e| describe(&e))
+    sftp.set_metadata(
+        path,
+        FileAttributes {
+            permissions: Some(mode),
+            ..FileAttributes::empty()
+        },
+    )
+    .await
+    .map_err(|e| describe(&e))
 }
 
 /// Deletes a file, or a folder with everything in it.
 pub async fn remove(sftp: &SftpSession, path: &str) -> Result<(), String> {
-    let meta = sftp.symlink_metadata(path).await.map_err(|e| describe(&e))?;
+    let meta = sftp
+        .symlink_metadata(path)
+        .await
+        .map_err(|e| describe(&e))?;
     if meta.file_type() != FileType::Dir {
         return sftp.remove_file(path).await.map_err(|e| describe(&e));
     }
@@ -113,7 +135,9 @@ pub async fn remove(sftp: &SftpSession, path: &str) -> Result<(), String> {
     let mut stack = vec![(path.to_string(), false)];
     while let Some((dir, visited)) = stack.pop() {
         if visited {
-            sftp.remove_dir(&dir).await.map_err(|e| format!("{dir}: {}", describe(&e)))?;
+            sftp.remove_dir(&dir)
+                .await
+                .map_err(|e| format!("{dir}: {}", describe(&e)))?;
             continue;
         }
         stack.push((dir.clone(), true));
@@ -126,7 +150,9 @@ pub async fn remove(sftp: &SftpSession, path: &str) -> Result<(), String> {
             if e.metadata().file_type() == FileType::Dir {
                 stack.push((child, false));
             } else {
-                sftp.remove_file(&child).await.map_err(|e| format!("{child}: {}", describe(&e)))?;
+                sftp.remove_file(&child)
+                    .await
+                    .map_err(|e| format!("{child}: {}", describe(&e)))?;
             }
         }
     }

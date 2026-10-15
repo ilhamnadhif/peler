@@ -31,7 +31,11 @@ pub fn fuzzy_score(pattern: &str, text: &str) -> Option<i32> {
             next[j] = (0..j)
                 .filter_map(|k| {
                     best[k].map(|s| {
-                        let link = if k + 1 == j { 12 } else { -((j - k - 1) as i32).min(8) };
+                        let link = if k + 1 == j {
+                            12
+                        } else {
+                            -((j - k - 1) as i32).min(8)
+                        };
                         s + here + link
                     })
                 })
@@ -40,17 +44,28 @@ pub fn fuzzy_score(pattern: &str, text: &str) -> Option<i32> {
         best = next;
     }
     // Prefer shorter texts when everything else is equal.
-    best.into_iter().flatten().max().map(|s| s - t.len() as i32 / 8)
+    best.into_iter()
+        .flatten()
+        .max()
+        .map(|s| s - t.len() as i32 / 8)
 }
 
 fn boundary_bonus(t: &[char], i: usize) -> i32 {
-    if i == 0 || matches!(t[i - 1], ' ' | '-' | '_' | '.' | '@' | '/' | ':') { 10 } else { 0 }
+    if i == 0 || matches!(t[i - 1], ' ' | '-' | '_' | '.' | '@' | '/' | ':') {
+        10
+    } else {
+        0
+    }
 }
 
 /// Best score of one search term against a bookmark's fields; the name counts most.
 fn term_score(term: &str, b: &Bookmark, group_path: &str) -> Option<i32> {
-    let fields: [(&str, i32); 4] =
-        [(&b.name, 3), (&b.host, 2), (&b.username, 1), (group_path, 1)];
+    let fields: [(&str, i32); 4] = [
+        (&b.name, 3),
+        (&b.host, 2),
+        (&b.username, 1),
+        (group_path, 1),
+    ];
     let mut best: Option<i32> = None;
     for (text, weight) in fields {
         if let Some(s) = fuzzy_score(term, text) {
@@ -123,7 +138,10 @@ mod tests {
         s.upsert_bookmark(mk("staging web", "stg.example.com", &[], None));
 
         let names = |q: &str| -> Vec<String> {
-            search(&s, q).iter().map(|id| s.bookmark(*id).unwrap().name.clone()).collect()
+            search(&s, q)
+                .iter()
+                .map(|id| s.bookmark(*id).unwrap().name.clone())
+                .collect()
         };
         assert_eq!(names("postgres"), ["db main"]);
         assert_eq!(names("prod web"), ["web 1"]);

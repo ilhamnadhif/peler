@@ -5,7 +5,10 @@ use std::path::PathBuf;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use eframe::egui::{self, Color32, CornerRadius, Key, KeyboardShortcut, Modifiers, RichText, Sense, Stroke, Theme, Ui, vec2};
+use eframe::egui::{
+    self, Color32, CornerRadius, Key, KeyboardShortcut, Modifiers, RichText, Sense, Stroke, Theme,
+    Ui, vec2,
+};
 use muda::MenuEvent;
 use uuid::Uuid;
 
@@ -19,7 +22,10 @@ use crate::ssh::types::{ConnState, HostKeyStatus, Prompt, SecretAnswer, SecretPr
 use crate::term::core::GridSize;
 use crate::term::scheme::{self, Scheme};
 use crate::ui::actions::Action;
-use crate::ui::dialogs::{self, ConfirmAction, Dialog, DialogResult, ExportDialog, GroupTarget, ImportDialog, Palette, PaletteResult, SettingsDialog, Toasts};
+use crate::ui::dialogs::{
+    self, ConfirmAction, Dialog, DialogResult, ExportDialog, GroupTarget, ImportDialog, Palette,
+    PaletteResult, SettingsDialog, Toasts,
+};
 use crate::ui::editor::{Editor, EditorResult};
 use crate::ui::layout::{self, SplitDir};
 use crate::ui::menu::{self, AppMenu};
@@ -47,15 +53,33 @@ impl Applied {
             font: fonts::effective_choice(&s.font),
             cjk: s.load_cjk_font,
             option_as_meta: s.option_as_meta,
-            terminal: (s.scrollback, s.cursor_style, s.cursor_blink, s.scheme_dark.clone(), s.scheme_light.clone()),
+            terminal: (
+                s.scrollback,
+                s.cursor_style,
+                s.cursor_blink,
+                s.scheme_dark.clone(),
+                s.scheme_light.clone(),
+            ),
         }
     }
 }
 
 /// Snapshot of a pending prompt, copied out of the connection lock for drawing.
 enum PromptView {
-    HostKey { host: String, port: u16, algorithm: String, fingerprint: String, changed: bool },
-    Secret { kind: SecretPromptKind, message: String, echo: bool, can_save: bool, retry: bool },
+    HostKey {
+        host: String,
+        port: u16,
+        algorithm: String,
+        fingerprint: String,
+        changed: bool,
+    },
+    Secret {
+        kind: SecretPromptKind,
+        message: String,
+        echo: bool,
+        can_save: bool,
+        retry: bool,
+    },
 }
 
 pub struct PelerApp {
@@ -101,9 +125,17 @@ mod dev {
     impl Script {
         pub fn from_env() -> Self {
             let steps = std::env::var("PELER_DEV_SCRIPT")
-                .map(|s| s.split(";;").map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect())
+                .map(|s| {
+                    s.split(";;")
+                        .map(|x| x.trim().to_string())
+                        .filter(|x| !x.is_empty())
+                        .collect()
+                })
                 .unwrap_or_default();
-            Self { steps, wait_until: None }
+            Self {
+                steps,
+                wait_until: None,
+            }
         }
 
         /// The next step to run now, if any.
@@ -118,7 +150,8 @@ mod dev {
             self.wait_until = None;
             let step = self.steps.pop_front()?;
             if let Some(ms) = step.strip_prefix("sleep ") {
-                self.wait_until = Some(Instant::now() + Duration::from_millis(ms.trim().parse().unwrap_or(500)));
+                self.wait_until =
+                    Some(Instant::now() + Duration::from_millis(ms.trim().parse().unwrap_or(500)));
                 return None;
             }
             Some(step)
@@ -126,8 +159,18 @@ mod dev {
     }
 
     pub fn unescape(s: &str) -> String {
-        s.replace("\\r", "\r").replace("\\n", "\n").replace("\\e", "\x1b").replace("\\t", "\t")
+        s.replace("\\r", "\r")
+            .replace("\\n", "\n")
+            .replace("\\e", "\x1b")
+            .replace("\\t", "\t")
     }
+}
+
+static PROCESS_START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+
+/// Records the launch time (for `PELER_STARTUP_LOG=1`).
+pub fn mark_process_start() {
+    PROCESS_START.get_or_init(Instant::now);
 }
 
 /// A bookmark for `user@host[:port]` typed on the command line (not saved).
@@ -144,7 +187,12 @@ fn adhoc_bookmark(target: &str) -> Option<Bookmark> {
     if host.is_empty() || host.contains(char::is_whitespace) {
         return None;
     }
-    Some(Bookmark { host, port, username: user, ..Default::default() })
+    Some(Bookmark {
+        host,
+        port,
+        username: user,
+        ..Default::default()
+    })
 }
 
 const TAB_H: f32 = 34.0;
@@ -164,13 +212,23 @@ impl PelerApp {
             Err(e) => {
                 // Keep the unreadable file instead of overwriting it with an empty store.
                 let path = paths::bookmarks_file();
-                let backup = path.with_extension(format!("corrupt-{}.json", chrono::Utc::now().format("%Y%m%d%H%M%S")));
+                let backup = path.with_extension(format!(
+                    "corrupt-{}.json",
+                    chrono::Utc::now().format("%Y%m%d%H%M%S")
+                ));
                 let _ = std::fs::rename(&path, &backup);
-                toasts.error(tf("Could not read the bookmarks file ({}). It was kept as {}.", &[&format!("{e:#}"), &backup.display().to_string()]));
+                toasts.error(tf(
+                    "Could not read the bookmarks file ({}). It was kept as {}.",
+                    &[&format!("{e:#}"), &backup.display().to_string()],
+                ));
                 BookmarkStore::default()
             }
         };
-        fonts::apply(ctx, &fonts::effective_choice(&settings.font), settings.load_cjk_font);
+        fonts::apply(
+            ctx,
+            &fonts::effective_choice(&settings.font),
+            settings.load_cjk_font,
+        );
         style::apply(ctx, settings.theme);
         ctx.options_mut(|o| {
             o.zoom_with_keyboard = false;
@@ -214,7 +272,9 @@ impl PelerApp {
 
     #[cfg(debug_assertions)]
     fn run_dev_script(&mut self, ctx: &egui::Context) {
-        let Some(step) = self.dev.next(ctx) else { return };
+        let Some(step) = self.dev.next(ctx) else {
+            return;
+        };
         let (cmd, arg) = step.split_once(' ').unwrap_or((step.as_str(), ""));
         match cmd {
             "type" => {
@@ -223,7 +283,13 @@ impl PelerApp {
                 }
             }
             "connect" => {
-                if let Some(b) = self.store.bookmarks.iter().find(|b| b.display_name() == arg).cloned() {
+                if let Some(b) = self
+                    .store
+                    .bookmarks
+                    .iter()
+                    .find(|b| b.display_name() == arg)
+                    .cloned()
+                {
                     self.open_tab(ctx, b);
                 }
             }
@@ -274,10 +340,17 @@ impl PelerApp {
     /// Opens the tabs requested on the command line.
     fn open_startup_targets(&mut self, ctx: &egui::Context) {
         for target in std::mem::take(&mut self.startup) {
-            let found = self.store.bookmarks.iter().find(|b| b.display_name().eq_ignore_ascii_case(&target)).cloned();
+            let found = self
+                .store
+                .bookmarks
+                .iter()
+                .find(|b| b.display_name().eq_ignore_ascii_case(&target))
+                .cloned();
             match found.or_else(|| adhoc_bookmark(&target)) {
                 Some(b) => self.open_tab(ctx, b),
-                None => self.toasts.error(tf("Unknown bookmark or address: {}", &[&target])),
+                None => self
+                    .toasts
+                    .error(tf("Unknown bookmark or address: {}", &[&target])),
             }
         }
     }
@@ -289,7 +362,14 @@ impl PelerApp {
 
     fn scheme(&self, ctx: &egui::Context) -> &'static Scheme {
         let dark = ctx.theme() == Theme::Dark;
-        scheme::find(if dark { &self.settings.scheme_dark } else { &self.settings.scheme_light }, dark)
+        scheme::find(
+            if dark {
+                &self.settings.scheme_dark
+            } else {
+                &self.settings.scheme_light
+            },
+            dark,
+        )
     }
 
     fn save_store(&mut self) {
@@ -346,10 +426,26 @@ impl PelerApp {
         if self.modal_open() {
             return;
         }
-        let digits = [Key::Num1, Key::Num2, Key::Num3, Key::Num4, Key::Num5, Key::Num6, Key::Num7, Key::Num8, Key::Num9];
+        let digits = [
+            Key::Num1,
+            Key::Num2,
+            Key::Num3,
+            Key::Num4,
+            Key::Num5,
+            Key::Num6,
+            Key::Num7,
+            Key::Num8,
+            Key::Num9,
+        ];
         for (i, key) in digits.iter().enumerate() {
-            if ctx.input_mut(|inp| inp.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, *key))) {
-                let idx = if i == 8 { self.tabs.len().saturating_sub(1) } else { i };
+            if ctx.input_mut(|inp| {
+                inp.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, *key))
+            }) {
+                let idx = if i == 8 {
+                    self.tabs.len().saturating_sub(1)
+                } else {
+                    i
+                };
                 self.actions.push(Action::SelectTab(idx));
             }
         }
@@ -362,7 +458,10 @@ impl PelerApp {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 self.dialog = Some(dialogs::confirm(
                     t("Quit Peler?"),
-                    tf("{} connection(s) are open and will be closed.", &[&live.to_string()]),
+                    tf(
+                        "{} connection(s) are open and will be closed.",
+                        &[&live.to_string()],
+                    ),
                     t("Quit"),
                     ConfirmAction::Quit,
                 ));
@@ -371,12 +470,22 @@ impl PelerApp {
     }
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
-        let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().map(|f| f.path().to_path_buf()).collect());
+        let dropped: Vec<PathBuf> = ctx.input(|i| {
+            i.raw
+                .dropped_files
+                .iter()
+                .map(|f| f.path().to_path_buf())
+                .collect()
+        });
         if dropped.is_empty() {
             return;
         }
         let rt = self.rt.handle().clone();
-        let Some(tab) = self.tabs.get_mut(self.active).filter(|t| t.state().is_connected()) else {
+        let Some(tab) = self
+            .tabs
+            .get_mut(self.active)
+            .filter(|t| t.state().is_connected())
+        else {
             // Dropping an export file with no session open imports it.
             if dropped.len() == 1 && dropped[0].extension().is_some_and(|e| e == "json") {
                 self.import_file(dropped[0].clone());
@@ -386,7 +495,11 @@ impl PelerApp {
             return;
         };
         if tab.sftp.is_none() {
-            tab.sftp = Some(SftpPanel::new(tab.conn.open_sftp(), &tab.bookmark.start_dir, self.settings.last_local_dir.as_deref()));
+            tab.sftp = Some(SftpPanel::new(
+                tab.conn.open_sftp(),
+                &tab.bookmark.start_dir,
+                self.settings.last_local_dir.as_deref(),
+            ));
         }
         tab.show_sftp = true;
         if let Some(panel) = &mut tab.sftp {
@@ -411,7 +524,11 @@ impl PelerApp {
             if now.option_as_meta != self.applied.option_as_meta || self.first_frame {
                 use winit::platform::macos::{OptionAsAlt, WindowExtMacOS};
                 if let Some(w) = frame.winit_window() {
-                    w.set_option_as_alt(if now.option_as_meta { OptionAsAlt::Both } else { OptionAsAlt::None });
+                    w.set_option_as_alt(if now.option_as_meta {
+                        OptionAsAlt::Both
+                    } else {
+                        OptionAsAlt::None
+                    });
                 }
             }
             if now.terminal != self.applied.terminal {
@@ -425,7 +542,11 @@ impl PelerApp {
         // Terminal colours follow the effective (system) theme, which can change at any time.
         let scheme = self.scheme(ctx);
         for tab in &self.tabs {
-            if tab.panes.first().is_some_and(|p| p.shared.palette.lock().bg != scheme.background) {
+            if tab
+                .panes
+                .first()
+                .is_some_and(|p| p.shared.palette.lock().bg != scheme.background)
+            {
                 tab.apply_settings(&self.settings, scheme);
             }
         }
@@ -446,7 +567,13 @@ impl PelerApp {
     // ----- tabs -------------------------------------------------------------------------------
 
     fn env<'a>(&'a self, ctx: &'a egui::Context) -> Env<'a> {
-        Env { rt: self.rt.handle(), ctx, settings: &self.settings, scheme: self.scheme(ctx), known_hosts: paths::known_hosts_file() }
+        Env {
+            rt: self.rt.handle(),
+            ctx,
+            settings: &self.settings,
+            scheme: self.scheme(ctx),
+            known_hosts: paths::known_hosts_file(),
+        }
     }
 
     fn open_tab(&mut self, ctx: &egui::Context, bookmark: Bookmark) {
@@ -455,7 +582,10 @@ impl PelerApp {
             .get(self.active)
             .and_then(|t| t.focused_pane())
             .and_then(|p| p.view.grid)
-            .unwrap_or(GridSize { cols: 120, rows: 34 });
+            .unwrap_or(GridSize {
+                cols: 120,
+                rows: 34,
+            });
         let (tab_id, pane_id) = (self.next_id(), self.next_id());
         let tab = Tab::open(tab_id, pane_id, bookmark, size, &self.env(ctx));
         self.tabs.push(tab);
@@ -475,11 +605,16 @@ impl PelerApp {
     }
 
     fn request_close_tab(&mut self, idx: usize) {
-        let Some(tab) = self.tabs.get(idx) else { return };
+        let Some(tab) = self.tabs.get(idx) else {
+            return;
+        };
         if self.settings.confirm_close_connected && tab.is_active() {
             self.dialog = Some(dialogs::confirm(
                 t("Close this tab?"),
-                tf("The connection to {} will be closed.", &[&tab.bookmark.address()]),
+                tf(
+                    "The connection to {} will be closed.",
+                    &[&tab.bookmark.address()],
+                ),
                 t("Close"),
                 ConfirmAction::CloseTab(idx),
             ));
@@ -500,7 +635,13 @@ impl PelerApp {
     fn run_action(&mut self, ctx: &egui::Context, action: Action) {
         match action {
             Action::NewBookmark { group } => {
-                self.editor = Some(Editor::new(Bookmark { group, ..Default::default() }, true));
+                self.editor = Some(Editor::new(
+                    Bookmark {
+                        group,
+                        ..Default::default()
+                    },
+                    true,
+                ));
             }
             Action::EditBookmark(id) => {
                 if let Some(b) = self.store.bookmark(id).cloned() {
@@ -518,7 +659,10 @@ impl PelerApp {
                 if let Some(b) = self.store.bookmark(id) {
                     self.dialog = Some(dialogs::confirm(
                         t("Delete bookmark?"),
-                        tf("\"{}\" and its saved password will be removed.", &[&b.display_name()]),
+                        tf(
+                            "\"{}\" and its saved password will be removed.",
+                            &[&b.display_name()],
+                        ),
                         t("Delete"),
                         ConfirmAction::DeleteBookmark(id),
                     ));
@@ -531,17 +675,32 @@ impl PelerApp {
                 }
             }
             Action::NewGroup { parent } => {
-                self.dialog = Some(Dialog::GroupName { target: GroupTarget::New { parent }, name: String::new(), focus: true });
+                self.dialog = Some(Dialog::GroupName {
+                    target: GroupTarget::New { parent },
+                    name: String::new(),
+                    focus: true,
+                });
             }
             Action::RenameGroup(id) => {
-                let name = self.store.group(id).map(|g| g.name.clone()).unwrap_or_default();
-                self.dialog = Some(Dialog::GroupName { target: GroupTarget::Rename(id), name, focus: true });
+                let name = self
+                    .store
+                    .group(id)
+                    .map(|g| g.name.clone())
+                    .unwrap_or_default();
+                self.dialog = Some(Dialog::GroupName {
+                    target: GroupTarget::Rename(id),
+                    name,
+                    focus: true,
+                });
             }
             Action::DeleteGroup(id) => {
                 if let Some(g) = self.store.group(id) {
                     self.dialog = Some(dialogs::confirm(
                         t("Delete group?"),
-                        tf("The group \"{}\" will be removed. Its bookmarks and sub-groups move up one level.", &[&g.name]),
+                        tf(
+                            "The group \"{}\" will be removed. Its bookmarks and sub-groups move up one level.",
+                            &[&g.name],
+                        ),
                         t("Delete"),
                         ConfirmAction::DeleteGroup(id),
                     ));
@@ -550,14 +709,22 @@ impl PelerApp {
             Action::QuickConnect => self.palette = Some(Palette::default()),
             Action::NewTab => match self.tabs.get(self.active) {
                 Some(tab) => {
-                    let b = self.store.bookmark(tab.bookmark.id).cloned().unwrap_or_else(|| tab.bookmark.clone());
+                    let b = self
+                        .store
+                        .bookmark(tab.bookmark.id)
+                        .cloned()
+                        .unwrap_or_else(|| tab.bookmark.clone());
                     self.open_tab(ctx, b);
                 }
                 None => self.palette = Some(Palette::default()),
             },
             Action::DuplicateTab(i) => {
                 if let Some(tab) = self.tabs.get(i) {
-                    let b = self.store.bookmark(tab.bookmark.id).cloned().unwrap_or_else(|| tab.bookmark.clone());
+                    let b = self
+                        .store
+                        .bookmark(tab.bookmark.id)
+                        .cloned()
+                        .unwrap_or_else(|| tab.bookmark.clone());
                     self.open_tab(ctx, b);
                 }
             }
@@ -600,15 +767,31 @@ impl PelerApp {
                     if let Some(b) = self.store.bookmark(id).cloned() {
                         self.tabs[self.active].bookmark = b;
                     }
-                    let env = Env { rt: self.rt.handle(), ctx, settings: &self.settings, scheme: self.scheme(ctx), known_hosts: paths::known_hosts_file() };
+                    let env = Env {
+                        rt: self.rt.handle(),
+                        ctx,
+                        settings: &self.settings,
+                        scheme: self.scheme(ctx),
+                        known_hosts: paths::known_hosts_file(),
+                    };
                     self.tabs[self.active].reconnect(&env);
                 }
             }
             Action::SplitRight | Action::SplitDown => {
                 if self.active < self.tabs.len() {
-                    let dir = if action == Action::SplitRight { SplitDir::Horizontal } else { SplitDir::Vertical };
+                    let dir = if action == Action::SplitRight {
+                        SplitDir::Horizontal
+                    } else {
+                        SplitDir::Vertical
+                    };
                     let pane_id = self.next_id();
-                    let env = Env { rt: self.rt.handle(), ctx, settings: &self.settings, scheme: self.scheme(ctx), known_hosts: paths::known_hosts_file() };
+                    let env = Env {
+                        rt: self.rt.handle(),
+                        ctx,
+                        settings: &self.settings,
+                        scheme: self.scheme(ctx),
+                        known_hosts: paths::known_hosts_file(),
+                    };
                     self.tabs[self.active].split(pane_id, dir, &env);
                 }
             }
@@ -626,12 +809,20 @@ impl PelerApp {
                 if let Some(tab) = self.tabs.get_mut(self.active) {
                     tab.show_sftp = !tab.show_sftp;
                     if tab.show_sftp && tab.sftp.is_none() && tab.state().is_connected() {
-                        tab.sftp = Some(SftpPanel::new(tab.conn.open_sftp(), &tab.bookmark.start_dir, last.as_deref()));
+                        tab.sftp = Some(SftpPanel::new(
+                            tab.conn.open_sftp(),
+                            &tab.bookmark.start_dir,
+                            last.as_deref(),
+                        ));
                     }
                 }
             }
-            Action::FontBigger => self.settings.font_size = (self.settings.font_size + 1.0).min(Settings::MAX_FONT),
-            Action::FontSmaller => self.settings.font_size = (self.settings.font_size - 1.0).max(Settings::MIN_FONT),
+            Action::FontBigger => {
+                self.settings.font_size = (self.settings.font_size + 1.0).min(Settings::MAX_FONT)
+            }
+            Action::FontSmaller => {
+                self.settings.font_size = (self.settings.font_size - 1.0).max(Settings::MIN_FONT)
+            }
             Action::FontReset => self.settings.font_size = Settings::default().font_size,
             Action::Copy => ctx.send_viewport_cmd(egui::ViewportCommand::RequestCopy),
             Action::Paste => ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste),
@@ -647,7 +838,15 @@ impl PelerApp {
                 }
             }
             Action::SendQuickCommand(id) => {
-                let Some(qc) = self.settings.quick_commands.iter().find(|q| q.id == id).cloned() else { return };
+                let Some(qc) = self
+                    .settings
+                    .quick_commands
+                    .iter()
+                    .find(|q| q.id == id)
+                    .cloned()
+                else {
+                    return;
+                };
                 if let Some(p) = self.tabs.get(self.active).and_then(|t| t.focused_pane()) {
                     let mut bytes = qc.command.replace('\n', "\r").into_bytes();
                     if qc.run {
@@ -672,10 +871,15 @@ impl PelerApp {
             Action::ImportSshConfig => {
                 let path = paths::home_dir().join(".ssh/config");
                 match ssh_config::parse_file(&path) {
-                    Ok(hosts) if hosts.is_empty() => self.toasts.info(t("No hosts found in ~/.ssh/config.")),
+                    Ok(hosts) if hosts.is_empty() => {
+                        self.toasts.info(t("No hosts found in ~/.ssh/config."))
+                    }
                     Ok(hosts) => {
                         let plan = ImportPlan::new(transfer::from_ssh_config(&hosts), &self.store);
-                        self.dialog = Some(Dialog::Import(ImportDialog::new(plan, "~/.ssh/config".into())));
+                        self.dialog = Some(Dialog::Import(ImportDialog::new(
+                            plan,
+                            "~/.ssh/config".into(),
+                        )));
                     }
                     Err(e) => self.toasts.error(format!("~/.ssh/config: {e}")),
                 }
@@ -695,7 +899,10 @@ impl PelerApp {
                 if live > 0 && self.settings.confirm_close_connected {
                     self.dialog = Some(dialogs::confirm(
                         t("Quit Peler?"),
-                        tf("{} connection(s) are open and will be closed.", &[&live.to_string()]),
+                        tf(
+                            "{} connection(s) are open and will be closed.",
+                            &[&live.to_string()],
+                        ),
                         t("Quit"),
                         ConfirmAction::Quit,
                     ));
@@ -718,7 +925,10 @@ impl PelerApp {
         match transfer::read_import(&data) {
             Ok(incoming) => {
                 let plan = ImportPlan::new(incoming, &self.store);
-                let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                let name = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
                 self.dialog = Some(Dialog::Import(ImportDialog::new(plan, name)));
             }
             Err(e) => self.toasts.error(format!("{e:#}")),
@@ -726,7 +936,10 @@ impl PelerApp {
     }
 
     fn do_export(&mut self, scope: ExportScope, passphrase: Option<String>) {
-        let default_name = format!("peler-bookmarks-{}.json", chrono::Local::now().format("%Y-%m-%d"));
+        let default_name = format!(
+            "peler-bookmarks-{}.json",
+            chrono::Local::now().format("%Y-%m-%d")
+        );
         let Some(path) = rfd::FileDialog::new()
             .set_title(t("Export Bookmarks"))
             .set_file_name(default_name)
@@ -735,11 +948,18 @@ impl PelerApp {
         else {
             return;
         };
-        let result = transfer::export(&self.store, &scope, passphrase.as_deref(), secrets::load_set)
-            .and_then(|file| Ok(serde_json::to_vec_pretty(&file)?))
-            .and_then(|json| Ok(paths::write_private(&path, &json)?));
+        let result = transfer::export(
+            &self.store,
+            &scope,
+            passphrase.as_deref(),
+            secrets::load_set,
+        )
+        .and_then(|file| Ok(serde_json::to_vec_pretty(&file)?))
+        .and_then(|json| Ok(paths::write_private(&path, &json)?));
         match result {
-            Ok(()) => self.toasts.info(tf("Exported to {}", &[&path.display().to_string()])),
+            Ok(()) => self
+                .toasts
+                .info(tf("Exported to {}", &[&path.display().to_string()])),
             Err(e) => self.toasts.error(format!("{e:#}")),
         }
     }
@@ -755,10 +975,17 @@ impl PelerApp {
         self.save_store();
         self.toasts.info(tf(
             "Import finished: {} added, {} updated, {} skipped.",
-            &[&outcome.added.to_string(), &outcome.updated.to_string(), &outcome.skipped.to_string()],
+            &[
+                &outcome.added.to_string(),
+                &outcome.updated.to_string(),
+                &outcome.skipped.to_string(),
+            ],
         ));
         if failed > 0 {
-            self.toasts.error(tf("{} credential(s) could not be saved to the Keychain.", &[&failed.to_string()]));
+            self.toasts.error(tf(
+                "{} credential(s) could not be saved to the Keychain.",
+                &[&failed.to_string()],
+            ));
         }
     }
 
@@ -780,99 +1007,181 @@ impl PelerApp {
         let dark = ui.visuals().dark_mode;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
-            let toggle = if self.settings.sidebar_visible { "◧" } else { "▢" };
-            if ui.add(egui::Button::new(toggle).frame(false)).on_hover_text(format!("{} (⌘B)", t("Show/Hide Sidebar"))).clicked() {
+            let toggle = if self.settings.sidebar_visible {
+                "◧"
+            } else {
+                "▢"
+            };
+            if ui
+                .add(egui::Button::new(toggle).frame(false))
+                .on_hover_text(format!("{} (⌘B)", t("Show/Hide Sidebar")))
+                .clicked()
+            {
                 self.actions.push(Action::ToggleSidebar);
             }
             ui.add_space(4.0);
             let mut drag_target = None;
-            egui::ScrollArea::horizontal().id_salt("tab-strip").max_width(ui.available_width() - 150.0).show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    for i in 0..self.tabs.len() {
-                        let active = i == self.active;
-                        let tab = &self.tabs[i];
-                        let (dot, status) = match tab.state() {
-                            ConnState::Connected if tab.panes.iter().any(|p| p.is_live()) => (style::GREEN, t("Connected")),
-                            ConnState::Connected => (Color32::GRAY, t("Session ended")),
-                            ConnState::Connecting | ConnState::Authenticating => (style::AMBER, t("Connecting…")),
-                            ConnState::Closed(Some(_)) => (style::RED, t("Disconnected")),
-                            ConnState::Closed(None) => (Color32::GRAY, t("Disconnected")),
-                        };
-                        let waiting = tab.conn.shared.lock().prompt.is_some();
-                        let activity = !active && tab.has_activity();
-                        let title = tab.title();
-                        let width = (ui.fonts_mut(|f| f.layout_no_wrap(title.clone(), egui::FontId::proportional(13.0), Color32::WHITE).size().x) + 54.0).clamp(90.0, 220.0);
-                        let (rect, resp) = ui.allocate_exact_size(vec2(width, TAB_H - 6.0), Sense::click_and_drag());
-                        let painter = ui.painter();
-                        let bg = if active {
-                            ui.visuals().panel_fill
-                        } else if resp.hovered() {
-                            ui.visuals().widgets.hovered.weak_bg_fill
-                        } else {
-                            style::chrome_fill(dark)
-                        };
-                        painter.rect_filled(rect, CornerRadius { nw: 7, ne: 7, sw: 0, se: 0 }, bg);
-                        painter.circle_filled(egui::pos2(rect.left() + 12.0, rect.center().y), 4.0, dot);
-                        let text_color = if active { ui.visuals().strong_text_color() } else { ui.visuals().text_color() };
-                        let label = if waiting { format!("{title}  •") } else { title.clone() };
-                        let clip = egui::Rect::from_min_max(rect.min, egui::pos2(rect.right() - 22.0, rect.bottom()));
-                        painter.with_clip_rect(clip).text(
-                            egui::pos2(rect.left() + 22.0, rect.center().y),
-                            egui::Align2::LEFT_CENTER,
-                            label,
-                            if activity { egui::FontId::new(13.0, egui::FontFamily::Proportional) } else { egui::FontId::proportional(13.0) },
-                            if activity { style::ACCENT } else { text_color },
-                        );
-                        if i < 9 {
-                            let hint = format!("⌘{}", i + 1);
-                            let _ = hint;
-                        }
-                        // Close button.
-                        let close_rect = egui::Rect::from_center_size(egui::pos2(rect.right() - 12.0, rect.center().y), vec2(16.0, 16.0));
-                        let close = ui.interact(close_rect, egui::Id::new(("tab-close", tab.id)), Sense::click());
-                        if close.hovered() || resp.hovered() || active {
-                            let c = if close.hovered() { ui.visuals().strong_text_color() } else { ui.visuals().weak_text_color() };
-                            if close.hovered() {
-                                ui.painter().rect_filled(close_rect, CornerRadius::same(4), ui.visuals().widgets.hovered.bg_fill);
+            egui::ScrollArea::horizontal()
+                .id_salt("tab-strip")
+                .max_width(ui.available_width() - 150.0)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        for i in 0..self.tabs.len() {
+                            let active = i == self.active;
+                            let tab = &self.tabs[i];
+                            let (dot, status) = match tab.state() {
+                                ConnState::Connected if tab.panes.iter().any(|p| p.is_live()) => {
+                                    (style::GREEN, t("Connected"))
+                                }
+                                ConnState::Connected => (Color32::GRAY, t("Session ended")),
+                                ConnState::Connecting | ConnState::Authenticating => {
+                                    (style::AMBER, t("Connecting…"))
+                                }
+                                ConnState::Closed(Some(_)) => (style::RED, t("Disconnected")),
+                                ConnState::Closed(None) => (Color32::GRAY, t("Disconnected")),
+                            };
+                            let waiting = tab.conn.shared.lock().prompt.is_some();
+                            let activity = !active && tab.has_activity();
+                            let title = tab.title();
+                            let width = (ui.fonts_mut(|f| {
+                                f.layout_no_wrap(
+                                    title.clone(),
+                                    egui::FontId::proportional(13.0),
+                                    Color32::WHITE,
+                                )
+                                .size()
+                                .x
+                            }) + 54.0)
+                                .clamp(90.0, 220.0);
+                            let (rect, resp) = ui.allocate_exact_size(
+                                vec2(width, TAB_H - 6.0),
+                                Sense::click_and_drag(),
+                            );
+                            let painter = ui.painter();
+                            let bg = if active {
+                                ui.visuals().panel_fill
+                            } else if resp.hovered() {
+                                ui.visuals().widgets.hovered.weak_bg_fill
+                            } else {
+                                style::chrome_fill(dark)
+                            };
+                            painter.rect_filled(
+                                rect,
+                                CornerRadius {
+                                    nw: 7,
+                                    ne: 7,
+                                    sw: 0,
+                                    se: 0,
+                                },
+                                bg,
+                            );
+                            painter.circle_filled(
+                                egui::pos2(rect.left() + 12.0, rect.center().y),
+                                4.0,
+                                dot,
+                            );
+                            let text_color = if active {
+                                ui.visuals().strong_text_color()
+                            } else {
+                                ui.visuals().text_color()
+                            };
+                            let label = if waiting {
+                                format!("{title}  •")
+                            } else {
+                                title.clone()
+                            };
+                            let clip = egui::Rect::from_min_max(
+                                rect.min,
+                                egui::pos2(rect.right() - 22.0, rect.bottom()),
+                            );
+                            painter.with_clip_rect(clip).text(
+                                egui::pos2(rect.left() + 22.0, rect.center().y),
+                                egui::Align2::LEFT_CENTER,
+                                label,
+                                if activity {
+                                    egui::FontId::new(13.0, egui::FontFamily::Proportional)
+                                } else {
+                                    egui::FontId::proportional(13.0)
+                                },
+                                if activity { style::ACCENT } else { text_color },
+                            );
+                            if i < 9 {
+                                let hint = format!("⌘{}", i + 1);
+                                let _ = hint;
                             }
-                            ui.painter().text(close_rect.center(), egui::Align2::CENTER_CENTER, "×", egui::FontId::proportional(14.0), c);
-                        }
-                        if close.clicked() || resp.middle_clicked() {
-                            self.actions.push(Action::CloseTab(i));
-                        } else if resp.clicked() {
-                            self.actions.push(Action::SelectTab(i));
-                        }
-                        let resp = resp.on_hover_text(format!("{}\n{status}", tab.bookmark.address()));
-                        resp.dnd_set_drag_payload(i);
-                        if let Some(from) = resp.dnd_release_payload::<usize>() {
-                            drag_target = Some((*from, i));
-                        }
-                        resp.context_menu(|ui| {
-                            if ui.button(t("Duplicate Tab")).clicked() {
-                                self.actions.push(Action::DuplicateTab(i));
-                                ui.close();
+                            // Close button.
+                            let close_rect = egui::Rect::from_center_size(
+                                egui::pos2(rect.right() - 12.0, rect.center().y),
+                                vec2(16.0, 16.0),
+                            );
+                            let close = ui.interact(
+                                close_rect,
+                                egui::Id::new(("tab-close", tab.id)),
+                                Sense::click(),
+                            );
+                            if close.hovered() || resp.hovered() || active {
+                                let c = if close.hovered() {
+                                    ui.visuals().strong_text_color()
+                                } else {
+                                    ui.visuals().weak_text_color()
+                                };
+                                if close.hovered() {
+                                    ui.painter().rect_filled(
+                                        close_rect,
+                                        CornerRadius::same(4),
+                                        ui.visuals().widgets.hovered.bg_fill,
+                                    );
+                                }
+                                ui.painter().text(
+                                    close_rect.center(),
+                                    egui::Align2::CENTER_CENTER,
+                                    "×",
+                                    egui::FontId::proportional(14.0),
+                                    c,
+                                );
                             }
-                            if ui.button(t("Reconnect")).clicked() {
-                                self.actions.push(Action::SelectTab(i));
-                                self.actions.push(Action::Reconnect);
-                                ui.close();
-                            }
-                            if ui.button(t("Edit Bookmark…")).clicked() {
-                                self.actions.push(Action::EditBookmark(self.tabs[i].bookmark.id));
-                                ui.close();
-                            }
-                            ui.separator();
-                            if ui.button(t("Close Tab")).clicked() {
+                            if close.clicked() || resp.middle_clicked() {
                                 self.actions.push(Action::CloseTab(i));
-                                ui.close();
+                            } else if resp.clicked() {
+                                self.actions.push(Action::SelectTab(i));
                             }
-                        });
-                    }
-                    if ui.add(egui::Button::new(" + ").frame(false)).on_hover_text(format!("{} (⌘K)", t("Quick Connect…"))).clicked() {
-                        self.actions.push(Action::QuickConnect);
-                    }
+                            let resp =
+                                resp.on_hover_text(format!("{}\n{status}", tab.bookmark.address()));
+                            resp.dnd_set_drag_payload(i);
+                            if let Some(from) = resp.dnd_release_payload::<usize>() {
+                                drag_target = Some((*from, i));
+                            }
+                            resp.context_menu(|ui| {
+                                if ui.button(t("Duplicate Tab")).clicked() {
+                                    self.actions.push(Action::DuplicateTab(i));
+                                    ui.close();
+                                }
+                                if ui.button(t("Reconnect")).clicked() {
+                                    self.actions.push(Action::SelectTab(i));
+                                    self.actions.push(Action::Reconnect);
+                                    ui.close();
+                                }
+                                if ui.button(t("Edit Bookmark…")).clicked() {
+                                    self.actions
+                                        .push(Action::EditBookmark(self.tabs[i].bookmark.id));
+                                    ui.close();
+                                }
+                                ui.separator();
+                                if ui.button(t("Close Tab")).clicked() {
+                                    self.actions.push(Action::CloseTab(i));
+                                    ui.close();
+                                }
+                            });
+                        }
+                        if ui
+                            .add(egui::Button::new(" + ").frame(false))
+                            .on_hover_text(format!("{} (⌘K)", t("Quick Connect…")))
+                            .clicked()
+                        {
+                            self.actions.push(Action::QuickConnect);
+                        }
+                    });
                 });
-            });
             if let Some((from, to)) = drag_target {
                 self.actions.push(Action::MoveTab { from, to });
             }
@@ -881,7 +1190,10 @@ impl PelerApp {
                 let has_tab = !self.tabs.is_empty();
                 let sftp_on = self.tabs.get(self.active).is_some_and(|t| t.show_sftp);
                 if ui
-                    .add_enabled(has_tab, egui::Button::new(RichText::new(t("SFTP"))).selected(sftp_on))
+                    .add_enabled(
+                        has_tab,
+                        egui::Button::new(RichText::new(t("SFTP"))).selected(sftp_on),
+                    )
                     .on_hover_text(format!("{} (⇧⌘F)", t("SFTP Panel")))
                     .clicked()
                 {
@@ -893,8 +1205,16 @@ impl PelerApp {
                             ui.label(RichText::new(t("No quick commands")).weak());
                         }
                         for qc in &self.settings.quick_commands {
-                            let label = if qc.name.trim().is_empty() { qc.command.clone() } else { qc.name.clone() };
-                            if ui.button(label).on_hover_text(RichText::new(&qc.command).monospace()).clicked() {
+                            let label = if qc.name.trim().is_empty() {
+                                qc.command.clone()
+                            } else {
+                                qc.name.clone()
+                            };
+                            if ui
+                                .button(label)
+                                .on_hover_text(RichText::new(&qc.command).monospace())
+                                .clicked()
+                            {
                                 self.actions.push(Action::SendQuickCommand(qc.id));
                                 ui.close();
                             }
@@ -907,7 +1227,11 @@ impl PelerApp {
                     })
                     .response
                     .on_hover_text(t("Quick Commands"));
-                    if ui.button("◫").on_hover_text(format!("{} (⌘D)", t("Split Right"))).clicked() {
+                    if ui
+                        .button("◫")
+                        .on_hover_text(format!("{} (⌘D)", t("Split Right")))
+                        .clicked()
+                    {
                         self.actions.push(Action::SplitRight);
                     }
                 });
@@ -921,26 +1245,59 @@ impl PelerApp {
             ui.label(RichText::new("Peler").size(34.0).strong());
             ui.label(RichText::new(t("Lightweight SSH and SFTP client")).weak());
             ui.add_space(18.0);
-            if ui.add(egui::Button::new(RichText::new(format!("{}   ⌘K", t("Search bookmarks and connect"))).size(15.0)).min_size(vec2(320.0, 34.0))).clicked() {
+            if ui
+                .add(
+                    egui::Button::new(
+                        RichText::new(format!("{}   ⌘K", t("Search bookmarks and connect")))
+                            .size(15.0),
+                    )
+                    .min_size(vec2(320.0, 34.0)),
+                )
+                .clicked()
+            {
                 self.actions.push(Action::QuickConnect);
             }
             ui.add_space(6.0);
-            if ui.add(egui::Button::new(format!("{}   ⌘N", t("New Bookmark…"))).min_size(vec2(320.0, 30.0))).clicked() {
+            if ui
+                .add(
+                    egui::Button::new(format!("{}   ⌘N", t("New Bookmark…")))
+                        .min_size(vec2(320.0, 30.0)),
+                )
+                .clicked()
+            {
                 self.actions.push(Action::NewBookmark { group: None });
             }
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 let w = 320.0;
                 ui.add_space((ui.available_width() - w) / 2.0);
-                if ui.add(egui::Button::new(t("Import Bookmarks…")).min_size(vec2(w / 2.0 - 4.0, 28.0))).clicked() {
+                if ui
+                    .add(
+                        egui::Button::new(t("Import Bookmarks…"))
+                            .min_size(vec2(w / 2.0 - 4.0, 28.0)),
+                    )
+                    .clicked()
+                {
                     self.actions.push(Action::Import);
                 }
-                if ui.add(egui::Button::new(t("Import from ~/.ssh/config")).min_size(vec2(w / 2.0 - 4.0, 28.0))).clicked() {
+                if ui
+                    .add(
+                        egui::Button::new(t("Import from ~/.ssh/config"))
+                            .min_size(vec2(w / 2.0 - 4.0, 28.0)),
+                    )
+                    .clicked()
+                {
                     self.actions.push(Action::ImportSshConfig);
                 }
             });
             ui.add_space(14.0);
-            ui.label(RichText::new(t("Tip: double-click a bookmark, or select it in the search and press Enter.")).weak().small());
+            ui.label(
+                RichText::new(t(
+                    "Tip: double-click a bookmark, or select it in the search and press Enter.",
+                ))
+                .weak()
+                .small(),
+            );
         });
     }
 
@@ -973,32 +1330,56 @@ impl PelerApp {
 
         // Status banner.
         let banner = match &state {
-            ConnState::Connecting => Some((tf("Connecting to {}…", &[&tab.bookmark.address()]), style::AMBER, false)),
-            ConnState::Authenticating if !has_prompt => Some((tf("Authenticating as {}…", &[&tab.bookmark.address()]), style::AMBER, false)),
+            ConnState::Connecting => Some((
+                tf("Connecting to {}…", &[&tab.bookmark.address()]),
+                style::AMBER,
+                false,
+            )),
+            ConnState::Authenticating if !has_prompt => Some((
+                tf("Authenticating as {}…", &[&tab.bookmark.address()]),
+                style::AMBER,
+                false,
+            )),
             ConnState::Closed(Some(e)) => Some((e.message(), style::RED, true)),
             ConnState::Closed(None) => Some((t("Disconnected.").to_string(), Color32::GRAY, true)),
             _ => None,
         };
         if let Some((text, color, offer_reconnect)) = banner {
-            egui::Frame::NONE.fill(color.gamma_multiply(0.18)).inner_margin(egui::Margin::symmetric(12, 6)).show(ui, |ui| {
-                ui.set_min_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    if !offer_reconnect {
-                        ui.spinner();
-                    }
-                    ui.label(RichText::new(text).color(if ui.visuals().dark_mode { Color32::WHITE } else { Color32::BLACK }));
-                    if offer_reconnect {
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button(t("Edit Bookmark…")).clicked() {
-                                self.actions.push(Action::EditBookmark(tab.bookmark.id));
-                            }
-                            if ui.button(RichText::new(format!("{}  ⌘R", t("Reconnect"))).strong()).clicked() {
-                                self.actions.push(Action::Reconnect);
-                            }
-                        });
-                    }
+            egui::Frame::NONE
+                .fill(color.gamma_multiply(0.18))
+                .inner_margin(egui::Margin::symmetric(12, 6))
+                .show(ui, |ui| {
+                    ui.set_min_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        if !offer_reconnect {
+                            ui.spinner();
+                        }
+                        ui.label(RichText::new(text).color(if ui.visuals().dark_mode {
+                            Color32::WHITE
+                        } else {
+                            Color32::BLACK
+                        }));
+                        if offer_reconnect {
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button(t("Edit Bookmark…")).clicked() {
+                                        self.actions.push(Action::EditBookmark(tab.bookmark.id));
+                                    }
+                                    if ui
+                                        .button(
+                                            RichText::new(format!("{}  ⌘R", t("Reconnect")))
+                                                .strong(),
+                                        )
+                                        .clicked()
+                                    {
+                                        self.actions.push(Action::Reconnect);
+                                    }
+                                },
+                            );
+                        }
+                    });
                 });
-            });
         }
 
         // Terminal area and optional SFTP panel.
@@ -1007,7 +1388,10 @@ impl PelerApp {
             let split_y = (full.top() + full.height() * (1.0 - tab.sftp_split)).round();
             (
                 egui::Rect::from_min_max(full.min, egui::pos2(full.right(), split_y - 3.0)),
-                Some(egui::Rect::from_min_max(egui::pos2(full.left(), split_y + 3.0), full.max)),
+                Some(egui::Rect::from_min_max(
+                    egui::pos2(full.left(), split_y + 3.0),
+                    full.max,
+                )),
             )
         } else {
             (full, None)
@@ -1018,14 +1402,30 @@ impl PelerApp {
         let mut new_focus = None;
         for (pane_id, rect) in pane_rects {
             let focused_pane = tab.focused == pane_id;
-            let Some(pane) = tab.pane_mut(pane_id) else { continue };
+            let Some(pane) = tab.pane_mut(pane_id) else {
+                continue;
+            };
             let alive = pane.is_live();
-            let resp = terminal::show(ui, rect, &mut pane.view, &pane.shared, &term_style, focused_pane, !modal_open && !has_prompt, alive);
+            let resp = terminal::show(
+                ui,
+                rect,
+                &mut pane.view,
+                &pane.shared,
+                &term_style,
+                focused_pane,
+                !modal_open && !has_prompt,
+                alive,
+            );
             if !resp.input.is_empty() {
                 pane.send(resp.input);
             }
             if let Some((size, px_w, px_h)) = resp.resized {
-                let _ = pane.input.send(crate::ssh::session::PaneInput::Resize { cols: size.cols as u32, rows: size.rows as u32, px_w, px_h });
+                let _ = pane.input.send(crate::ssh::session::PaneInput::Resize {
+                    cols: size.cols as u32,
+                    rows: size.rows as u32,
+                    px_w,
+                    px_h,
+                });
             }
             if let Some(text) = pane.shared.notes.lock().clipboard.take() {
                 ctx.copy_text(text);
@@ -1037,13 +1437,22 @@ impl PelerApp {
                 new_focus = Some(pane_id);
             }
             if multi && focused_pane {
-                ui.painter().rect_stroke(rect, CornerRadius::ZERO, Stroke::new(1.0, style::ACCENT.gamma_multiply(0.7)), egui::StrokeKind::Inside);
+                ui.painter().rect_stroke(
+                    rect,
+                    CornerRadius::ZERO,
+                    Stroke::new(1.0, style::ACCENT.gamma_multiply(0.7)),
+                    egui::StrokeKind::Inside,
+                );
             }
             let bell = pane.shared.notes.lock().bell_at;
             if let Some(at) = bell {
                 let age = at.elapsed().as_secs_f32();
                 if age < 0.25 {
-                    ui.painter().rect_filled(rect, CornerRadius::ZERO, Color32::from_white_alpha(((0.25 - age) * 120.0) as u8));
+                    ui.painter().rect_filled(
+                        rect,
+                        CornerRadius::ZERO,
+                        Color32::from_white_alpha(((0.25 - age) * 120.0) as u8),
+                    );
                     ctx.request_repaint_after(Duration::from_millis(30));
                 }
             }
@@ -1052,8 +1461,16 @@ impl PelerApp {
             tab.focused = f;
         }
         for (i, d) in dividers.iter().enumerate() {
-            let resp = ui.interact(d.rect.expand(2.0), egui::Id::new(("divider", tab.id, i)), Sense::drag());
-            let color = if resp.hovered() || resp.dragged() { style::ACCENT } else { ui.visuals().widgets.noninteractive.bg_stroke.color };
+            let resp = ui.interact(
+                d.rect.expand(2.0),
+                egui::Id::new(("divider", tab.id, i)),
+                Sense::drag(),
+            );
+            let color = if resp.hovered() || resp.dragged() {
+                style::ACCENT
+            } else {
+                ui.visuals().widgets.noninteractive.bg_stroke.color
+            };
             ui.painter().rect_filled(d.rect, CornerRadius::ZERO, color);
             if resp.hovered() || resp.dragged() {
                 ctx.set_cursor_icon(match d.dir {
@@ -1061,35 +1478,47 @@ impl PelerApp {
                     SplitDir::Vertical => egui::CursorIcon::ResizeVertical,
                 });
             }
-            if resp.dragged() {
-                if let Some(p) = resp.interact_pointer_pos() {
-                    tab.layout.set_ratio(&d.path, layout::ratio_at(d, p));
-                }
+            if resp.dragged()
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                tab.layout.set_ratio(&d.path, layout::ratio_at(d, p));
             }
         }
 
         if let Some(rect) = sftp_rect {
             // Divider between terminal and SFTP panel.
-            let div = egui::Rect::from_min_max(egui::pos2(full.left(), rect.top() - 6.0), egui::pos2(full.right(), rect.top()));
+            let div = egui::Rect::from_min_max(
+                egui::pos2(full.left(), rect.top() - 6.0),
+                egui::pos2(full.right(), rect.top()),
+            );
             let resp = ui.interact(div, egui::Id::new(("sftp-divider", tab.id)), Sense::drag());
             ui.painter().rect_filled(
                 div.shrink2(vec2(0.0, 2.0)),
                 CornerRadius::ZERO,
-                if resp.hovered() || resp.dragged() { style::ACCENT } else { ui.visuals().widgets.noninteractive.bg_stroke.color },
+                if resp.hovered() || resp.dragged() {
+                    style::ACCENT
+                } else {
+                    ui.visuals().widgets.noninteractive.bg_stroke.color
+                },
             );
             if resp.hovered() || resp.dragged() {
                 ctx.set_cursor_icon(egui::CursorIcon::ResizeVertical);
             }
-            if resp.dragged() {
-                if let Some(p) = resp.interact_pointer_pos() {
-                    tab.sftp_split = (1.0 - (p.y - full.top()) / full.height()).clamp(0.15, 0.85);
-                }
+            if resp.dragged()
+                && let Some(p) = resp.interact_pointer_pos()
+            {
+                tab.sftp_split = (1.0 - (p.y - full.top()) / full.height()).clamp(0.15, 0.85);
             }
             let last = self.settings.last_local_dir.clone();
             if tab.sftp.is_none() && tab.state().is_connected() {
-                tab.sftp = Some(SftpPanel::new(tab.conn.open_sftp(), &tab.bookmark.start_dir, last.as_deref()));
+                tab.sftp = Some(SftpPanel::new(
+                    tab.conn.open_sftp(),
+                    &tab.bookmark.start_dir,
+                    last.as_deref(),
+                ));
             }
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(8.0, 4.0))));
+            let mut child =
+                ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(8.0, 4.0))));
             match &mut tab.sftp {
                 Some(panel) => {
                     if let PanelOutput::LocalDir(dir) = panel.show(&mut child, &rt, !modal_open) {
@@ -1097,7 +1526,11 @@ impl PelerApp {
                     }
                 }
                 None => {
-                    child.centered_and_justified(|ui| ui.label(RichText::new(t("SFTP opens once the connection is ready.")).weak()));
+                    child.centered_and_justified(|ui| {
+                        ui.label(
+                            RichText::new(t("SFTP opens once the connection is ready.")).weak(),
+                        )
+                    });
                 }
             }
         }
@@ -1105,28 +1538,66 @@ impl PelerApp {
         // Files dragged from Finder over the window.
         let hovering = ctx.input(|i| !i.raw.hovered_files.is_empty());
         if hovering && state.is_connected() {
-            let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop-overlay")));
-            painter.rect_filled(full, CornerRadius::same(8), style::ACCENT.gamma_multiply(0.15));
-            painter.rect_stroke(full.shrink(4.0), CornerRadius::same(8), Stroke::new(2.0, style::ACCENT), egui::StrokeKind::Inside);
-            painter.text(full.center(), egui::Align2::CENTER_CENTER, t("Drop to upload to the current remote folder"), egui::FontId::proportional(18.0), style::ACCENT);
+            let painter = ui.ctx().layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::new("drop-overlay"),
+            ));
+            painter.rect_filled(
+                full,
+                CornerRadius::same(8),
+                style::ACCENT.gamma_multiply(0.15),
+            );
+            painter.rect_stroke(
+                full.shrink(4.0),
+                CornerRadius::same(8),
+                Stroke::new(2.0, style::ACCENT),
+                egui::StrokeKind::Inside,
+            );
+            painter.text(
+                full.center(),
+                egui::Align2::CENTER_CENTER,
+                t("Drop to upload to the current remote folder"),
+                egui::FontId::proportional(18.0),
+                style::ACCENT,
+            );
         }
     }
 
     fn prompt_ui(&mut self, ctx: &egui::Context) {
-        let Some(tab) = self.tabs.get_mut(self.active) else { return };
+        let Some(tab) = self.tabs.get_mut(self.active) else {
+            return;
+        };
         let view = {
             let s = tab.conn.shared.lock();
             match &s.prompt {
-                Some(Prompt::HostKey { host, port, algorithm, fingerprint, status, .. }) => PromptView::HostKey {
+                Some(Prompt::HostKey {
+                    host,
+                    port,
+                    algorithm,
+                    fingerprint,
+                    status,
+                    ..
+                }) => PromptView::HostKey {
                     host: host.clone(),
                     port: *port,
                     algorithm: algorithm.clone(),
                     fingerprint: fingerprint.clone(),
                     changed: *status == HostKeyStatus::Changed,
                 },
-                Some(Prompt::Secret { kind, message, echo, can_save, retry, .. }) => {
-                    PromptView::Secret { kind: *kind, message: message.clone(), echo: *echo, can_save: *can_save, retry: *retry }
-                }
+                Some(Prompt::Secret {
+                    kind,
+                    message,
+                    echo,
+                    can_save,
+                    retry,
+                    ..
+                }) => PromptView::Secret {
+                    kind: *kind,
+                    message: message.clone(),
+                    echo: *echo,
+                    can_save: *can_save,
+                    retry: *retry,
+                },
                 None => return,
             }
         };
@@ -1245,7 +1716,12 @@ impl PelerApp {
             match editor.show(ctx, &self.store) {
                 EditorResult::Open => {}
                 EditorResult::Cancel => self.editor = None,
-                EditorResult::Save { bookmark, set, clear, connect } => {
+                EditorResult::Save {
+                    bookmark,
+                    set,
+                    clear,
+                    connect,
+                } => {
                     let id = bookmark.id;
                     let mut errors = Vec::new();
                     if let Err(e) = secrets::store_set(id, &set) {
@@ -1330,7 +1806,10 @@ impl PelerApp {
     fn update_title(&mut self, ctx: &egui::Context) {
         let title = match self.tabs.get(self.active) {
             Some(tab) => {
-                let remote = tab.focused_pane().and_then(|p| p.title()).filter(|t| !t.trim().is_empty());
+                let remote = tab
+                    .focused_pane()
+                    .and_then(|p| p.title())
+                    .filter(|t| !t.trim().is_empty());
                 match remote {
                     Some(r) => format!("{} — {r}", tab.title()),
                     None => format!("{} — Peler", tab.title()),
@@ -1355,6 +1834,11 @@ impl eframe::App for PelerApp {
         self.handle_dropped_files(&ctx);
         if self.first_frame {
             self.open_startup_targets(&ctx);
+            if std::env::var_os("PELER_STARTUP_LOG").is_some() {
+                if let Some(start) = PROCESS_START.get() {
+                    eprintln!("first frame after {} ms", start.elapsed().as_millis());
+                }
+            }
         }
         #[cfg(debug_assertions)]
         self.run_dev_script(&ctx);
@@ -1366,7 +1850,16 @@ impl eframe::App for PelerApp {
         let spacing = ui.spacing().item_spacing;
         ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
         egui::Panel::top("tab-bar")
-            .frame(egui::Frame::NONE.fill(style::chrome_fill(dark)).inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 0 }))
+            .frame(
+                egui::Frame::NONE
+                    .fill(style::chrome_fill(dark))
+                    .inner_margin(egui::Margin {
+                        left: 8,
+                        right: 8,
+                        top: 4,
+                        bottom: 0,
+                    }),
+            )
             .exact_size(TAB_H)
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing = spacing;
@@ -1378,7 +1871,11 @@ impl eframe::App for PelerApp {
             .resizable(true)
             .default_size(self.settings.sidebar_width)
             .size_range(180.0..=480.0)
-            .frame(egui::Frame::NONE.fill(style::chrome_fill(dark)).inner_margin(egui::Margin::symmetric(8, 4)))
+            .frame(
+                egui::Frame::NONE
+                    .fill(style::chrome_fill(dark))
+                    .inner_margin(egui::Margin::symmetric(8, 4)),
+            )
             .show_collapsible(ui, &mut sidebar_visible, |ui| {
                 ui.spacing_mut().item_spacing = spacing;
                 let live = self.live_map();
@@ -1396,10 +1893,12 @@ impl eframe::App for PelerApp {
         }
         self.settings.sidebar_visible = sidebar_visible;
 
-        egui::CentralPanel::default().frame(egui::Frame::NONE.fill(ui.visuals().panel_fill)).show(ui, |ui| {
-            ui.spacing_mut().item_spacing = spacing;
-            self.central(ui)
-        });
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE.fill(ui.visuals().panel_fill))
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing = spacing;
+                self.central(ui)
+            });
 
         self.prompt_ui(&ctx);
         self.overlays(&ctx);

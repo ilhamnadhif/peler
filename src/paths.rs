@@ -105,7 +105,11 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), b"two");
         let mode = fs::metadata(&path).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
-        let dir_mode = fs::metadata(path.parent().unwrap()).unwrap().permissions().mode() & 0o777;
+        let dir_mode = fs::metadata(path.parent().unwrap())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
         assert_eq!(dir_mode, 0o700);
         // No temp file left behind.
         assert_eq!(fs::read_dir(path.parent().unwrap()).unwrap().count(), 1);

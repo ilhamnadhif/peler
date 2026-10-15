@@ -19,7 +19,11 @@ pub struct Group {
 
 impl Group {
     pub fn new(name: impl Into<String>, parent: Option<Uuid>) -> Self {
-        Self { id: Uuid::new_v4(), name: name.into(), parent }
+        Self {
+            id: Uuid::new_v4(),
+            name: name.into(),
+            parent,
+        }
     }
 }
 
@@ -97,7 +101,11 @@ impl Default for Bookmark {
 impl Bookmark {
     /// Name shown in lists: the bookmark name, or `user@host` when it has none.
     pub fn display_name(&self) -> String {
-        if self.name.trim().is_empty() { self.address() } else { self.name.clone() }
+        if self.name.trim().is_empty() {
+            self.address()
+        } else {
+            self.name.clone()
+        }
     }
 
     /// `user@host[:port]`.
@@ -123,6 +131,9 @@ impl Bookmark {
 
     /// Copy with a fresh id (the "Duplicate" action and "keep both" on import).
     pub fn duplicate(&self) -> Bookmark {
-        Bookmark { id: Uuid::new_v4(), ..self.clone() }
+        Bookmark {
+            id: Uuid::new_v4(),
+            ..self.clone()
+        }
     }
 }

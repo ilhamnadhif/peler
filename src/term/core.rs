@@ -72,7 +72,12 @@ pub struct QueryPalette {
 
 impl From<&Scheme> for QueryPalette {
     fn from(s: &Scheme) -> Self {
-        Self { ansi: s.ansi, fg: s.foreground, bg: s.background, cursor: s.cursor }
+        Self {
+            ansi: s.ansi,
+            fg: s.foreground,
+            bg: s.background,
+            cursor: s.cursor,
+        }
     }
 }
 
@@ -94,13 +99,20 @@ pub fn term_config(scrollback: usize, cursor: CursorPref, blink: bool) -> Config
     };
     Config {
         scrolling_history: scrollback,
-        default_cursor_style: CursorStyle { shape, blinking: blink },
+        default_cursor_style: CursorStyle {
+            shape,
+            blinking: blink,
+        },
         ..Config::default()
     }
 }
 
 /// Creates a terminal and the receiving end of its event queue (owned by the reader).
-pub fn new_terminal(config: Config, size: GridSize, palette: QueryPalette) -> (SharedTerm, mpsc::Receiver<Event>) {
+pub fn new_terminal(
+    config: Config,
+    size: GridSize,
+    palette: QueryPalette,
+) -> (SharedTerm, mpsc::Receiver<Event>) {
     let (tx, rx) = mpsc::channel();
     let term = Term::new(config, &size, Listener(tx));
     let shared = Arc::new(TermShared {
@@ -118,7 +130,11 @@ pub fn new_terminal(config: Config, size: GridSize, palette: QueryPalette) -> (S
 }
 
 fn rgb(c: Color32) -> Rgb {
-    Rgb { r: c.r(), g: c.g(), b: c.b() }
+    Rgb {
+        r: c.r(),
+        g: c.g(),
+        b: c.b(),
+    }
 }
 
 /// Feeds remote output into a terminal and answers the parser's queries.
@@ -130,7 +146,11 @@ pub struct Feeder {
 
 impl Feeder {
     pub fn new(shared: SharedTerm, events: mpsc::Receiver<Event>) -> Self {
-        Self { shared, parser: Processor::new(), events }
+        Self {
+            shared,
+            parser: Processor::new(),
+            events,
+        }
     }
 
     /// Parses `bytes`; returns the replies to send to the remote and whether to repaint.
@@ -197,7 +217,10 @@ impl Feeder {
 /// Resizes the grid (clamped to the minimum) and records the pixel size. Returns whether the
 /// grid size changed, i.e. the remote must be told.
 pub fn resize(shared: &TermShared, size: GridSize, cell_w: f32, cell_h: f32) -> bool {
-    let size = GridSize { cols: size.cols.max(MIN_COLS), rows: size.rows.max(MIN_ROWS) };
+    let size = GridSize {
+        cols: size.cols.max(MIN_COLS),
+        rows: size.rows.max(MIN_ROWS),
+    };
     let mut window = shared.window.lock();
     window.cell_width = cell_w.round() as u16;
     window.cell_height = cell_h.round() as u16;
@@ -224,14 +247,22 @@ mod tests {
     use alacritty_terminal::index::{Column, Line};
 
     fn make() -> Feeder {
-        let (shared, rx) = new_terminal(Config::default(), GridSize { cols: 40, rows: 10 }, (&SCHEMES[0]).into());
+        let (shared, rx) = new_terminal(
+            Config::default(),
+            GridSize { cols: 40, rows: 10 },
+            (&SCHEMES[0]).into(),
+        );
         Feeder::new(shared, rx)
     }
 
     fn row_text(f: &Feeder, line: i32) -> String {
         let term = f.shared.term.lock();
         let row = &term.grid()[Line(line)];
-        (0..term.columns()).map(|c| row[Column(c)].c).collect::<String>().trim_end().to_string()
+        (0..term.columns())
+            .map(|c| row[Column(c)].c)
+            .collect::<String>()
+            .trim_end()
+            .to_string()
     }
 
     #[test]
@@ -251,7 +282,12 @@ mod tests {
     fn resize_and_sync_updates() {
         let mut f = make();
         assert!(resize(&f.shared, GridSize { cols: 20, rows: 5 }, 8.0, 16.0));
-        assert!(!resize(&f.shared, GridSize { cols: 20, rows: 5 }, 8.0, 16.0));
+        assert!(!resize(
+            &f.shared,
+            GridSize { cols: 20, rows: 5 },
+            8.0,
+            16.0
+        ));
         let (reply, _) = f.feed(b"\x1b[14t");
         assert_eq!(reply, b"\x1b[4;80;160t");
         f.feed(b"\x1b[?2026h");

@@ -27,8 +27,19 @@ pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
             v.text_cursor.blink = false; // a blinking caret would repaint twice a second
             v.window_corner_radius = CornerRadius::same(10);
             v.menu_corner_radius = CornerRadius::same(8);
-            v.selection.bg_fill = if dark { Color32::from_rgb(0x26, 0x4f, 0x78) } else { Color32::from_rgb(0xb4, 0xd5, 0xfe) };
-            v.selection.stroke = Stroke::new(1.0, if dark { Color32::from_rgb(0xd0, 0xe4, 0xff) } else { Color32::from_rgb(0x10, 0x3d, 0x7a) });
+            v.selection.bg_fill = if dark {
+                Color32::from_rgb(0x26, 0x4f, 0x78)
+            } else {
+                Color32::from_rgb(0xb4, 0xd5, 0xfe)
+            };
+            v.selection.stroke = Stroke::new(
+                1.0,
+                if dark {
+                    Color32::from_rgb(0xd0, 0xe4, 0xff)
+                } else {
+                    Color32::from_rgb(0x10, 0x3d, 0x7a)
+                },
+            );
             v.hyperlink_color = ACCENT;
             if dark {
                 v.panel_fill = Color32::from_rgb(0x1e, 0x20, 0x26);
@@ -41,7 +52,13 @@ pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
                 v.extreme_bg_color = Color32::WHITE;
                 v.faint_bg_color = Color32::from_rgb(0xec, 0xee, 0xf1);
             }
-            for w in [&mut v.widgets.inactive, &mut v.widgets.hovered, &mut v.widgets.active, &mut v.widgets.open, &mut v.widgets.noninteractive] {
+            for w in [
+                &mut v.widgets.inactive,
+                &mut v.widgets.hovered,
+                &mut v.widgets.active,
+                &mut v.widgets.open,
+                &mut v.widgets.noninteractive,
+            ] {
                 w.corner_radius = CornerRadius::same(6);
             }
         });
@@ -50,5 +67,9 @@ pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
 
 /// Background for the sidebar and tab strip (slightly different from the content area).
 pub fn chrome_fill(dark: bool) -> Color32 {
-    if dark { Color32::from_rgb(0x19, 0x1b, 0x20) } else { Color32::from_rgb(0xe9, 0xeb, 0xee) }
+    if dark {
+        Color32::from_rgb(0x19, 0x1b, 0x20)
+    } else {
+        Color32::from_rgb(0xe9, 0xeb, 0xee)
+    }
 }

@@ -157,9 +157,13 @@ fn meta_char(key: Key, shift: bool) -> Option<u8> {
 
 fn letter(key: Key) -> Option<u8> {
     use Key::*;
-    const LETTERS: [Key; 26] =
-        [A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z];
-    LETTERS.iter().position(|k| *k == key).map(|i| b'a' + i as u8)
+    const LETTERS: [Key; 26] = [
+        A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z,
+    ];
+    LETTERS
+        .iter()
+        .position(|k| *k == key)
+        .map(|i| b'a' + i as u8)
 }
 
 /// Whether a key event with these modifiers produces bytes itself, so the text event that
@@ -175,7 +179,10 @@ pub fn key_consumes_text(key: Key, mods: Mods, modes: KeyModes) -> bool {
 pub fn encode_paste(text: &str, bracketed: bool) -> Vec<u8> {
     let normalized = text.replace("\r\n", "\r").replace('\n', "\r");
     if bracketed {
-        let clean: String = normalized.chars().filter(|c| *c != '\x1b' && *c != '\x03').collect();
+        let clean: String = normalized
+            .chars()
+            .filter(|c| *c != '\x1b' && *c != '\x03')
+            .collect();
         let mut out = b"\x1b[200~".to_vec();
         out.extend_from_slice(clean.as_bytes());
         out.extend_from_slice(b"\x1b[201~");
@@ -234,7 +241,11 @@ pub fn encode_mouse(
         code += 16;
     }
     if sgr {
-        let suffix = if action == MouseAction::Release { 'm' } else { 'M' };
+        let suffix = if action == MouseAction::Release {
+            'm'
+        } else {
+            'M'
+        };
         return Some(format!("\x1b[<{code};{};{}{suffix}", col + 1, row + 1).into_bytes());
     }
     if action == MouseAction::Release {
@@ -243,15 +254,30 @@ pub fn encode_mouse(
     if col > 222 || row > 222 {
         return None;
     }
-    Some(vec![ESC, b'[', b'M', 32 + code as u8, 33 + col as u8, 33 + row as u8])
+    Some(vec![
+        ESC,
+        b'[',
+        b'M',
+        32 + code as u8,
+        33 + col as u8,
+        33 + row as u8,
+    ])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    const NONE: Mods = Mods { shift: false, alt: false, ctrl: false };
-    const CTRL: Mods = Mods { shift: false, alt: false, ctrl: true };
+    const NONE: Mods = Mods {
+        shift: false,
+        alt: false,
+        ctrl: false,
+    };
+    const CTRL: Mods = Mods {
+        shift: false,
+        alt: false,
+        ctrl: true,
+    };
 
     fn k(key: Key, mods: Mods) -> Vec<u8> {
         encode_key(key, mods, KeyModes::default()).unwrap()
@@ -260,9 +286,15 @@ mod tests {
     #[test]
     fn cursor_keys_and_modes() {
         assert_eq!(k(Key::ArrowUp, NONE), b"\x1b[A");
-        let app = KeyModes { app_cursor: true, ..Default::default() };
+        let app = KeyModes {
+            app_cursor: true,
+            ..Default::default()
+        };
         assert_eq!(encode_key(Key::ArrowUp, NONE, app).unwrap(), b"\x1bOA");
-        let shift = Mods { shift: true, ..NONE };
+        let shift = Mods {
+            shift: true,
+            ..NONE
+        };
         assert_eq!(encode_key(Key::ArrowUp, shift, app).unwrap(), b"\x1b[1;2A");
         assert_eq!(k(Key::ArrowLeft, CTRL), b"\x1b[1;5D");
         assert_eq!(k(Key::Home, NONE), b"\x1b[H");
@@ -279,10 +311,25 @@ mod tests {
         assert_eq!(k(Key::OpenBracket, CTRL), [0x1b]);
         assert_eq!(k(Key::Space, CTRL), [0x00]);
         assert_eq!(k(Key::Backspace, NONE), [0x7f]);
-        assert_eq!(k(Key::Tab, Mods { shift: true, ..NONE }), b"\x1b[Z");
+        assert_eq!(
+            k(
+                Key::Tab,
+                Mods {
+                    shift: true,
+                    ..NONE
+                }
+            ),
+            b"\x1b[Z"
+        );
         assert_eq!(k(Key::Enter, NONE), b"\r");
-        assert!(encode_key(Key::A, NONE, KeyModes::default()).is_none(), "plain text goes via text events");
-        let meta = KeyModes { option_as_meta: true, ..Default::default() };
+        assert!(
+            encode_key(Key::A, NONE, KeyModes::default()).is_none(),
+            "plain text goes via text events"
+        );
+        let meta = KeyModes {
+            option_as_meta: true,
+            ..Default::default()
+        };
         let alt = Mods { alt: true, ..NONE };
         assert_eq!(encode_key(Key::B, alt, meta).unwrap(), b"\x1bb");
         assert!(encode_key(Key::B, alt, KeyModes::default()).is_none());
@@ -293,7 +340,10 @@ mod tests {
     #[test]
     fn paste_and_mouse() {
         assert_eq!(encode_paste("a\nb", false), b"a\rb");
-        assert_eq!(encode_paste("x\x1b[201~y\x03", true), b"\x1b[200~x[201~y\x1b[201~");
+        assert_eq!(
+            encode_paste("x\x1b[201~y\x03", true),
+            b"\x1b[200~x[201~y\x1b[201~"
+        );
         assert_eq!(
             encode_mouse(MouseButton::Left, MouseAction::Press, NONE, 0, 0, true).unwrap(),
             b"\x1b[<0;1;1M"
@@ -303,7 +353,15 @@ mod tests {
             b"\x1b[<0;10;5m"
         );
         assert_eq!(
-            encode_mouse(MouseButton::WheelDown, MouseAction::Press, NONE, 1, 1, false).unwrap(),
+            encode_mouse(
+                MouseButton::WheelDown,
+                MouseAction::Press,
+                NONE,
+                1,
+                1,
+                false
+            )
+            .unwrap(),
             [0x1b, b'[', b'M', 32 + 65, 34, 34]
         );
         assert!(encode_mouse(MouseButton::Left, MouseAction::Press, NONE, 300, 1, false).is_none());

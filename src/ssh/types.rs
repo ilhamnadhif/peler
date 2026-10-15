@@ -27,7 +27,9 @@ impl ConnError {
     pub fn message(&self) -> String {
         match self {
             ConnError::HostNotFound(h) => tf("Host not found: {}", &[h]),
-            ConnError::Refused => t("Connection refused: nothing is listening on that port.").into(),
+            ConnError::Refused => {
+                t("Connection refused: nothing is listening on that port.").into()
+            }
             ConnError::Timeout => t("Connection timed out.").into(),
             ConnError::Unreachable(e) => tf("Network unreachable: {}", &[e]),
             ConnError::HostKeyRejected => t("Host key not accepted.").into(),
@@ -119,6 +121,11 @@ pub struct ConnShared {
 
 impl Default for ConnShared {
     fn default() -> Self {
-        Self { state: ConnState::Connecting, prompt: None, connected_at: None, info: String::new() }
+        Self {
+            state: ConnState::Connecting,
+            prompt: None,
+            connected_at: None,
+            info: String::new(),
+        }
     }
 }

@@ -1,6 +1,8 @@
 //! Small vector icons drawn with the painter (no icon font needed, crisp at any scale).
 
-use eframe::egui::{self, Color32, CornerRadius, Painter, Pos2, Rect, Stroke, StrokeKind, Ui, pos2, vec2};
+use eframe::egui::{
+    self, Color32, CornerRadius, Painter, Pos2, Rect, Stroke, StrokeKind, Ui, pos2, vec2,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Icon {
@@ -10,7 +12,11 @@ pub enum Icon {
 }
 
 pub fn folder_color(dark: bool) -> Color32 {
-    if dark { Color32::from_rgb(0x6c, 0xa8, 0xf0) } else { Color32::from_rgb(0x3b, 0x82, 0xe0) }
+    if dark {
+        Color32::from_rgb(0x6c, 0xa8, 0xf0)
+    } else {
+        Color32::from_rgb(0x3b, 0x82, 0xe0)
+    }
 }
 
 /// Paints an icon centered at `c` with the given height.
@@ -19,16 +25,28 @@ pub fn paint(painter: &Painter, icon: Icon, c: Pos2, h: f32, color: Color32) {
         Icon::Folder => {
             let w = h * 1.25;
             let body = Rect::from_center_size(c + vec2(0.0, h * 0.06), vec2(w, h * 0.78));
-            let tab = Rect::from_min_size(pos2(body.left(), body.top() - h * 0.16), vec2(w * 0.42, h * 0.3));
+            let tab = Rect::from_min_size(
+                pos2(body.left(), body.top() - h * 0.16),
+                vec2(w * 0.42, h * 0.3),
+            );
             painter.rect_filled(tab, CornerRadius::same(2), color.gamma_multiply(0.85));
             painter.rect_filled(body, CornerRadius::same(2), color);
         }
         Icon::File => {
             let r = Rect::from_center_size(c, vec2(h * 0.78, h));
-            painter.rect_stroke(r, CornerRadius::same(2), Stroke::new(1.2, color), StrokeKind::Inside);
+            painter.rect_stroke(
+                r,
+                CornerRadius::same(2),
+                Stroke::new(1.2, color),
+                StrokeKind::Inside,
+            );
             for i in 0..3 {
                 let y = r.top() + h * (0.32 + i as f32 * 0.2);
-                painter.hline(r.left() + h * 0.18..=r.right() - h * 0.18, y, Stroke::new(1.0, color.gamma_multiply(0.7)));
+                painter.hline(
+                    r.left() + h * 0.18..=r.right() - h * 0.18,
+                    y,
+                    Stroke::new(1.0, color.gamma_multiply(0.7)),
+                );
             }
         }
         Icon::Link => {
