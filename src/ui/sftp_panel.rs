@@ -16,6 +16,7 @@ use crate::paths;
 use crate::sftp::entry::{self, FileEntry, SortKey, remote_join, remote_parent};
 use crate::sftp::remote::{self, Sftp};
 use crate::sftp::transfer::{Direction, TransferState, Transfers};
+use crate::ui::icons::{self, Icon};
 
 enum Session {
     Opening(oneshot::Receiver<Result<SftpSession, String>>),
@@ -351,7 +352,7 @@ impl SftpPanel {
             let color = if is_err { ui.visuals().error_fg_color } else { ui.visuals().text_color() };
             ui.horizontal(|ui| {
                 ui.colored_label(color, msg);
-                if ui.small_button("✕").clicked() {
+                if ui.small_button("×").clicked() {
                     self.message = None;
                 }
             });
@@ -400,6 +401,7 @@ impl SftpPanel {
                     .id_salt(if is_remote { "sftp-remote" } else { "sftp-local" })
                     .striped(true)
                     .sense(Sense::click())
+                    .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                     .resizable(true)
                     .auto_shrink([false, false])
                     .max_scroll_height(f32::INFINITY)
@@ -409,7 +411,7 @@ impl SftpPanel {
                 if is_remote {
                     table = table.column(Column::initial(80.0).at_least(60.0));
                 }
-                let arrow = |k: SortKey| if side.sort == k { if side.descending { " ⏷" } else { " ⏶" } } else { "" };
+                let arrow = |k: SortKey| if side.sort == k { if side.descending { " ▼" } else { " ▲" } } else { "" };
                 table
                     .header(row_h, |mut header| {
                         header.col(|ui| {
@@ -438,13 +440,13 @@ impl SftpPanel {
                             let e = &entries[row.index()];
                             row.set_selected(side.selected.contains(&e.name));
                             row.col(|ui| {
-                                let icon = if e.is_dir { "📁" } else if e.is_symlink { "🔗" } else { "📄" };
+                                let icon = if e.is_dir { Icon::Folder } else if e.is_symlink { Icon::Link } else { Icon::File };
                                 let payload = DragFiles {
                                     from_remote: is_remote,
                                     names: if side.selected.contains(&e.name) { side.selected.iter().cloned().collect() } else { vec![e.name.clone()] },
                                 };
                                 ui.dnd_drag_source(egui::Id::new(("sftp-drag", is_remote, &e.name)), payload, |ui| {
-                                    ui.add(egui::Label::new(format!("{icon} {}", e.name)).truncate().selectable(false));
+                                    icons::icon_label(ui, icon, &e.name);
                                 });
                             });
                             row.col(|ui| {
@@ -664,10 +666,10 @@ impl SftpPanel {
                     let color = if matches!(state, TransferState::Failed(_)) { ui.visuals().error_fg_color } else { ui.visuals().weak_text_color() };
                     ui.add(egui::Label::new(RichText::new(text).color(color).small()).truncate());
                     if !tr.is_finished() {
-                        if ui.small_button("✕").on_hover_text(t("Cancel")).clicked() {
+                        if ui.small_button("×").on_hover_text(t("Cancel")).clicked() {
                             tr.cancel();
                         }
-                    } else if ui.small_button("✕").on_hover_text(t("Remove")).clicked() {
+                    } else if ui.small_button("×").on_hover_text(t("Remove")).clicked() {
                         remove = Some(tr.id);
                     }
                 });

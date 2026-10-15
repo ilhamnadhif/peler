@@ -55,12 +55,36 @@ impl Sidebar {
         let mut cx = Ctx { store, live, actions: Vec::new(), moved: None };
 
         ui.add_space(6.0);
-        ui.horizontal(|ui| {
+        ui.horizontal(|ui| ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let selected_group = self.selected_group(store);
+            ui.menu_button("+", |ui| {
+                if ui.button(t("New Bookmark…")).clicked() {
+                    cx.actions.push(Action::NewBookmark { group: selected_group });
+                    ui.close();
+                }
+                if ui.button(t("New Group")).clicked() {
+                    cx.actions.push(Action::NewGroup { parent: None });
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button(t("Import Bookmarks…")).clicked() {
+                    cx.actions.push(Action::Import);
+                    ui.close();
+                }
+                if ui.button(t("Import from ~/.ssh/config")).clicked() {
+                    cx.actions.push(Action::ImportSshConfig);
+                    ui.close();
+                }
+                if ui.button(t("Export Bookmarks…")).clicked() {
+                    cx.actions.push(Action::Export(ExportScope::All));
+                    ui.close();
+                }
+            });
             let search_id = egui::Id::new("sidebar-search");
             let edit = egui::TextEdit::singleline(&mut self.search)
                 .id(search_id)
                 .hint_text(t("Search bookmarks"))
-                .desired_width(ui.available_width() - 30.0);
+                .desired_width(ui.available_width());
             let resp = ui.add(edit);
             if std::mem::take(&mut self.focus_search) {
                 resp.request_focus();
@@ -86,30 +110,7 @@ impl Sidebar {
             if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Escape)) {
                 self.search.clear();
             }
-            ui.menu_button("＋", |ui| {
-                if ui.button(t("New Bookmark…")).clicked() {
-                    cx.actions.push(Action::NewBookmark { group: self.selected_group(store) });
-                    ui.close();
-                }
-                if ui.button(t("New Group")).clicked() {
-                    cx.actions.push(Action::NewGroup { parent: None });
-                    ui.close();
-                }
-                ui.separator();
-                if ui.button(t("Import Bookmarks…")).clicked() {
-                    cx.actions.push(Action::Import);
-                    ui.close();
-                }
-                if ui.button(t("Import from ~/.ssh/config")).clicked() {
-                    cx.actions.push(Action::ImportSshConfig);
-                    ui.close();
-                }
-                if ui.button(t("Export Bookmarks…")).clicked() {
-                    cx.actions.push(Action::Export(ExportScope::All));
-                    ui.close();
-                }
-            });
-        });
+        }));
         ui.add_space(4.0);
 
         egui::ScrollArea::vertical().id_salt("sidebar-tree").auto_shrink([false, false]).show(ui, |ui| {
@@ -233,7 +234,7 @@ impl Sidebar {
         let color = ui.visuals().text_color();
         let painter = ui.painter();
         painter.text(pos2(x, rect.center().y), egui::Align2::LEFT_CENTER, if expanded { "▾" } else { "▸" }, FontId::proportional(12.0), color);
-        painter.text(pos2(x + 14.0, rect.center().y), egui::Align2::LEFT_CENTER, "📁", FontId::proportional(13.0), color);
+        crate::ui::icons::paint(painter, crate::ui::icons::Icon::Folder, pos2(x + 22.0, rect.center().y), 12.0, crate::ui::icons::folder_color(ui.visuals().dark_mode));
         let count = cx.store.bookmarks_in(Some(gid)).count();
         let name_galley = painter.layout_no_wrap(group.name.clone(), FontId::proportional(13.5), ui.visuals().strong_text_color());
         let name_w = name_galley.size().x;

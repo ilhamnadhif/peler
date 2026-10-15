@@ -53,7 +53,7 @@ impl TestServer {
         let config = format!(
             "Port {port}\nListenAddress 127.0.0.1\nHostKey {host}\nAuthorizedKeysFile {auth}\nPidFile {pid}\n\
              UsePAM no\nStrictModes no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\n\
-             Subsystem sftp /usr/libexec/sftp-server\nLogLevel ERROR\n",
+             Subsystem sftp /usr/libexec/sftp-server\nLogLevel ERROR\nAcceptEnv LANG LC_*\n",
             host = d.join("host_ed25519").display(),
             auth = d.join("authorized_keys").display(),
             pid = d.join("sshd.pid").display(),

@@ -780,12 +780,23 @@ pub fn cd_command(dir: &str) -> String {
     }
 }
 
+/// The locale to request on the server: the local `LANG` when it is UTF-8, else en_US.UTF-8.
+fn remote_lang() -> String {
+    std::env::var("LANG")
+        .ok()
+        .filter(|l| l.to_ascii_uppercase().replace('-', "").contains("UTF8"))
+        .unwrap_or_else(|| "en_US.UTF-8".to_string())
+}
+
 async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
     let PaneStart { feeder, input_tx, mut input_rx, cols, rows, px_w, px_h, start_dir, startup_command, status } = pane;
     let open = async {
         let channel = handle.channel_open_session().await?;
         let modes = [(Pty::ECHO, 1), (Pty::ICRNL, 1), (Pty::IUTF8, 1), (Pty::TTY_OP_ISPEED, 38400), (Pty::TTY_OP_OSPEED, 38400)];
         channel.request_pty(false, "xterm-256color", cols, rows, px_w, px_h, &modes).await?;
+        // Like OpenSSH's default `SendEnv LANG LC_*`: without a UTF-8 locale the remote shell
+        // mangles non-ASCII text. Servers that don't accept it simply ignore the request.
+        channel.set_env(false, "LANG", remote_lang()).await?;
         channel.request_shell(false).await?;
         Ok::<_, russh::Error>(channel)
     };
