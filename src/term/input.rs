@@ -170,12 +170,12 @@ pub fn key_consumes_text(key: Key, mods: Mods, modes: KeyModes) -> bool {
 }
 
 /// Wraps pasted text for the remote: normalizes newlines to CR and adds bracketed-paste markers
-/// when the application asked for them. Escape sequences inside the paste are neutralized so a
-/// pasted text can't end bracketed mode early.
+/// when the application asked for them. In bracketed mode ESC and ^C are removed (as alacritty
+/// does), so pasted text can neither end bracketed mode early nor interrupt the program.
 pub fn encode_paste(text: &str, bracketed: bool) -> Vec<u8> {
     let normalized = text.replace("\r\n", "\r").replace('\n', "\r");
     if bracketed {
-        let clean = normalized.replace("\x1b[201~", "");
+        let clean: String = normalized.chars().filter(|c| *c != '\x1b' && *c != '\x03').collect();
         let mut out = b"\x1b[200~".to_vec();
         out.extend_from_slice(clean.as_bytes());
         out.extend_from_slice(b"\x1b[201~");
@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn paste_and_mouse() {
         assert_eq!(encode_paste("a\nb", false), b"a\rb");
-        assert_eq!(encode_paste("x\x1b[201~y", true), b"\x1b[200~xy\x1b[201~");
+        assert_eq!(encode_paste("x\x1b[201~y\x03", true), b"\x1b[200~x[201~y\x1b[201~");
         assert_eq!(
             encode_mouse(MouseButton::Left, MouseAction::Press, NONE, 0, 0, true).unwrap(),
             b"\x1b[<0;1;1M"
