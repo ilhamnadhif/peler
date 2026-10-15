@@ -1906,7 +1906,7 @@ impl eframe::App for PelerApp {
         self.update_title(&ctx);
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         for tab in &self.tabs {
             tab.disconnect();
         }

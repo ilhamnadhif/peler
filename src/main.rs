@@ -16,7 +16,7 @@ fn main() -> eframe::Result {
             use winit::platform::macos::EventLoopBuilderExtMacOS as _;
             builder.with_default_menu(false);
         })),
-        renderer: eframe::Renderer::Glow,
+        renderer: eframe::Renderer::Wgpu,
         ..Default::default()
     };
     // Arguments: bookmark names or user@host[:port] to open on launch. Finder/launchd may pass

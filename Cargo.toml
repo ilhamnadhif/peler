@@ -13,7 +13,7 @@ base64 = "0.23.1"
 chacha20poly1305 = "0.11.0"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde", "std"] }
 dirs = "7.0.0"
-eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts", "glow"] }
+eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts", "wgpu"] }
 egui_extras = { version = "0.36.2", default-features = false }
 getrandom = "0.4.3"
 keyring = { version = "4.2.0", default-features = false, features = ["apple-native-keyring-store", "v1"] }
