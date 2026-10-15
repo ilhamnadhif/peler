@@ -486,7 +486,7 @@ impl SftpPanel {
         };
         let lists_height = (ui.available_height() - transfers_height - 4.0).max(80.0);
         let total_width = ui.available_width();
-        let half = (total_width - 12.0) / 2.0;
+        let half = ((total_width - 28.0) / 2.0).max(120.0);
 
         let mut local_actions = Vec::new();
         let mut remote_actions = Vec::new();
