@@ -1,0 +1,190 @@
+{
+  "bookmarkGroups": [
+    {
+      "id": "Hq3vK9t",
+      "title": "Databases",
+      "level": 2,
+      "bookmarkIds": [
+        "pG7wQ2x",
+        "Zt8LmN4"
+      ],
+      "color": "#d81b60",
+      "bookmarkGroupIds": []
+    },
+    {
+      "id": "default",
+      "title": "default",
+      "bookmarkIds": [
+        "R4nB1sY",
+        "default-local-zsh"
+      ],
+      "bookmarkGroupIds": [],
+      "color": "#0088cc"
+    },
+    {
+      "id": "a1Xf0Pq",
+      "title": "Production",
+      "bookmarkIds": [
+        "kV2c8Jd"
+      ],
+      "color": "#ff9800",
+      "bookmarkGroupIds": [
+        "Hq3vK9t"
+      ]
+    }
+  ],
+  "bookmarks": [
+    {
+      "title": "zsh",
+      "type": "local",
+      "description": "Local zsh shell",
+      "color": "#2E86DE",
+      "execMac": "/bin/zsh",
+      "execMacArgs": [],
+      "id": "default-local-zsh"
+    },
+    {
+      "port": 22,
+      "authType": "password",
+      "envLang": "en_US.UTF-8",
+      "enableSftp": true,
+      "sshTunnels": [
+        {
+          "sshTunnel": "forwardRemoteToLocal",
+          "sshTunnelLocalHost": "127.0.0.1",
+          "sshTunnelLocalPort": 8080,
+          "sshTunnelRemoteHost": "127.0.0.1",
+          "sshTunnelRemotePort": 80,
+          "name": "admin-ui",
+          "id": "tN5yU3e"
+        }
+      ],
+      "connectionHoppings": [],
+      "useSshAgent": true,
+      "sshAgent": "",
+      "agentForward": false,
+      "serverHostKey": [],
+      "cipher": [],
+      "compress": [],
+      "term": "xterm-256color",
+      "displayRaw": false,
+      "encode": "utf-8",
+      "enableSsh": true,
+      "runScripts": [
+        {
+          "delay": 500,
+          "script": "sudo -i"
+        }
+      ],
+      "type": "ssh",
+      "color": "#ff9800",
+      "title": "web-01 (password)",
+      "host": "web-01.example.com",
+      "username": "deploy",
+      "password": "Sup3r$ecret-w3b",
+      "description": "Frontend node, password auth",
+      "startDirectoryLocal": "/Users/me/projects/site",
+      "startDirectory": "/var/www/site",
+      "proxy": "",
+      "id": "kV2c8Jd"
+    },
+    {
+      "port": 2222,
+      "authType": "privateKey",
+      "envLang": "en_US.UTF-8",
+      "enableSftp": true,
+      "sshTunnels": [],
+      "connectionHoppings": [
+        {
+          "host": "bastion.example.com",
+          "port": 22,
+          "username": "jump",
+          "authType": "privateKey",
+          "privateKeyPath": "~/.ssh/id_ed25519",
+          "id": "jH0p9Wb"
+        }
+      ],
+      "hasHopping": true,
+      "useSshAgent": false,
+      "sshAgent": "",
+      "agentForward": false,
+      "serverHostKey": [],
+      "cipher": [],
+      "compress": [],
+      "term": "xterm-256color",
+      "displayRaw": false,
+      "encode": "utf-8",
+      "enableSsh": true,
+      "runScripts": [
+        {
+          "delay": 500,
+          "script": ""
+        }
+      ],
+      "type": "ssh",
+      "color": "#d81b60",
+      "title": "pg-primary (inline key + passphrase)",
+      "host": "10.20.0.11",
+      "username": "postgres",
+      "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAACmFlczI1Ni1jdHIAAAAGYmNyeXB0AAAAGAAAABD...TRUNCATED-SAMPLE...\n-----END OPENSSH PRIVATE KEY-----\n",
+      "passphrase": "k3y-passphrase",
+      "privateKeyPath": "",
+      "certificate": "",
+      "certificatePath": "",
+      "description": "Primary DB via bastion; key content pasted into Electerm",
+      "startDirectory": "/var/lib/postgresql",
+      "proxy": "socks5://127.0.0.1:1080",
+      "quickCommands": [
+        {
+          "name": "replication status",
+          "command": "psql -c 'select * from pg_stat_replication'"
+        }
+      ],
+      "id": "pG7wQ2x"
+    },
+    {
+      "port": 22,
+      "authType": "privateKey",
+      "enableSftp": true,
+      "sshTunnels": [],
+      "connectionHoppings": [],
+      "useSshAgent": true,
+      "term": "xterm-256color",
+      "encode": "utf-8",
+      "enableSsh": true,
+      "type": "ssh",
+      "color": "#d81b60",
+      "title": "pg-replica (key file path)",
+      "host": "10.20.0.12",
+      "username": "postgres",
+      "privateKey": "",
+      "privateKeyPath": "~/.ssh/db_ed25519",
+      "passphrase": "",
+      "id": "Zt8LmN4"
+    },
+    {
+      "port": 23,
+      "username": "admin",
+      "password": "cisco123",
+      "authType": "password",
+      "term": "xterm-256color",
+      "enableSsh": true,
+      "runScripts": [
+        {
+          "delay": 500,
+          "script": ""
+        }
+      ],
+      "type": "telnet",
+      "color": "#0088cc",
+      "title": "core-switch (telnet)",
+      "host": "192.168.1.2",
+      "loginPrompt": "",
+      "passwordPrompt": "",
+      "description": "Lab switch",
+      "startDirectoryLocal": "",
+      "startDirectory": "",
+      "id": "R4nB1sY"
+    }
+  ]
+}

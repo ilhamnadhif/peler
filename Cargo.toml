@@ -12,6 +12,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 dirs = "7.0.0"
 eframe = "0.36.2"
 getrandom = "0.4.3"
+keyring = { version = "4.2.0", default-features = false, features = ["apple-native-keyring-store", "v1"] }
 log = "0.4.34"
 parking_lot = "0.12.5"
 serde = { version = "1.0.229", features = ["derive"] }

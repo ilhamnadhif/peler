@@ -6,4 +6,5 @@ pub mod i18n;
 pub mod paths;
 pub mod secrets;
 pub mod settings;
+pub mod sftp;
 pub mod term;
