@@ -50,7 +50,7 @@ pub fn encrypt(passphrase: &str, plaintext: &[u8]) -> Result<EncryptedBlob> {
 
 pub fn encrypt_with(passphrase: &str, plaintext: &[u8], (m, t, p): (u32, u32, u32)) -> Result<EncryptedBlob> {
     if passphrase.is_empty() {
-        bail!("The passphrase must not be empty.");
+        bail!("{}", crate::i18n::t("The passphrase must not be empty."));
     }
     let salt: [u8; 16] = random_bytes()?;
     let nonce: [u8; 24] = random_bytes()?;
@@ -89,7 +89,7 @@ pub fn decrypt(passphrase: &str, blob: &EncryptedBlob) -> Result<Vec<u8>> {
     let key = derive_key(passphrase, &salt, blob.m_cost, blob.t_cost, blob.p_cost)?;
     XChaCha20Poly1305::new(&key.into())
         .decrypt(&XNonce::from(nonce), ciphertext.as_slice())
-        .map_err(|_| anyhow!("Wrong passphrase, or the file has been modified."))
+        .map_err(|_| anyhow!("{}", crate::i18n::t("Wrong passphrase, or the file has been modified.")))
 }
 
 #[cfg(test)]

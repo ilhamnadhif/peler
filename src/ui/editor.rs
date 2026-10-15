@@ -175,7 +175,7 @@ impl Editor {
                         ui.horizontal(|ui| {
                             ui.add(egui::TextEdit::singleline(path).hint_text("~/.ssh/id_ed25519").desired_width(250.0));
                             if !self.key_files.is_empty() {
-                                egui::ComboBox::from_id_salt("key-files").selected_text("▾").width(30.0).show_ui(ui, |ui| {
+                                egui::ComboBox::from_id_salt("key-files").selected_text("").width(24.0).show_ui(ui, |ui| {
                                     for k in &self.key_files {
                                         if ui.selectable_label(path == k, k).clicked() {
                                             *path = k.clone();

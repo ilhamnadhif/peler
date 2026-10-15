@@ -16,6 +16,7 @@ use super::model::{Bookmark, Group};
 use super::store::BookmarkStore;
 use super::{electerm, ssh_config};
 use crate::crypto::{self, EncryptedBlob};
+use crate::i18n::{t, tf};
 use crate::secrets::SecretSet;
 
 pub const EXPORT_SCHEMA_VERSION: u32 = 1;
@@ -171,7 +172,7 @@ pub struct Incoming {
 /// Detects the file format and parses it. `ssh_config_name` hints that a non-JSON file should
 /// be read as an OpenSSH config.
 pub fn read_import(data: &[u8]) -> Result<Incoming> {
-    let text = std::str::from_utf8(data).map_err(|_| anyhow!("The file is not UTF-8 text."))?;
+    let text = std::str::from_utf8(data).map_err(|_| anyhow!("{}", t("The file is not UTF-8 text.")))?;
     let value: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
         Err(json_err) => {
@@ -179,7 +180,7 @@ pub fn read_import(data: &[u8]) -> Result<Incoming> {
             if !hosts.is_empty() {
                 return Ok(from_ssh_config(&hosts));
             }
-            bail!("The file is not valid JSON or an SSH config file: {json_err}");
+            bail!("{}", tf("The file is not valid JSON or an SSH config file: {}", &[&json_err.to_string()]));
         }
     };
     if value.get("schema_version").is_some() {
@@ -188,25 +189,29 @@ pub fn read_import(data: &[u8]) -> Result<Incoming> {
     if electerm::looks_like_electerm(&value) {
         return electerm::read(&value);
     }
-    bail!("Unrecognized file format: expected a peler export, an Electerm bookmark export or an SSH config.")
+    bail!("{}", t("Unrecognized file format: expected a peler export, an Electerm bookmark export or an SSH config."))
 }
 
 fn read_peler(value: serde_json::Value) -> Result<Incoming> {
     let version = value.get("schema_version").and_then(|v| v.as_u64()).unwrap_or(0);
     if version > EXPORT_SCHEMA_VERSION as u64 {
         bail!(
-            "This file was exported by a newer version of peler (schema {version}); this version reads up to schema {EXPORT_SCHEMA_VERSION}. Please update the app."
+            "{}",
+            tf(
+                "This file was exported by a newer version of peler (schema {}); this version reads up to schema {}. Please update the app.",
+                &[&version.to_string(), &EXPORT_SCHEMA_VERSION.to_string()]
+            )
         );
     }
     if version == 0 {
         bail!("Invalid schema_version in export file.");
     }
     let file: ExportFile = serde_json::from_value(value)
-        .map_err(|e| anyhow!("The export file is damaged or incomplete: {e}"))?;
+        .map_err(|e| anyhow!("{}", tf("The export file is damaged or incomplete: {}", &[&e.to_string()])))?;
     let mut warnings = Vec::new();
     let ids: HashSet<Uuid> = file.groups.iter().map(|g| g.id).collect();
     if file.bookmarks.iter().any(|b| b.group.is_some_and(|g| !ids.contains(&g))) {
-        warnings.push("Some bookmarks refer to missing groups; they will be placed at the top level.".into());
+        warnings.push(t("Some bookmarks refer to missing groups; they will be placed at the top level.").into());
     }
     Ok(Incoming {
         kind: SourceKind::Peler,

@@ -22,6 +22,7 @@ use tokio::sync::{Notify, mpsc, oneshot};
 use super::keys::{self, KeyLoadError};
 use super::types::*;
 use crate::bookmarks::{Auth, Bookmark};
+use crate::i18n::{t, tf};
 use crate::paths;
 use crate::secrets::{self, SecretKind};
 use crate::term::core::{self as tcore, Feeder};
@@ -109,7 +110,7 @@ impl Connection {
     /// Opens a shell channel once the connection is up (queued until then).
     pub fn open_shell(&self, pane: PaneStart) {
         if let Err(mpsc::error::SendError(ConnCmd::OpenShell(pane))) = self.cmd_tx.send(ConnCmd::OpenShell(pane)) {
-            fail_pane(&pane, "Not connected.");
+            fail_pane(&pane, t("Not connected."));
         }
     }
 
@@ -117,7 +118,7 @@ impl Connection {
     pub fn open_sftp(&self) -> oneshot::Receiver<Result<SftpSession, String>> {
         let (tx, rx) = oneshot::channel();
         if let Err(mpsc::error::SendError(ConnCmd::OpenSftp(tx))) = self.cmd_tx.send(ConnCmd::OpenSftp(tx)) {
-            let _ = tx.send(Err("Not connected.".into()));
+            let _ = tx.send(Err(t("Not connected.").into()));
         }
         rx
     }
@@ -313,12 +314,13 @@ fn classify_russh(e: anyhow::Error, key_changed: bool, host: &str) -> ConnError 
         return match re {
             russh::Error::UnknownKey if key_changed => ConnError::HostKeyChanged,
             russh::Error::UnknownKey => ConnError::HostKeyRejected,
-            russh::Error::Version => ConnError::Other(format!("{host} did not answer as an SSH server.")),
-            russh::Error::NoCommonAlgo { .. } => ConnError::Other(format!(
-                "No common algorithm with the server ({re}). Try enabling legacy algorithms in the bookmark."
+            russh::Error::Version => ConnError::Other(tf("{} did not answer as an SSH server.", &[host])),
+            russh::Error::NoCommonAlgo { .. } => ConnError::Other(tf(
+                "No common algorithm with the server ({}). Try enabling legacy algorithms in the bookmark.",
+                &[&re.to_string()],
             )),
             russh::Error::Disconnect | russh::Error::HUP => {
-                ConnError::Disconnected("the server closed the connection during the handshake".into())
+                ConnError::Disconnected(t("the server closed the connection during the handshake").into())
             }
             russh::Error::IO(io) if io.kind() == std::io::ErrorKind::ConnectionRefused => ConnError::Refused,
             russh::Error::IO(io) => ConnError::Unreachable(io.to_string()),
@@ -451,7 +453,7 @@ async fn authenticate(
         Auth::KeychainKey => {
             let text = keychain_get(b.id, SecretKind::PrivateKey)
                 .await
-                .ok_or_else(|| ConnError::KeyFile("the private key is missing from the Keychain".into()))?;
+                .ok_or_else(|| ConnError::KeyFile(t("the private key is missing from the Keychain").into()))?;
             Some((text, "Keychain".to_string()))
         }
     };
@@ -496,9 +498,9 @@ async fn authenticate(
         }
         let remaining = methods(&result);
         if !remaining.iter().any(|m| matches!(m, MethodKind::Password | MethodKind::KeyboardInteractive)) {
-            return Err(ConnError::AuthFailed(format!(
-                "the server rejected the key for user {user} (server accepts: {})",
-                method_list(&remaining)
+            return Err(ConnError::AuthFailed(tf(
+                "the server rejected the key for user {} (server accepts: {})",
+                &[&user, &method_list(&remaining)],
             )));
         }
         fallback_methods = Some(remaining);
@@ -540,15 +542,15 @@ async fn authenticate(
             return Ok(());
         }
         if !ok && !remaining.iter().any(|m| matches!(m, MethodKind::Password | MethodKind::KeyboardInteractive)) {
-            return Err(ConnError::AuthFailed(format!(
-                "password login is not allowed for {user} (server accepts: {})",
-                method_list(&remaining)
+            return Err(ConnError::AuthFailed(tf(
+                "password login is not allowed for {} (server accepts: {})",
+                &[&user, &method_list(&remaining)],
             )));
         }
         attempts += 1;
         retry = true;
         if attempts >= MAX_ATTEMPTS {
-            return Err(ConnError::AuthFailed(format!("wrong password for {user}")));
+            return Err(ConnError::AuthFailed(tf("wrong password for {}", &[&user])));
         }
     }
 }
@@ -658,7 +660,7 @@ async fn run_connection(
     let handle = match result {
         None => {
             set_state(&shared, &ctx, ConnState::Closed(None));
-            fail_all(queued, cmd_rx, "Connection cancelled.");
+            fail_all(queued, cmd_rx, t("Connection cancelled."));
             return;
         }
         Some(Err(e)) => {
@@ -693,7 +695,7 @@ async fn run_connection(
                 // Transport ended; shells notice on their own. Refuse further commands.
                 let reason = match &shared.lock().state {
                     ConnState::Closed(Some(e)) => e.message(),
-                    _ => "Connection closed.".to_string(),
+                    _ => t("Connection closed.").to_string(),
                 };
                 fail_all(Vec::new(), cmd_rx, &reason);
                 return;
@@ -762,7 +764,7 @@ async fn open_sftp(handle: &SshHandle) -> Result<SftpSession, String> {
     };
     SftpSession::new_with_config(channel.into_stream(), config)
         .await
-        .map_err(|e| format!("SFTP is not available on this server ({e})"))
+        .map_err(|e| tf("SFTP is not available on this server ({})", &[&e.to_string()]))
 }
 
 // ----- shells ---------------------------------------------------------------------------------
@@ -804,7 +806,7 @@ async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
         Ok(c) => c,
         Err(e) => {
             *status.lock() = PaneStatus::Failed(e.to_string());
-            tcore::write_status(&mut feeder.lock(), &format!("Could not open a shell: {e}"));
+            tcore::write_status(&mut feeder.lock(), &tf("Could not open a shell: {}", &[&e.to_string()]));
             ctx.request_repaint();
             return;
         }
@@ -877,8 +879,8 @@ async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
     }
     write_task.abort();
     let message = match exit_status {
-        Some(code) => format!("[Session ended, exit code {code}. Press Enter or ⌘R to reconnect.]"),
-        None => "[Connection closed. Press Enter or ⌘R to reconnect.]".to_string(),
+        Some(code) => tf("[Session ended, exit code {}. Press Enter or ⌘R to reconnect.]", &[&code.to_string()]),
+        None => t("[Connection closed. Press Enter or ⌘R to reconnect.]").to_string(),
     };
     tcore::write_status(&mut feeder.lock(), &message);
     *status.lock() = PaneStatus::Exited(exit_status);

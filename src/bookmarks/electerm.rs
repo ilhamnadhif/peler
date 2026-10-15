@@ -15,6 +15,7 @@ use uuid::Uuid;
 
 use super::model::{Auth, Bookmark, DEFAULT_PORT, Group};
 use super::transfer::{Incoming, SourceKind};
+use crate::i18n::{t, tf};
 use crate::secrets::SecretSet;
 
 const DEFAULT_GROUP: &str = "default";
@@ -248,13 +249,13 @@ pub fn read(value: &Value) -> Result<Incoming> {
                     .join("\n")
             })
             .unwrap_or_default();
-        for (key, label) in [("connectionHoppings", "jump hosts"), ("sshTunnels", "port forwarding")] {
+        for (key, label) in [("connectionHoppings", t("jump hosts")), ("sshTunnels", t("port forwarding"))] {
             if b.get(key).and_then(Value::as_array).is_some_and(|a| !a.is_empty()) {
                 dropped_features.insert(label);
             }
         }
         if !s(b, "proxy").is_empty() {
-            dropped_features.insert("proxies");
+            dropped_features.insert(t("proxies"));
         }
 
         let id = bookmark_uuid(&eid);
@@ -285,21 +286,18 @@ pub fn read(value: &Value) -> Result<Incoming> {
     if !skipped_types.is_empty() {
         skipped_types.sort();
         skipped_types.dedup();
-        warnings.push(format!(
-            "Skipped bookmarks that are not SSH connections: {}.",
-            skipped_types.join(", ")
-        ));
+        warnings.push(tf("Skipped bookmarks that are not SSH connections: {}.", &[&skipped_types.join(", ")]));
     }
     if !dropped_features.is_empty() {
         let mut f: Vec<_> = dropped_features.into_iter().collect();
         f.sort();
-        warnings.push(format!("These Electerm settings are not supported and were left out: {}.", f.join(", ")));
+        warnings.push(tf("These Electerm settings are not supported and were left out: {}.", &[&f.join(", ")]));
     }
     if !secrets.is_empty() {
-        warnings.push("Passwords and keys from the file will be stored in the macOS Keychain.".into());
+        warnings.push(t("Passwords and keys from the file will be stored in the macOS Keychain.").into());
     }
     if bookmarks.is_empty() {
-        bail!("The Electerm file contains no SSH bookmarks.");
+        bail!("{}", t("The Electerm file contains no SSH bookmarks."));
     }
 
     Ok(Incoming {

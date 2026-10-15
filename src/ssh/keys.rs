@@ -5,6 +5,8 @@ use std::path::Path;
 
 use russh::keys::{self, PrivateKey, ssh_key};
 
+use crate::i18n::{t, tf};
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum KeyLoadError {
     NeedsPassphrase,
@@ -16,9 +18,9 @@ pub enum KeyLoadError {
 impl std::fmt::Display for KeyLoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            KeyLoadError::NeedsPassphrase => f.write_str("the key is encrypted and needs a passphrase"),
-            KeyLoadError::WrongPassphrase => f.write_str("wrong passphrase"),
-            KeyLoadError::Unsupported(e) => write!(f, "unsupported key format ({e})"),
+            KeyLoadError::NeedsPassphrase => f.write_str(t("the key is encrypted and needs a passphrase")),
+            KeyLoadError::WrongPassphrase => f.write_str(t("wrong passphrase")),
+            KeyLoadError::Unsupported(e) => f.write_str(&tf("unsupported key format ({})", &[e])),
             KeyLoadError::Io(e) => f.write_str(e),
         }
     }

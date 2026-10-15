@@ -85,7 +85,7 @@ pub struct PelerApp {
     dev: dev::Script,
 }
 
-/// Debug builds only: `PELER_DEV_SCRIPT="sleep 500; action sftp; type ls\r"` drives the UI
+/// Debug builds only: `PELER_DEV_SCRIPT="sleep 500;; action sftp;; type ls\r"` drives the UI
 /// for manual screenshots and smoke tests. Not compiled into release builds.
 #[cfg(debug_assertions)]
 mod dev {
@@ -228,6 +228,7 @@ impl PelerApp {
                 }
             }
             "search" => self.sidebar.search = arg.to_string(),
+            "import" => self.import_file(PathBuf::from(arg)),
             "action" => {
                 let first = self.store.bookmarks.first().map(|b| b.id);
                 let action = match arg {
@@ -980,6 +981,7 @@ impl PelerApp {
         };
         if let Some((text, color, offer_reconnect)) = banner {
             egui::Frame::NONE.fill(color.gamma_multiply(0.18)).inner_margin(egui::Margin::symmetric(12, 6)).show(ui, |ui| {
+                ui.set_min_width(ui.available_width());
                 ui.horizontal(|ui| {
                     if !offer_reconnect {
                         ui.spinner();
