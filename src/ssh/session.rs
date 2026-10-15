@@ -15,7 +15,7 @@ use eframe::egui::Context;
 use parking_lot::Mutex;
 use russh::client::{self, AuthResult, DisconnectReason, Handle, KeyboardInteractiveAuthResponse, Msg};
 use russh::keys::{HashAlg, PrivateKey, PrivateKeyWithHashAlg, PublicKeyOrCertificate, known_hosts};
-use russh::{ChannelMsg, ChannelWriteHalf, Disconnect, MethodKind, Preferred, Pty, cipher, kex, mac};
+use russh::{ChannelMsg, ChannelWriteHalf, Disconnect, MethodKind, Pty, cipher, kex, mac};
 use russh_sftp::client::SftpSession;
 use tokio::sync::{Notify, mpsc, oneshot};
 
@@ -270,10 +270,23 @@ pub fn client_config(legacy: bool, keepalive_secs: u64) -> client::Config {
         keepalive_max: 3,
         inactivity_timeout: None,
         nodelay: true,
+        // A large window keeps transfers fast on high-latency links and avoids a connection
+        // drop during client-initiated rekeys with several busy channels.
+        window_size: 16 * 1024 * 1024,
         ..Default::default()
     };
+    // AES-GCM uses the CPU's AES instructions: about 3.5x faster than ChaCha20 on Apple Silicon.
+    cfg.preferred.cipher = vec![
+        cipher::AES_256_GCM,
+        cipher::AES_128_GCM,
+        cipher::CHACHA20_POLY1305,
+        cipher::AES_256_CTR,
+        cipher::AES_192_CTR,
+        cipher::AES_128_CTR,
+    ]
+    .into();
     if legacy {
-        let mut p = Preferred::default();
+        let mut p = cfg.preferred.clone();
         let mut kexes: Vec<kex::Name> = p.kex.to_vec();
         kexes.extend([
             kex::ECDH_SHA2_NISTP256,
@@ -737,7 +750,16 @@ fn handle_cmd(cmd: ConnCmd, handle: &Arc<SshHandle>, ctx: &Context) -> bool {
 async fn open_sftp(handle: &SshHandle) -> Result<SftpSession, String> {
     let channel = handle.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
-    let config = russh_sftp::client::Config::default();
+    // Bigger write packets and a deeper write pipeline: with the defaults uploads are capped at
+    // 16 x 32 KiB per round trip. More than 16 concurrent reads measured slower, so reads keep
+    // the default depth.
+    let config = russh_sftp::client::Config {
+        max_packet_len: 256 * 1024,
+        max_write_packet_len: 255 * 1024,
+        max_concurrent_writes: 64,
+        max_concurrent_reads: 16,
+        request_timeout_secs: 60,
+    };
     SftpSession::new_with_config(channel.into_stream(), config)
         .await
         .map_err(|e| format!("SFTP is not available on this server ({e})"))

@@ -564,7 +564,7 @@ pub fn show(
     let mut runs: Vec<(usize, TextRun)> = Vec::new();
     let mut singles: Vec<(usize, usize, String, RunStyle, usize)> = Vec::new(); // row, col, text, style, width
     let mut bg_run: Option<(usize, usize, usize, Color32)> = None; // row, start col, end col, color
-    let mut flush_bg = |run: &mut Option<(usize, usize, usize, Color32)>| {
+    let flush_bg = |run: &mut Option<(usize, usize, usize, Color32)>| {
         if let Some((row, start, end, color)) = run.take() {
             let r = cell_rect(start, row, end - start);
             painter.rect_filled(r, CornerRadius::ZERO, color);
