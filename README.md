@@ -56,6 +56,15 @@ tab. Jika sering membuka banyak tab dengan output panjang, kecilkan **Riwayat gu
 - List, unggah, unduh, hapus (rekursif), ganti nama, buat folder, ubah permission (chmod).
 - Transfer di latar belakang dengan progres, kecepatan, bisa dibatalkan (file setengah jadi dihapus),
   folder ditransfer rekursif, permission dan bit executable dipertahankan, ukuran diverifikasi.
+- **Banyak file sekaligus:** pilih dengan ⌘-klik, ⇧-klik, atau `⌘A` (saat kursor di atas daftar), lalu
+  pakai tombol **Upload (n)** / **Download (n)** di bawah daftar. Tombol **Upload…** membuka pemilih
+  file macOS (banyak file atau folder). Footer menampilkan jumlah dan total ukuran yang dipilih.
+- **Progres terlihat di mana saja:** daftar transfer menampilkan ringkasan gabungan (jumlah file,
+  persen, kecepatan, perkiraan sisa waktu) dan tombol *Cancel all*. Saat panel SFTP disembunyikan,
+  progres tetap terlihat di tab (cincin progres) dan tombol **SFTP ⬆ 45%**. Notifikasi muncul saat
+  semua selesai atau ada yang gagal.
+- Menutup tab atau quit saat transfer berjalan meminta konfirmasi. Transfer dibatalkan dengan rapi:
+  file sementara dihapus, termasuk yang di server.
 - Drag-and-drop antar panel, dan drag file dari Finder ke jendela untuk mengunggah ke folder
   remote yang sedang dibuka. Konfirmasi sebelum menimpa file yang sudah ada.
 - **Editor teks bawaan** untuk file remote (config YAML, `.env`, skrip): klik dua kali file remote,
