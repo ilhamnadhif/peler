@@ -240,6 +240,11 @@ impl client::Handler for SshHandler {
         }
         paths::ensure_private_dir(self.known_hosts.parent().unwrap_or(paths::data_dir()))?;
         known_hosts::learn_known_hosts_path(&self.host, self.port, &key, &self.known_hosts)?;
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ =
+                std::fs::set_permissions(&self.known_hosts, std::fs::Permissions::from_mode(0o600));
+        }
         Ok(true)
     }
 
@@ -614,7 +619,10 @@ async fn authenticate(
             }
             return Ok(());
         }
+        // Servers list the methods that may still succeed; an empty list says nothing, so
+        // only give up when password-style methods are clearly not offered.
         if !ok
+            && !remaining.is_empty()
             && !remaining
                 .iter()
                 .any(|m| matches!(m, MethodKind::Password | MethodKind::KeyboardInteractive))
