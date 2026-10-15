@@ -5,12 +5,12 @@ Electerm yang jauh lebih ringan. Satu binary native, tanpa Chromium dan Node.js.
 
 | Target PRD | Hasil terukur | Status |
 | --- | --- | --- |
-| Memori, 1 sesi SSH | **63 MB** (phys_footprint, seperti Activity Monitor) | ✅ < 100 MB |
-| Memori, 5 tab SSH + panel SFTP | **83 MB** (pemakaian biasa); **213 MB** bila kelima tab penuh scrollback 10.000 baris | ⚠️ < 200 MB, kecuali kasus terburuk |
-| Waktu start dingin | **~0,1 detik** sampai frame pertama (0,44 detik pada start pertama setelah instal) | ✅ < 1 detik |
-| Ukuran `.app` universal (Apple Silicon + Intel) | **±28 MB** (DMG ±15 MB) | ✅ < 30 MB |
+| Memori, 1 sesi SSH | **68 MB** (phys_footprint, seperti Activity Monitor) | ✅ < 100 MB |
+| Memori, 5 tab SSH | **78 MB** (pemakaian biasa); **±213 MB** bila kelima tab penuh scrollback 10.000 baris | ⚠️ < 200 MB, kecuali kasus terburuk |
+| Waktu start dingin | **~0,1 detik** sampai frame pertama (0,5 detik pada start pertama setelah build) | ✅ < 1 detik |
+| Ukuran `.app` universal (Apple Silicon + Intel) | **28,4 MB** (DMG 14,8 MB) | ✅ < 30 MB |
 | CPU saat diam | **0,0%** (hanya menggambar saat ada perubahan) | ✅ |
-| Transfer SFTP 1 GB tanpa korupsi | sha256 identik (upload ~214 MB/s, download ~289 MB/s, lokal) | ✅ |
+| Transfer SFTP 1 GB tanpa korupsi | sha256 identik (upload ~640 MB/s, download ~650–700 MB/s, ke sshd lokal) | ✅ |
 
 Pengukuran dilakukan di MacBook Apple Silicon, macOS 14.6, jendela 1180×760. Satu baris scrollback
 memakan 24 byte per kolom; scrollback 10.000 baris yang penuh pada lebar ±120 kolom ≈ 30 MB per
@@ -192,7 +192,7 @@ scripts/dev-sshd.sh /tmp/peler-sshd 2299     # menampilkan path key yang dipakai
   yang diketik langsung tidak meninggalkan apa pun). Mengganti metode login menghapus rahasia yang
   tidak lagi dipakai.
 - Tidak ada log yang berisi password. Tidak ada telemetri.
-- Cipher yang diutamakan AES-256-GCM (memakai instruksi AES CPU), lalu ChaCha20-Poly1305.
+- Cipher yang diutamakan AES-256-GCM (memakai instruksi AES CPU, lewat *ring*), lalu ChaCha20-Poly1305.
   Algoritma lama (signature ssh-rsa/SHA-1 untuk host key dan login, CBC, kex SHA-1) hanya aktif
   bila dicentang per bookmark.
 - Batas waktu DNS 10 detik. Bila host punya beberapa alamat (IPv6 + IPv4), tiap alamat dicoba
@@ -222,7 +222,9 @@ scripts/dev-sshd.sh /tmp/peler-sshd 2299     # menampilkan path key yang dipakai
   item Keychain lama. Build dengan Developer ID tidak mengalami ini.
 - `cargo audit` melaporkan RUSTSEC-2023-0071 (side-channel waktu pada crate `rsa`, dipakai russh untuk
   key RSA). Belum ada versi perbaikan; risikonya rendah untuk klien yang hanya menandatangani dengan
-  key milik pengguna secara lokal. Gunakan key Ed25519 bila memungkinkan.
+  key milik pengguna secara lokal. Gunakan key Ed25519 bila memungkinkan. Peringatan lain dari
+  `cargo audit` (glib, ttf-parser, proc-macro-error) hanya berasal dari dependensi Linux atau
+  build-time, dan tidak ikut ke build macOS.
 - Fitur pasca-v1.0 di PRD (port forwarding, jump host/ProxyJump, ssh-agent, Linux/Windows) belum ada.
 
 ## Struktur kode
