@@ -31,8 +31,15 @@ fn lock_path() -> PathBuf {
     paths::data_dir().join("instance.lock")
 }
 
+/// The socket lives in the per-user temporary folder (private on macOS): socket paths are
+/// limited to about 100 bytes, which a long home folder path can exceed. The name is derived
+/// from the data folder, so separate data folders (tests) don't meet.
 fn socket_path() -> PathBuf {
-    paths::data_dir().join("instance.sock")
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in paths::data_dir().as_os_str().as_encoded_bytes() {
+        hash = (hash ^ *b as u64).wrapping_mul(0x0100_0000_01b3);
+    }
+    std::env::temp_dir().join(format!("peler-{hash:016x}.sock"))
 }
 
 /// Becomes the primary instance, or forwards `args` to the running one.
@@ -77,9 +84,18 @@ fn forward(args: &[String]) -> bool {
     let Ok(message) = serde_json::to_vec(args) else {
         return false;
     };
+    // Only a socket created by this user is trusted with the arguments.
+    use std::os::unix::fs::MetadataExt;
+    let Ok(me) = std::fs::metadata(paths::data_dir()).map(|m| m.uid()) else {
+        return false;
+    };
+    let path = socket_path();
     // The running instance may still be starting up and not listening yet.
     for _ in 0..15 {
-        if let Ok(mut stream) = UnixStream::connect(socket_path()) {
+        if std::fs::symlink_metadata(&path).is_ok_and(|m| m.uid() != me) {
+            return false;
+        }
+        if let Ok(mut stream) = UnixStream::connect(&path) {
             let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
             let _ = stream.set_write_timeout(Some(Duration::from_secs(3)));
             let mut ack = [0u8; 1];

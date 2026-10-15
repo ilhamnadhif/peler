@@ -2008,7 +2008,7 @@ impl PelerApp {
                             ui.label(t("Saved keys"));
                             ui.vertical(|ui| {
                                 for k in known {
-                                    ui.add(egui::Label::new(RichText::new(k.as_str()).monospace().small()).wrap().selectable(true));
+                                    ui.add(egui::Label::new(RichText::new(k.as_str()).monospace()).wrap().selectable(true));
                                 }
                             });
                             ui.end_row();

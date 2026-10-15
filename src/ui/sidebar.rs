@@ -113,6 +113,8 @@ impl Sidebar {
                 if std::mem::take(&mut self.focus_search) {
                     resp.request_focus();
                 }
+                #[cfg(debug_assertions)]
+                crate::devtest::record("sidebar-search", resp.rect);
                 if resp.changed() {
                     self.search_index = 0;
                 }
