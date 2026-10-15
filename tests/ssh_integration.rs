@@ -155,6 +155,11 @@ fn key_auth_shell_known_hosts_and_errors() {
             .unwrap()
             .contains(&format!("[127.0.0.1]:{}", server.port))
     );
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&known).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "known_hosts must be private");
+    }
 
     // Shell with start directory and startup command; then interactive input.
     let tmp = server.dir.path().display().to_string();
