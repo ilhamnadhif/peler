@@ -105,6 +105,8 @@ pub struct PelerApp {
     title: String,
     first_frame: bool,
     startup: Vec<String>,
+    /// (tab id, pane id) that last received keyboard focus.
+    focus_target: Option<(u64, crate::ui::layout::PaneId)>,
     #[cfg(debug_assertions)]
     dev: dev::Script,
 }
@@ -265,6 +267,7 @@ impl PelerApp {
             title: String::new(),
             first_frame: true,
             startup: targets,
+            focus_target: None,
             #[cfg(debug_assertions)]
             dev: dev::Script::from_env(),
         }
@@ -505,11 +508,7 @@ impl PelerApp {
             return;
         };
         if tab.sftp.is_none() {
-            tab.sftp = Some(SftpPanel::new(
-                tab.conn.open_sftp(),
-                &tab.bookmark.start_dir,
-                self.settings.last_local_dir.as_deref(),
-            ));
+            tab.sftp = Some(tab.new_sftp_panel(self.settings.last_local_dir.as_deref()));
         }
         tab.show_sftp = true;
         if let Some(panel) = &mut tab.sftp {
@@ -854,11 +853,7 @@ impl PelerApp {
                 if let Some(tab) = self.tabs.get_mut(self.active) {
                     tab.show_sftp = !tab.show_sftp;
                     if tab.show_sftp && tab.sftp.is_none() && tab.state().is_connected() {
-                        tab.sftp = Some(SftpPanel::new(
-                            tab.conn.open_sftp(),
-                            &tab.bookmark.start_dir,
-                            last.as_deref(),
-                        ));
+                        tab.sftp = Some(tab.new_sftp_panel(last.as_deref()));
                     }
                 }
             }
@@ -1245,6 +1240,7 @@ impl PelerApp {
                 {
                     self.actions.push(Action::ToggleSftp);
                 }
+                self.theme_button(ui);
                 ui.add_enabled_ui(has_tab, |ui| {
                     ui.menu_button("⚡", |ui| {
                         if self.settings.quick_commands.is_empty() {
@@ -1282,6 +1278,54 @@ impl PelerApp {
                     }
                 });
             });
+        });
+    }
+
+    /// Toolbar button: click toggles dark/light; right-click offers "follow macOS".
+    fn theme_button(&mut self, ui: &mut Ui) {
+        let dark = ui.visuals().dark_mode;
+        let resp = ui
+            .add(egui::Button::new("").min_size(vec2(30.0, 22.0)))
+            .on_hover_text(if dark {
+                t("Switch to light theme")
+            } else {
+                t("Switch to dark theme")
+            });
+        let c = resp.rect.center();
+        let color = ui.visuals().strong_text_color();
+        let painter = ui.painter();
+        if dark {
+            // Sun: shows what a click switches to.
+            painter.circle_filled(c, 3.6, color);
+            for i in 0..8 {
+                let a = i as f32 * std::f32::consts::FRAC_PI_4;
+                let d = vec2(a.cos(), a.sin());
+                painter.line_segment([c + d * 5.6, c + d * 7.6], Stroke::new(1.3, color));
+            }
+        } else {
+            // Crescent moon.
+            painter.circle_filled(c, 6.5, color);
+            painter.circle_filled(
+                c + vec2(3.2, -2.6),
+                5.6,
+                ui.visuals().widgets.inactive.weak_bg_fill,
+            );
+        }
+        if resp.clicked() {
+            self.settings.theme = if dark {
+                ThemeMode::Light
+            } else {
+                ThemeMode::Dark
+            };
+        }
+        resp.context_menu(|ui| {
+            ui.radio_value(
+                &mut self.settings.theme,
+                ThemeMode::System,
+                t("Follow macOS"),
+            );
+            ui.radio_value(&mut self.settings.theme, ThemeMode::Light, t("Light"));
+            ui.radio_value(&mut self.settings.theme, ThemeMode::Dark, t("Dark"));
         });
     }
 
@@ -1443,9 +1487,38 @@ impl PelerApp {
             (full, None)
         };
 
+        // A split pane whose shell exited (e.g. `exit`/`logout`) closes by itself; the last
+        // pane stays so the session can be reconnected.
+        if tab.panes.len() > 1 {
+            let ended: Vec<_> = tab
+                .panes
+                .iter()
+                .filter(|p| {
+                    matches!(
+                        *p.status.lock(),
+                        crate::ssh::session::PaneStatus::Exited(Some(_))
+                    )
+                })
+                .map(|p| p.id)
+                .collect();
+            for id in ended {
+                if tab.panes.len() > 1 {
+                    tab.close_pane(id);
+                }
+            }
+        }
+        // Keyboard focus follows the active pane (after a split, a tab switch, ⌘[ / ⌘]).
+        let want_focus = (tab.id, tab.focused);
+        if self.focus_target != Some(want_focus) && !modal_open && !has_prompt {
+            ctx.memory_mut(|m| m.request_focus(terminal::pane_widget_id(tab.focused)));
+            self.focus_target = Some(want_focus);
+        }
+
         let (pane_rects, dividers) = tab.layout.arrange(term_rect);
         let multi = pane_rects.len() > 1;
+        let tab_id = tab.id;
         let mut new_focus = None;
+        let mut close_pane = None;
         for (pane_id, rect) in pane_rects {
             let focused_pane = tab.focused == pane_id;
             let Some(pane) = tab.pane_mut(pane_id) else {
@@ -1490,6 +1563,38 @@ impl PelerApp {
                     egui::StrokeKind::Inside,
                 );
             }
+            // Close button for split panes (a single pane is closed with its tab).
+            if multi && !modal_open {
+                let close_rect = egui::Rect::from_center_size(
+                    egui::pos2(rect.right() - 16.0, rect.top() + 16.0),
+                    vec2(20.0, 20.0),
+                );
+                let close = ui
+                    .interact(
+                        close_rect,
+                        egui::Id::new(("pane-close", tab_id, pane_id)),
+                        Sense::click(),
+                    )
+                    .on_hover_text(format!("{} (⌘W)", t("Close pane")));
+                if close.hovered() || ui.rect_contains_pointer(rect) {
+                    let bg = if close.hovered() {
+                        ui.visuals().widgets.hovered.bg_fill
+                    } else {
+                        ui.visuals().widgets.inactive.weak_bg_fill
+                    };
+                    ui.painter().circle_filled(close_rect.center(), 9.0, bg);
+                    ui.painter().text(
+                        close_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "×",
+                        egui::FontId::proportional(15.0),
+                        ui.visuals().strong_text_color(),
+                    );
+                }
+                if close.clicked() {
+                    close_pane = Some(pane_id);
+                }
+            }
             let bell = pane.shared.notes.lock().bell_at;
             if let Some(at) = bell {
                 let age = at.elapsed().as_secs_f32();
@@ -1505,6 +1610,9 @@ impl PelerApp {
         }
         if let Some(f) = new_focus {
             tab.focused = f;
+        }
+        if let Some(id) = close_pane {
+            tab.close_pane(id);
         }
         for (i, d) in dividers.iter().enumerate() {
             let resp = ui.interact(
@@ -1557,11 +1665,7 @@ impl PelerApp {
             }
             let last = self.settings.last_local_dir.clone();
             if tab.sftp.is_none() && tab.state().is_connected() {
-                tab.sftp = Some(SftpPanel::new(
-                    tab.conn.open_sftp(),
-                    &tab.bookmark.start_dir,
-                    last.as_deref(),
-                ));
+                tab.sftp = Some(tab.new_sftp_panel(last.as_deref()));
             }
             let mut child =
                 ui.new_child(egui::UiBuilder::new().max_rect(rect.shrink2(vec2(8.0, 4.0))));

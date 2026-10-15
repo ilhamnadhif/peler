@@ -64,9 +64,12 @@ pub struct Bookmark {
     pub tags: Vec<String>,
     #[serde(default)]
     pub notes: String,
-    /// Remote directory to `cd` into after login (also the initial SFTP directory).
+    /// Remote directory to `cd` into after login (also the initial remote SFTP directory).
     #[serde(default)]
     pub start_dir: String,
+    /// Local directory the SFTP panel opens in (empty: the last one used).
+    #[serde(default)]
+    pub local_start_dir: String,
     /// Command sent to the shell right after login.
     #[serde(default)]
     pub startup_command: String,
@@ -92,6 +95,7 @@ impl Default for Bookmark {
             tags: Vec::new(),
             notes: String::new(),
             start_dir: String::new(),
+            local_start_dir: String::new(),
             startup_command: String::new(),
             legacy_algorithms: false,
         }

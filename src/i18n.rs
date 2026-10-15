@@ -90,6 +90,22 @@ const ID: &[(&str, &str)] = &[
     ("Private key error: {}", "Kesalahan private key: {}"),
     ("Disconnected: {}", "Terputus: {}"),
     // UI
+    ("Close pane", "Tutup panel"),
+    ("Follow macOS", "Ikuti macOS"),
+    ("Last folder used", "Folder terakhir dipakai"),
+    ("Local start folder", "Folder awal lokal"),
+    ("Remote start folder", "Folder awal remote"),
+    ("Switch to dark theme", "Ganti ke tema gelap"),
+    ("Switch to light theme", "Ganti ke tema terang"),
+    (
+        "The local side of SFTP opens here.",
+        "Sisi lokal SFTP terbuka di sini.",
+    ),
+    (
+        "The terminal and the remote side of SFTP open here.",
+        "Terminal dan sisi remote SFTP terbuka di sini.",
+    ),
+    ("{} items", "{} item"),
     (" lines", " baris"),
     (
         "\"{}\" and its saved password will be removed.",

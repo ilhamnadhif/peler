@@ -330,6 +330,7 @@ pub fn read(value: &Value) -> Result<Incoming> {
             tags: Vec::new(),
             notes: s(b, "description").to_string(),
             start_dir,
+            local_start_dir: s(b, "startDirectoryLocal").to_string(),
             startup_command,
             legacy_algorithms: false,
         });

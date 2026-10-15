@@ -243,8 +243,28 @@ impl Editor {
                 ui.add(egui::TextEdit::singleline(&mut self.tags_text).hint_text(t("comma separated")).desired_width(f32::INFINITY));
                 ui.end_row();
 
-                ui.label(t("Start folder"));
-                ui.add(egui::TextEdit::singleline(&mut self.draft.start_dir).hint_text("/var/www").desired_width(f32::INFINITY));
+                ui.label(t("Remote start folder"));
+                ui.add(egui::TextEdit::singleline(&mut self.draft.start_dir).hint_text("/var/www").desired_width(f32::INFINITY))
+                    .on_hover_text(t("The terminal and the remote side of SFTP open here."));
+                ui.end_row();
+
+                ui.label(t("Local start folder"));
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.draft.local_start_dir)
+                            .hint_text(t("Last folder used"))
+                            .desired_width(ui.available_width() - 70.0),
+                    )
+                    .on_hover_text(t("The local side of SFTP opens here."));
+                    if ui.button(t("Browse…")).clicked() {
+                        let start = paths::expand_tilde(self.draft.local_start_dir.trim());
+                        let dialog = rfd::FileDialog::new().set_title(t("Local start folder"));
+                        let dialog = if start.is_dir() { dialog.set_directory(start) } else { dialog.set_directory(paths::home_dir()) };
+                        if let Some(dir) = dialog.pick_folder() {
+                            self.draft.local_start_dir = paths::contract_tilde(&dir);
+                        }
+                    }
+                });
                 ui.end_row();
 
                 ui.label(t("Run on connect"));

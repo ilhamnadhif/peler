@@ -101,10 +101,19 @@ fn new_pane(id: PaneId, size: GridSize, env: &Env) -> (Pane, mpsc::UnboundedRece
         feeder,
         input: tx,
         status: Arc::new(Mutex::new(PaneStatus::Starting)),
-        view: TermView::default(),
+        view: TermView::new(super::terminal::pane_widget_id(id)),
         generation: Arc::new(AtomicU64::new(0)),
     };
     (pane, rx)
+}
+
+/// The remote working directory from a window title such as `user@host: ~/src` (the title
+/// Debian/Ubuntu/Fedora shells set by default), if it looks like one.
+pub fn cwd_from_title(title: &str) -> Option<String> {
+    let after_at = &title[title.find('@')? + 1..];
+    let (_, rest) = after_at.split_once(':')?;
+    let path = rest.trim();
+    (path == "~" || path.starts_with("~/") || path.starts_with('/')).then(|| path.to_string())
 }
 
 fn pane_start(
@@ -112,6 +121,7 @@ fn pane_start(
     rx: mpsc::UnboundedReceiver<PaneInput>,
     bookmark: &Bookmark,
     first: bool,
+    start_dir: Option<String>,
 ) -> PaneStart {
     let (cols, rows, px_w, px_h) = {
         let w = *pane.shared.window.lock();
@@ -130,7 +140,7 @@ fn pane_start(
         rows,
         px_w,
         px_h,
-        start_dir: bookmark.start_dir.clone(),
+        start_dir: start_dir.unwrap_or_else(|| bookmark.start_dir.clone()),
         startup_command: if first {
             bookmark.startup_command.clone()
         } else {
@@ -146,7 +156,7 @@ impl Tab {
     pub fn open(id: u64, pane_id: PaneId, bookmark: Bookmark, size: GridSize, env: &Env) -> Self {
         let conn = Connection::start(env.rt, env.ctx.clone(), spec(&bookmark, env));
         let (pane, rx) = new_pane(pane_id, size, env);
-        conn.open_shell(pane_start(&pane, rx, &bookmark, true));
+        conn.open_shell(pane_start(&pane, rx, &bookmark, true, None));
         Tab {
             id,
             bookmark,
@@ -159,6 +169,22 @@ impl Tab {
             sftp_split: 0.45,
             prompt: PromptInput::default(),
         }
+    }
+
+    /// Opens an SFTP panel on this connection, starting in the bookmark's start folders
+    /// (the local side falls back to the last folder used).
+    pub fn new_sftp_panel(&self, last_local_dir: Option<&str>) -> SftpPanel {
+        let local = self.bookmark.local_start_dir.trim();
+        let local = if local.is_empty() {
+            last_local_dir.map(str::to_string)
+        } else {
+            Some(crate::paths::expand_tilde(local).display().to_string())
+        };
+        SftpPanel::new(
+            self.conn.open_sftp(),
+            &self.bookmark.start_dir,
+            local.as_deref(),
+        )
     }
 
     pub fn state(&self) -> ConnState {
@@ -188,6 +214,12 @@ impl Tab {
             .focused_pane()
             .and_then(|p| p.view.grid)
             .unwrap_or(GridSize { cols: 80, rows: 24 });
+        // Open the new shell where the current one is (when the shell reports its folder in
+        // the window title), otherwise in the bookmark's start folder.
+        let cwd = self
+            .focused_pane()
+            .and_then(Pane::title)
+            .and_then(|t| cwd_from_title(&t));
         let (pane, rx) = new_pane(new_id, size, env);
         if self.state().is_closed() {
             *pane.status.lock() = PaneStatus::Failed(crate::i18n::t("Not connected.").into());
@@ -197,7 +229,7 @@ impl Tab {
             );
         } else {
             self.conn
-                .open_shell(pane_start(&pane, rx, &self.bookmark, false));
+                .open_shell(pane_start(&pane, rx, &self.bookmark, false, cwd));
         }
         self.panes.push(pane);
         self.layout.split(self.focused, new_id, dir);
@@ -238,7 +270,7 @@ impl Tab {
                 &format!("— {} —", crate::i18n::t("reconnecting")),
             );
             self.conn
-                .open_shell(pane_start(pane, rx, &bookmark, i == 0));
+                .open_shell(pane_start(pane, rx, &bookmark, i == 0, None));
         }
     }
 
@@ -280,5 +312,25 @@ impl Tab {
             p.shared.term.lock().set_options(config);
             *p.shared.palette.lock() = QueryPalette::from(scheme);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cwd_from_title;
+
+    #[test]
+    fn cwd_from_shell_titles() {
+        assert_eq!(
+            cwd_from_title("ubuntu@VM-2-193: ~/projects").as_deref(),
+            Some("~/projects")
+        );
+        assert_eq!(
+            cwd_from_title("root@web:/var/www").as_deref(),
+            Some("/var/www")
+        );
+        assert_eq!(cwd_from_title("user@host: ~").as_deref(), Some("~"));
+        assert_eq!(cwd_from_title("vim notes.txt"), None);
+        assert_eq!(cwd_from_title("user@host: htop"), None);
     }
 }

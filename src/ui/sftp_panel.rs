@@ -115,6 +115,8 @@ pub struct SftpPanel {
     pending_uploads: Vec<PathBuf>,
     start_dir: String,
     message: Option<(String, bool)>,
+    /// Label shown next to the pointer while files are dragged between the two sides.
+    drag_label: Option<String>,
 }
 
 /// Something the app should do after the panel was drawn.
@@ -151,6 +153,7 @@ impl SftpPanel {
             pending_uploads: Vec::new(),
             start_dir: start_dir.trim().to_string(),
             message: None,
+            drag_label: None,
         };
         panel.local_cd(&local_cwd);
         panel
@@ -509,6 +512,7 @@ impl SftpPanel {
             ui.separator();
             self.transfers_ui(ui);
         }
+        self.drag_preview(&ctx);
         if let Some((msg, is_err)) = self.message.clone() {
             let color = if is_err {
                 ui.visuals().error_fg_color
@@ -587,7 +591,9 @@ impl SftpPanel {
                         "sftp-local"
                     })
                     .striped(true)
-                    .sense(Sense::click())
+                    // Rows take both clicks and drags: a separate drag-only area on top of a
+                    // row would swallow its clicks (egui gives the click to nobody then).
+                    .sense(Sense::click_and_drag())
                     .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                     .resizable(true)
                     .auto_shrink([false, false])
@@ -670,21 +676,7 @@ impl SftpPanel {
                                 } else {
                                     Icon::File
                                 };
-                                let payload = DragFiles {
-                                    from_remote: is_remote,
-                                    names: if side.selected.contains(&e.name) {
-                                        side.selected.iter().cloned().collect()
-                                    } else {
-                                        vec![e.name.clone()]
-                                    },
-                                };
-                                ui.dnd_drag_source(
-                                    egui::Id::new(("sftp-drag", is_remote, &e.name)),
-                                    payload,
-                                    |ui| {
-                                        icons::icon_label(ui, icon, &e.name);
-                                    },
-                                );
+                                icons::icon_label(ui, icon, &e.name);
                             });
                             row.col(|ui| {
                                 if !e.is_dir {
@@ -702,6 +694,22 @@ impl SftpPanel {
                                 });
                             }
                             let resp = row.response();
+                            let names: Vec<String> = if side.selected.contains(&e.name) {
+                                side.selected.iter().cloned().collect()
+                            } else {
+                                vec![e.name.clone()]
+                            };
+                            if resp.drag_started() {
+                                actions.push(SideAction::DragStarted(if names.len() == 1 {
+                                    names[0].clone()
+                                } else {
+                                    tf("{} items", &[&names.len().to_string()])
+                                }));
+                            }
+                            resp.dnd_set_drag_payload(DragFiles {
+                                from_remote: is_remote,
+                                names,
+                            });
                             if resp.double_clicked() {
                                 actions.push(SideAction::Open(is_remote, e.clone()));
                             } else if resp.clicked() {
@@ -795,6 +803,7 @@ impl SftpPanel {
         ctx: &egui::Context,
     ) -> Option<PanelOutput> {
         match action {
+            SideAction::DragStarted(label) => self.drag_label = Some(label),
             SideAction::Up(true) => {
                 let p = remote_parent(&self.remote.cwd);
                 self.remote_cd(rt, ctx, p);
@@ -937,6 +946,42 @@ impl SftpPanel {
             }
         }
         None
+    }
+
+    fn drag_preview(&mut self, ctx: &egui::Context) {
+        if !egui::DragAndDrop::has_payload_of_type::<DragFiles>(ctx) {
+            self.drag_label = None;
+            return;
+        }
+        let (Some(label), Some(pos)) = (&self.drag_label, ctx.pointer_interact_pos()) else {
+            return;
+        };
+        let painter = ctx.layer_painter(egui::LayerId::new(
+            egui::Order::Tooltip,
+            egui::Id::new("sftp-drag"),
+        ));
+        let visuals = ctx.global_style().visuals.clone();
+        let galley = painter.layout_no_wrap(
+            label.clone(),
+            egui::FontId::proportional(13.0),
+            visuals.strong_text_color(),
+        );
+        let r = egui::Rect::from_min_size(
+            pos + egui::vec2(14.0, 6.0),
+            galley.size() + egui::vec2(14.0, 8.0),
+        );
+        painter.rect_filled(r, egui::CornerRadius::same(5), visuals.window_fill);
+        painter.rect_stroke(
+            r,
+            egui::CornerRadius::same(5),
+            visuals.window_stroke,
+            egui::StrokeKind::Inside,
+        );
+        painter.galley(
+            r.min + egui::vec2(7.0, 4.0),
+            galley,
+            visuals.strong_text_color(),
+        );
     }
 
     fn transfers_ui(&mut self, ui: &mut Ui) {
@@ -1240,6 +1285,7 @@ impl SftpPanel {
 }
 
 enum SideAction {
+    DragStarted(String),
     Up(bool),
     Home(bool),
     Refresh(bool),

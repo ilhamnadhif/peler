@@ -55,6 +55,20 @@ pub struct TermView {
     was_focused: bool,
 }
 
+impl TermView {
+    pub fn new(id: Id) -> Self {
+        Self {
+            id: Some(id),
+            ..Default::default()
+        }
+    }
+}
+
+/// The widget id of a pane's terminal (stable, so focus can be moved to it).
+pub fn pane_widget_id(pane: u64) -> Id {
+    Id::new(("terminal", pane))
+}
+
 #[derive(Default)]
 pub struct TermResponse {
     /// Bytes for the remote (keys, paste, mouse reports, focus events).
