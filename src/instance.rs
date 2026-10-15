@@ -117,7 +117,11 @@ pub fn serve(listener: UnixListener, ctx: egui::Context) -> mpsc::Receiver<Vec<S
         .name("peler-instance".into())
         .spawn(move || {
             for stream in listener.incoming() {
-                let Ok(mut stream) = stream else { continue };
+                let Ok(mut stream) = stream else {
+                    // e.g. out of file descriptors: don't spin.
+                    std::thread::sleep(Duration::from_millis(200));
+                    continue;
+                };
                 let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
                 let mut data = Vec::new();
                 if (&mut stream)

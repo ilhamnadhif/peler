@@ -5,22 +5,27 @@ use eframe::egui;
 fn main() -> eframe::Result {
     peler::app::mark_process_start();
     install_crash_log();
+    // Window position and size from the last run (the app checks it is on a screen).
+    let saved = peler::settings::Settings::load(&peler::paths::settings_file())
+        .ok()
+        .and_then(|s| s.window_frame());
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("Peler")
+        .with_app_id("dev.peler.app")
+        .with_inner_size([1180.0, 760.0])
+        .with_min_inner_size([640.0, 400.0])
+        // The .app bundle provides the Dock icon; this stops eframe from setting its own.
+        .with_icon(egui::IconData::default());
+    if let Some([x, y, w, h]) = saved {
+        viewport = viewport.with_position([x, y]).with_inner_size([w, h]);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("Peler")
-            .with_app_id("dev.peler.app")
-            .with_inner_size([1180.0, 760.0])
-            .with_min_inner_size([640.0, 400.0])
-            // The .app bundle provides the Dock icon; this stops eframe from setting its own.
-            .with_icon(egui::IconData::default()),
+        viewport,
         event_loop_builder: Some(Box::new(|builder| {
             use winit::platform::macos::EventLoopBuilderExtMacOS as _;
             builder.with_default_menu(false);
         })),
         renderer: eframe::Renderer::Wgpu,
-        // Window size and position (and panel sizes) are remembered between launches.
-        persist_window: true,
-        persistence_path: Some(peler::paths::data_dir().join("window.ron")),
         ..Default::default()
     };
     // Arguments: bookmark names or user@host[:port] to open on launch.

@@ -23,7 +23,8 @@ tab. Jika sering membuka banyak tab dengan output panjang, kecilkan **Riwayat gu
 - Buat, edit, duplikat, hapus; grup bertingkat; urutkan dengan drag-and-drop di sidebar.
 - Field: nama, host, port, username, autentikasi (password atau private key + passphrase), grup,
   tag, catatan, folder awal, perintah yang dijalankan saat konek, opsi algoritma lama.
-- Pencarian fuzzy (nama, host, user, tag, grup); Enter langsung konek. `⌘K` membuka palet pencarian.
+- Pencarian fuzzy (nama, host, user, tag, grup); Enter langsung konek. `⌘K` membuka palet pencarian;
+  mengetik alamat (`user@host:port`, IPv6 sebagai `[::1]:22`) di palet langsung konek tanpa bookmark.
 - Password dan passphrase disimpan di **macOS Keychain**, tidak pernah di file bookmark.
 
 **Terminal SSH**
@@ -35,12 +36,17 @@ tab. Jika sering membuka banyak tab dengan output panjang, kecilkan **Riwayat gu
 - IME (input Mandarin/Jepang) dengan jendela kandidat di posisi kursor.
 - Autentikasi password, keyboard-interactive (termasuk kode OTP), dan private key
   RSA/ECDSA/Ed25519 (terenkripsi maupun tidak).
-- Verifikasi host key dengan file `known_hosts` milik aplikasi (juga membaca `~/.ssh/known_hosts`);
-  konfirmasi untuk host baru, peringatan keras jika kunci berubah.
-- Keepalive (default 30 detik) dan reconnect manual (`⌘R`, atau Enter di sesi yang sudah putus)
-  tanpa kehilangan scrollback.
+- Verifikasi host key dengan file `known_hosts` milik aplikasi (juga membaca `~/.ssh/known_hosts`,
+  termasuk entri ter-hash, wildcard, dan `@revoked`). Host baru harus dikonfirmasi dengan klik
+  (Enter tidak bisa menerima key). Jika key berubah, atau server tiba-tiba menyodorkan jenis key lain,
+  muncul peringatan merah beserta key lama. Key yang di-`@revoked` langsung ditolak.
+- Keepalive (default 30 detik). Enter di pane yang sesinya selesai membuka shell baru di pane itu saja
+  (pane lain tetap jalan). `⌘R` menyambung ulang seluruh tab tanpa kehilangan scrollback, dan meminta
+  konfirmasi bila masih ada sesi atau transfer berjalan.
 - Banyak tab dan split pane (`⌘D` kanan, `⇧⌘D` bawah) — semua pane memakai satu koneksi SSH.
 - Quick commands (tombol ⚡ di toolbar).
+- Option sebagai Meta (opsional, untuk Emacs/readline) mengikuti layout keyboard apa pun, dan hanya
+  aktif selama terminal yang memegang keyboard. Di dialog, Option tetap mengetik karakter biasa.
 - Tema warna terminal (Peler Dark/Light, Solarized, Dracula, Nord, Gruvbox, Tomorrow Night,
   GitHub Light) dan pilihan font (Menlo, SF Mono, Monaco, Courier New, Andale Mono, Hack,
   atau file font sendiri).
@@ -57,21 +63,30 @@ tab. Jika sering membuka banyak tab dengan output panjang, kecilkan **Riwayat gu
 - Export ke satu file JSON berversi (`schema_version`, `exported_at`, `groups[]`, `bookmarks[]`):
   semua bookmark, satu grup, atau bookmark terpilih.
 - Kredensial default **tidak** diekspor. Opsional: diekspor terenkripsi dengan passphrase
-  (Argon2id 64 MiB + XChaCha20-Poly1305). Private key file hanya diekspor path-nya.
+  (Argon2id 64 MiB + XChaCha20-Poly1305). Private key file hanya diekspor path-nya. Setiap
+  kredensial terikat ke host, port, dan user-nya. Jika daftar bookmark di file (yang tidak
+  terenkripsi) diubah agar menunjuk ke server lain, kredensial itu tidak ikut di-import.
 - Import menampilkan pratinjau (ditambah/diperbarui/dilewati) dengan pilihan per bookmark untuk
   konflik: lewati, timpa, atau simpan keduanya. Pencocokan lewat ID, lalu host+port+user.
-  Import ulang file yang sama tidak menduplikasi apa pun.
+  Import ulang file yang sama tidak menduplikasi apa pun. Jika menimpa mengubah alamat, alamat lama
+  dan baru ditampilkan, lalu kredensial milik alamat lama dihapus.
+- Perintah startup dari file import (yang otomatis jalan di server saat konek) hanya ikut bila dicentang.
 - Import dari **Electerm** (format export bookmark versi 5.6.10, file "export all data", atau array
   bookmark). Grup bersarang, password, passphrase, dan key yang ditempel di Electerm dipindahkan ke
   Keychain. Bookmark non-SSH (telnet, RDP, VNC, dsb.) dilewati dengan pemberitahuan.
 - Import dari `~/.ssh/config` (Host, HostName, Port, User, IdentityFile, `Host *`, pola `!`, Include).
-- File dengan skema lebih baru atau rusak ditolak dengan pesan jelas.
+- File dengan skema lebih baru atau rusak ditolak dengan pesan jelas. File di atas 10 MB ditolak
+  sebelum dibaca.
 
 **Lainnya**
 - Menu bar macOS native, mengikuti mode terang/gelap macOS, antarmuka **Inggris dan Indonesia**
   (otomatis mengikuti bahasa sistem, bisa diganti di Pengaturan).
 - Tanpa telemetri; tidak ada koneksi keluar selain ke server yang Anda tuju.
-- Buka koneksi dari Terminal: `open -a Peler --args "nama bookmark"` atau `user@host:port`.
+- Buka koneksi dari Terminal: `open -a Peler --args "nama bookmark"` atau `user@host:port`. Aplikasi
+  hanya berjalan satu instance. Menjalankan binary-nya lagi (mis.
+  `/Applications/Peler.app/Contents/MacOS/peler web-1`) membuka tab di jendela yang sudah terbuka,
+  sehingga dua proses tidak pernah menulis file bookmark yang sama.
+- Ukuran dan posisi jendela diingat. Jika terjadi crash, laporannya ditulis ke `~/Library/Logs/Peler/`.
 
 ## Pintasan keyboard
 
@@ -138,8 +153,22 @@ cargo audit                                 # audit keamanan dependensi
 ```
 
 Tes integrasi menjalankan OpenSSH `sshd` milik macOS tanpa root di port acak (key auth, host key
-baru/berubah, shell, resize, beberapa pane, SFTP) dan server SSH in-process untuk alur password dan
-keyboard-interactive. Untuk mencoba aplikasi secara manual ke server lokal:
+baru/berubah/revoked, shell, resize, beberapa pane, SFTP) dan server SSH in-process untuk alur
+password dan keyboard-interactive.
+
+Build debug juga punya *driver* end-to-end yang mengirim event keyboard dan mouse sungguhan ke
+jendela, lewat jalur yang sama dengan input pengguna (menu, winit, egui):
+
+```sh
+PELER_DATA_DIR=/tmp/peler-e2e PELER_SECRETS=memory \
+PELER_DEV_SCRIPT='sleep 1500;; connect local dev;; sleep 2500;; keys echo hi\r;; expect-screen hi;; key cmd+d;; expect-panes 2;; quit' \
+  target/debug/peler
+```
+
+Hasil dicetak sebagai baris `DEVTEST PASS/FAIL`. `PELER_DATA_DIR` dan `PELER_SECRETS` hanya
+berlaku di build debug; build rilis selalu memakai lokasi data dan Keychain yang asli.
+
+Untuk mencoba aplikasi secara manual ke server lokal:
 
 ```sh
 scripts/dev-sshd.sh /tmp/peler-sshd 2299     # menampilkan path key yang dipakai
@@ -150,15 +179,24 @@ scripts/dev-sshd.sh /tmp/peler-sshd 2299     # menampilkan path key yang dipakai
 | Apa | Lokasi |
 | --- | --- |
 | Bookmark | `~/Library/Application Support/peler/bookmarks.json` (permission 0600) |
-| Pengaturan | `~/Library/Application Support/peler/settings.json` (0600) |
+| Pengaturan (termasuk ukuran/posisi jendela) | `~/Library/Application Support/peler/settings.json` (0600) |
 | Host key tepercaya | `~/Library/Application Support/peler/known_hosts` (0600) |
 | Password, passphrase, key hasil import | macOS Keychain, service `peler` |
+| Laporan crash | `~/Library/Logs/Peler/panic-*.log` |
 
-- File ditulis atomik (tulis ke file sementara, `fsync`, `rename`); file bookmark yang rusak tidak
-  ditimpa melainkan disimpan sebagai cadangan.
+- File ditulis atomik (tulis ke file sementara yang unik, `fsync`, `rename`). File bookmark atau
+  pengaturan yang rusak tidak ditimpa, melainkan disimpan sebagai cadangan `*.corrupt-<waktu>.json`.
+  File bookmark dari versi yang lebih baru tidak pernah ditimpa: perubahan bookmark tidak disimpan
+  sampai aplikasi diperbarui.
+- Password hanya ditawarkan untuk disimpan di Keychain bila bookmark-nya memang tersimpan (alamat
+  yang diketik langsung tidak meninggalkan apa pun). Mengganti metode login menghapus rahasia yang
+  tidak lagi dipakai.
 - Tidak ada log yang berisi password. Tidak ada telemetri.
 - Cipher yang diutamakan AES-256-GCM (memakai instruksi AES CPU), lalu ChaCha20-Poly1305.
-  Algoritma lama (ssh-rsa/SHA-1, CBC) hanya aktif bila dicentang per bookmark.
+  Algoritma lama (signature ssh-rsa/SHA-1 untuk host key dan login, CBC, kex SHA-1) hanya aktif
+  bila dicentang per bookmark.
+- Batas waktu DNS 10 detik. Bila host punya beberapa alamat (IPv6 + IPv4), tiap alamat dicoba
+  dengan batas waktu sendiri. Menutup tab di tengah handshake langsung memutus socket-nya.
 
 ## Keputusan atas pertanyaan terbuka di PRD
 
@@ -172,9 +210,9 @@ scripts/dev-sshd.sh /tmp/peler-sshd 2299     # menampilkan path key yang dipakai
 
 ## Keterbatasan yang diketahui
 
-- **Belum diuji manual:** tes otomatis tidak bisa menyimulasikan komposisi IME sungguhan
-  (Mandarin/Jepang), drag-and-drop bookmark di sidebar, atau file yang di-drag dari Finder. Fitur-fitur
-  ini perlu dicoba tangan. Komposisi IME memakai jalur resmi egui/winit.
+- **Perlu dicoba tangan:** driver E2E mengirim event keyboard/mouse sungguhan, tetapi tidak bisa
+  menyimulasikan komposisi IME (Mandarin/Jepang), drag-and-drop bookmark di sidebar, atau file yang
+  di-drag dari Finder. Komposisi IME memakai jalur resmi egui/winit.
 - File yang di-drag dari Finder selalu diunggah ke folder remote yang sedang dibuka. macOS tidak
   memberi tahu posisi drop, jadi tujuannya tidak bisa dipilih per folder.
 - Dukungan VoiceOver masih terbatas (sesuai PRD).

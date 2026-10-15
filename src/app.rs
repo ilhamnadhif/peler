@@ -2285,6 +2285,41 @@ impl PelerApp {
         }
     }
 
+    /// Keeps the window frame in the settings (saved with them), and on the first frame moves a
+    /// window restored onto a screen that is no longer connected back onto the main screen.
+    fn remember_window(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+        if self.first_frame
+            && let Some(w) = frame.winit_window()
+            && w.current_monitor().is_none()
+        {
+            ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(egui::pos2(80.0, 80.0)));
+            return;
+        }
+        let (outer, inner, fullscreen, minimized) = ctx.input(|i| {
+            let v = i.viewport();
+            (
+                v.outer_rect,
+                v.inner_rect,
+                v.fullscreen.unwrap_or(false),
+                v.minimized.unwrap_or(false),
+            )
+        });
+        if fullscreen || minimized {
+            return;
+        }
+        if let (Some(outer), Some(inner)) = (outer, inner) {
+            let frame = [
+                outer.min.x.round(),
+                outer.min.y.round(),
+                inner.width().round(),
+                inner.height().round(),
+            ];
+            if self.settings.window != Some(frame) {
+                self.settings.window = Some(frame);
+            }
+        }
+    }
+
     fn update_title(&mut self, ctx: &egui::Context) {
         let title = match self.tabs.get(self.active) {
             Some(tab) => {
@@ -2393,6 +2428,7 @@ impl eframe::App for PelerApp {
         self.overlays(&ctx);
         self.process_actions(&ctx);
         self.track_focus(&ctx, frame);
+        self.remember_window(&ctx, frame);
         self.update_title(&ctx);
     }
 

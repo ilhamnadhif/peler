@@ -88,6 +88,8 @@ pub struct Settings {
     pub sidebar_width: f32,
     pub quick_commands: Vec<QuickCommand>,
     pub last_local_dir: Option<String>,
+    /// Window position and size in points (x, y, width, height), restored on launch.
+    pub window: Option<[f32; 4]>,
 }
 
 impl Default for Settings {
@@ -115,6 +117,7 @@ impl Default for Settings {
                 QuickCommand::new("Top processes", "top"),
             ],
             last_local_dir: None,
+            window: None,
         }
     }
 }
@@ -144,6 +147,15 @@ impl Settings {
         let json = serde_json::to_vec_pretty(self)?;
         paths::write_private(path, &json)
             .with_context(|| crate::i18n::tf("Could not save {}", &[&path.display().to_string()]))
+    }
+
+    /// The saved window frame, if it is a usable size.
+    pub fn window_frame(&self) -> Option<[f32; 4]> {
+        self.window.filter(|[x, y, w, h]| {
+            [x, y, w, h].iter().all(|v| v.is_finite())
+                && (640.0..=16384.0).contains(w)
+                && (400.0..=16384.0).contains(h)
+        })
     }
 
     pub fn clamp(&mut self) {
