@@ -306,6 +306,11 @@ impl Tab {
         self.conn.disconnect();
     }
 
+    /// A remote file open in the editor with unsaved changes.
+    pub fn unsaved_file(&self) -> Option<String> {
+        self.sftp.as_ref().and_then(|p| p.unsaved_file())
+    }
+
     /// SFTP transfers that have not finished yet.
     pub fn running_transfers(&self) -> usize {
         self.sftp.as_ref().map_or(0, |p| {

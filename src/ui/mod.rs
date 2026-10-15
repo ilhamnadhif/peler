@@ -3,6 +3,7 @@
 pub mod actions;
 pub mod dialogs;
 pub mod editor;
+pub mod file_editor;
 pub mod fonts;
 pub mod icons;
 pub mod layout;

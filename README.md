@@ -58,6 +58,16 @@ tab. Jika sering membuka banyak tab dengan output panjang, kecilkan **Riwayat gu
   folder ditransfer rekursif, permission dan bit executable dipertahankan, ukuran diverifikasi.
 - Drag-and-drop antar panel, dan drag file dari Finder ke jendela untuk mengunggah ke folder
   remote yang sedang dibuka. Konfirmasi sebelum menimpa file yang sudah ada.
+- **Editor teks bawaan** untuk file remote (config YAML, `.env`, skrip): klik dua kali file remote,
+  atau klik kanan → **Edit**. Fiturnya:
+  - Nomor baris dan posisi kursor; `⌘S` menyimpan.
+  - Tab menyisipkan spasi (YAML tidak boleh tab), Enter mempertahankan indentasi.
+  - Line ending CRLF/LF, BOM, dan permission file tetap seperti aslinya.
+  - Penyimpanan aman: isi baru ditulis ke file sementara lalu ditukar, jadi file lama tidak pernah
+    setengah tertulis. Symlink dan file milik user lain ditulis langsung (in place).
+  - Peringatan bila file diubah orang lain sejak dibuka, dan konfirmasi sebelum membuang perubahan
+    yang belum disimpan (juga saat tab ditutup atau aplikasi di-quit).
+  - File biner atau di atas 2 MB tidak dibuka di editor; tersedia tombol Download.
 
 **Export / import**
 - Export ke satu file JSON berversi (`schema_version`, `exported_at`, `groups[]`, `bookmarks[]`):
@@ -107,6 +117,7 @@ tab. Jika sering membuka banyak tab dengan output panjang, kecilkan **Riwayat gu
 | Gulir riwayat | `⇧PageUp` / `⇧PageDown` / `⇧Home` / `⇧End` |
 | Export bookmark | `⇧⌘E` (import ada di menu File) |
 | Pengaturan | `⌘,` |
+| Simpan (editor file remote) | `⌘S` |
 
 ## Instalasi
 
@@ -234,9 +245,10 @@ src/
   app.rs                aplikasi: layout, tab, aksi, dialog
   bookmarks/            model, store, pencarian fuzzy, import/export, Electerm, ~/.ssh/config
   ssh/                  koneksi russh, autentikasi, host key, shell channel
-  sftp/                 operasi remote, transfer latar belakang
+  sftp/                 operasi remote, transfer latar belakang, muat/simpan editor
   term/                 inti terminal (alacritty_terminal), encoding keyboard/mouse, skema warna
-  ui/                   widget terminal, sidebar, editor, dialog, panel SFTP, menu, font, ikon
+  ui/                   widget terminal, sidebar, editor bookmark, editor file remote, dialog,
+                        panel SFTP, menu, font, ikon
   crypto.rs secrets.rs  enkripsi export, Keychain
   i18n.rs               teks Inggris/Indonesia (tes memastikan semua teks UI terjemahkan)
 tests/                  tes integrasi (sshd lokal, server in-process, 1 GB SFTP)

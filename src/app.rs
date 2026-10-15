@@ -442,6 +442,44 @@ impl PelerApp {
                 s.debug.show_widget_hits = true;
                 s.debug.show_interactive_widgets = true;
             }),
+            // `drag @name dx,dy`: drag from a named widget's center by an offset.
+            "drag" => {
+                let mut parts = arg.split_whitespace();
+                let from = parts.next().and_then(target);
+                let delta = parts.next().and_then(|d| {
+                    let (x, y) = d.split_once(',')?;
+                    Some(egui::vec2(x.parse().ok()?, y.parse().ok()?))
+                });
+                match (from, delta) {
+                    (Some(from), Some(delta)) => {
+                        let mut steps = vec![format!("mouse down {},{}", from.x, from.y)];
+                        for i in 1..=6 {
+                            let p = from + delta * (i as f32 / 6.0);
+                            steps.push(format!("mouse drag {},{}", p.x, p.y));
+                        }
+                        let to = from + delta;
+                        steps.push(format!("mouse up {},{}", to.x, to.y));
+                        self.dev.push_front(steps);
+                    }
+                    _ => self.dev.check(false, &format!("drag {arg}: bad target")),
+                }
+            }
+            "mouse" => {
+                let (kind, pos) = arg.split_once(' ').unwrap_or((arg, ""));
+                match target(pos) {
+                    Some(p) => devtest::mouse(kind, p),
+                    None => self.dev.check(false, &format!("mouse {arg}: bad point")),
+                }
+            }
+            "fullscreen" => ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(arg == "on")),
+            "maximize" => ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(arg == "on")),
+            "resize" => {
+                if let Some((w, h)) = arg.split_once(',')
+                    && let (Ok(w), Ok(h)) = (w.parse::<f32>(), h.parse::<f32>())
+                {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(w, h)));
+                }
+            }
             "move" => {
                 if let Some(pos) = target(arg) {
                     devtest::click(pos, 0, false);
@@ -646,6 +684,9 @@ impl PelerApp {
                 &[&transfers.to_string()],
             ));
         }
+        for file in self.tabs.iter().filter_map(Tab::unsaved_file) {
+            lines.push(tf("Unsaved changes to {} will be lost.", &[&file]));
+        }
         (!lines.is_empty()).then(|| lines.join("\n"))
     }
 
@@ -790,7 +831,11 @@ impl PelerApp {
             return;
         };
         let transfers = tab.running_transfers();
-        if (self.settings.confirm_close_connected && tab.is_active()) || transfers > 0 {
+        let unsaved = tab.unsaved_file();
+        if (self.settings.confirm_close_connected && tab.is_active())
+            || transfers > 0
+            || unsaved.is_some()
+        {
             let mut message = tf(
                 "The connection to {} will be closed.",
                 &[&tab.bookmark.address()],
@@ -801,6 +846,10 @@ impl PelerApp {
                     "{} file transfer(s) are still running and will be cancelled.",
                     &[&transfers.to_string()],
                 ));
+            }
+            if let Some(file) = unsaved {
+                message.push('\n');
+                message.push_str(&tf("Unsaved changes to {} will be lost.", &[&file]));
             }
             self.dialog = Some(dialogs::confirm(
                 t("Close this tab?"),
@@ -1873,6 +1922,8 @@ impl PelerApp {
                 egui::pos2(full.right(), rect.top()),
             );
             let resp = ui.interact(div, egui::Id::new(("sftp-divider", tab.id)), Sense::drag());
+            #[cfg(debug_assertions)]
+            crate::devtest::record("sftp-divider", div);
             ui.painter().rect_filled(
                 div.shrink2(vec2(0.0, 2.0)),
                 CornerRadius::ZERO,
@@ -1889,6 +1940,8 @@ impl PelerApp {
                 && let Some(p) = resp.interact_pointer_pos()
             {
                 tab.sftp_split = (1.0 - (p.y - full.top()) / full.height()).clamp(0.15, 0.85);
+                // The panel was laid out with the old split this frame: draw again.
+                ctx.request_repaint();
             }
             let last = self.settings.last_local_dir.clone();
             if tab.sftp.is_none() && tab.state().is_connected() {

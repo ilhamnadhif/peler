@@ -722,6 +722,43 @@ const ID: &[(&str, &str)] = &[
         "{} kredensial tersimpan tidak diikutkan: alamat bookmark di file berbeda dengan alamat saat kredensial disimpan.",
     ),
     ("{} skipped", "{} dilewati"),
+    ("Col", "Kol"),
+    ("Could not save: {}", "Tidak bisa menyimpan: {}"),
+    ("Discard", "Buang"),
+    ("Discard changes?", "Buang perubahan?"),
+    ("Keep Editing", "Lanjut Mengedit"),
+    ("Ln", "Brs"),
+    ("No changes to save.", "Tidak ada perubahan untuk disimpan."),
+    ("Opening…", "Membuka…"),
+    ("Saved.", "Tersimpan."),
+    ("Saving…", "Menyimpan…"),
+    ("The file changed on the server", "File berubah di server"),
+    (
+        "The file is too large to edit here ({} MB; the limit is {} MB). Download it instead.",
+        "File terlalu besar untuk diedit di sini ({} MB; batasnya {} MB). Download saja.",
+    ),
+    ("This is a folder.", "Ini sebuah folder."),
+    (
+        "This is not a text file (or not UTF-8). Download it instead.",
+        "Ini bukan file teks (atau bukan UTF-8). Download saja.",
+    ),
+    ("Unsaved changes", "Ada perubahan yang belum disimpan"),
+    (
+        "Unsaved changes to {} will be lost.",
+        "Perubahan pada {} yang belum disimpan akan hilang.",
+    ),
+    (
+        "Your changes to {} have not been saved.",
+        "Perubahan Anda pada {} belum disimpan.",
+    ),
+    (
+        "the server stored an incomplete file",
+        "server menyimpan file yang tidak lengkap",
+    ),
+    (
+        "{} was changed by someone else after you opened it. Saving replaces those changes.",
+        "{} diubah oleh pihak lain setelah Anda membukanya. Menyimpan akan menimpa perubahan itu.",
+    ),
 ];
 
 #[cfg(test)]

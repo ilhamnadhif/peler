@@ -62,6 +62,13 @@ impl Script {
         Some(step)
     }
 
+    /// Runs `steps` next, before the rest of the script.
+    pub fn push_front(&mut self, steps: Vec<String>) {
+        for step in steps.into_iter().rev() {
+            self.steps.push_front(step);
+        }
+    }
+
     pub fn check(&mut self, ok: bool, what: &str) {
         if ok {
             self.passed += 1;
@@ -209,6 +216,11 @@ pub fn key(spec: &str) {
         "down" => arrow(125, 0xF701),
         "left" => arrow(123, 0xF702),
         "right" => arrow(124, 0xF703),
+        "home" => arrow(115, 0xF729),
+        "end" => arrow(119, 0xF72B),
+        "pageup" => arrow(116, 0xF72C),
+        "pagedown" => arrow(121, 0xF72D),
+        "delete" => arrow(117, 0xF728),
         n if n.chars().count() == 1 => {
             let c = n.chars().next().unwrap();
             (key_code(c).0, n.to_string())
@@ -259,6 +271,33 @@ pub fn click(pos: egui::Pos2, count: isize, right: bool) {
             w.sendEvent(&d);
             w.sendEvent(&u);
         }
+    }
+}
+
+/// One left-button mouse event (`down`, `drag` or `up`) at a point in egui coordinates. A drag
+/// is a series of these in separate frames, as with a real mouse.
+pub fn mouse(kind: &str, pos: egui::Pos2) {
+    let Some(w) = window() else { return };
+    let height = w.contentLayoutRect().size.height;
+    let ty = match kind {
+        "down" => NSEventType::LeftMouseDown,
+        "drag" => NSEventType::LeftMouseDragged,
+        _ => NSEventType::LeftMouseUp,
+    };
+    if let Some(e) =
+        NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+            ty,
+            NSPoint::new(pos.x as f64, height - pos.y as f64),
+            NSEventModifierFlags::empty(),
+            0.0,
+            w.windowNumber(),
+            None,
+            0,
+            1,
+            1.0,
+        )
+    {
+        w.sendEvent(&e);
     }
 }
 

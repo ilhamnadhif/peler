@@ -20,6 +20,7 @@ use crate::paths;
 use crate::sftp::entry::{self, FileEntry, SortKey, remote_join, remote_parent};
 use crate::sftp::remote::{self, Sftp};
 use crate::sftp::transfer::{Direction, TransferState, Transfers};
+use crate::ui::file_editor::{EditorOutput, FileEditor};
 use crate::ui::icons::{self, Icon};
 
 enum Session {
@@ -52,6 +53,8 @@ struct SideState {
     anchor: Option<String>,
     sort: SortKey,
     descending: bool,
+    /// Width the table was laid out for: when it changes, the columns are laid out again.
+    table_width: f32,
 }
 
 impl SideState {
@@ -147,6 +150,8 @@ pub struct SftpPanel {
     drag_label: Option<String>,
     menu_target: Option<MenuTarget>,
     refresh_remote_pending: bool,
+    /// A remote text file open in the built-in editor.
+    editor: Option<FileEditor>,
 }
 
 /// Something the app should do after the panel was drawn.
@@ -168,6 +173,11 @@ enum SideAction {
         remote: bool,
         dir: String,
         entry: FileEntry,
+    },
+    /// Open a remote file in the built-in editor.
+    Edit {
+        dir: String,
+        name: String,
     },
     Select(bool, String, bool, bool),
     Sort(bool, SortKey),
@@ -223,6 +233,7 @@ impl SftpPanel {
             drag_label: None,
             menu_target: None,
             refresh_remote_pending: false,
+            editor: None,
         };
         panel.local_cd(&local_cwd);
         panel
@@ -244,11 +255,25 @@ impl SftpPanel {
     }
 
     pub fn dialog_open(&self) -> bool {
-        self.dialog.is_some()
+        self.dialog.is_some() || self.editor.is_some()
     }
 
+    /// ⌘W: closes a dialog, or the editor (asking first if it has unsaved changes).
     pub fn close_dialog(&mut self) {
-        self.dialog = None;
+        if self.dialog.take().is_some() {
+            return;
+        }
+        if self.editor.as_mut().is_some_and(FileEditor::request_close) {
+            self.editor = None;
+        }
+    }
+
+    /// The file open in the editor with unsaved changes, if any.
+    pub fn unsaved_file(&self) -> Option<String> {
+        self.editor
+            .as_ref()
+            .filter(|e| e.is_dirty())
+            .map(|e| e.name().to_string())
     }
 
     pub fn is_ready(&self) -> bool {
@@ -669,6 +694,34 @@ impl SftpPanel {
         }
         self.drag_preview(&ctx);
         self.dialog_ui(&ctx, rt);
+        let sftp = self.sftp();
+        let editor_out = self
+            .editor
+            .as_mut()
+            .map(|e| (e.show(&ctx, rt, sftp), e.path.clone()));
+        match editor_out {
+            Some((EditorOutput::Close { saved }, _)) => {
+                self.editor = None;
+                if saved {
+                    self.apply(SideAction::Refresh(true), rt, &ctx);
+                }
+            }
+            Some((EditorOutput::Download, path)) => {
+                self.editor = None;
+                let dir = remote_parent(&path);
+                let name = entry::remote_name(&path).to_string();
+                self.apply(
+                    SideAction::Transfer {
+                        from_remote: true,
+                        dir,
+                        names: vec![name],
+                    },
+                    rt,
+                    &ctx,
+                );
+            }
+            Some((EditorOutput::Open, _)) | None => {}
+        }
         output
     }
 
@@ -740,6 +793,13 @@ impl SftpPanel {
             let (_, dropped) = ui.dnd_drop_zone::<DragFiles, _>(egui::Frame::NONE, |ui| {
                 ui.set_min_size(ui.available_size());
                 let mut sort_clicked = None;
+                // The list always reaches the bottom of the panel, and its columns follow the
+                // panel's width (resized columns would otherwise keep their old widths and leave
+                // a gap, or overflow, after the window or the split changes size).
+                let body_height = (ui.available_height() - row_h - 6.0).max(0.0);
+                let width = ui.available_width();
+                let relayout = (width - side.table_width).abs() > 0.5;
+                side.table_width = width;
                 let mut table = TableBuilder::new(ui)
                     .id_salt(if is_remote {
                         "sftp-remote"
@@ -753,12 +813,16 @@ impl SftpPanel {
                     .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                     .resizable(true)
                     .auto_shrink([false, false])
+                    .min_scrolled_height(body_height)
                     .max_scroll_height(f32::INFINITY)
                     .column(Column::remainder().at_least(120.0).clip(true))
                     .column(Column::initial(70.0).at_least(50.0))
                     .column(Column::initial(118.0).at_least(60.0).clip(true));
                 if is_remote {
                     table = table.column(Column::initial(80.0).at_least(60.0));
+                }
+                if relayout {
+                    table.reset();
                 }
                 let arrow = |k: SortKey| {
                     if side.sort == k {
@@ -789,7 +853,12 @@ impl SftpPanel {
                         });
                         if is_remote {
                             header.col(|ui| {
-                                ui.label(t("Permissions"));
+                                // Same look and baseline as the sortable headers.
+                                ui.add(
+                                    egui::Button::new(t("Permissions"))
+                                        .frame(false)
+                                        .sense(Sense::hover()),
+                                );
                             });
                         }
                     })
@@ -861,10 +930,19 @@ impl SftpPanel {
                                 );
                             }
                             if resp.double_clicked() {
-                                actions.push(SideAction::Open {
-                                    remote: is_remote,
-                                    dir: side.cwd.clone(),
-                                    entry: e.clone(),
+                                // A remote file opens in the editor; folders open, and local
+                                // files upload.
+                                actions.push(if is_remote && !e.is_dir {
+                                    SideAction::Edit {
+                                        dir: side.cwd.clone(),
+                                        name: e.name.clone(),
+                                    }
+                                } else {
+                                    SideAction::Open {
+                                        remote: is_remote,
+                                        dir: side.cwd.clone(),
+                                        entry: e.clone(),
+                                    }
                                 });
                             } else if resp.clicked() {
                                 let mods = ui_mods(&resp);
@@ -891,6 +969,17 @@ impl SftpPanel {
                                     names: names_here(),
                                     entry: e.clone(),
                                 });
+                                if is_remote
+                                    && !target.entry.is_dir
+                                    && target.names.len() == 1
+                                    && ui.button(t("Edit")).clicked()
+                                {
+                                    actions.push(SideAction::Edit {
+                                        dir: target.dir.clone(),
+                                        name: target.entry.name.clone(),
+                                    });
+                                    ui.close();
+                                }
                                 let label = if is_remote {
                                     t("Download")
                                 } else {
@@ -1039,6 +1128,12 @@ impl SftpPanel {
                 self.local_cd("~");
                 return Some(PanelOutput::LocalDir(self.local.cwd.clone()));
             }
+            SideAction::Edit { dir, name } => match self.sftp() {
+                Some(sftp) => {
+                    self.editor = Some(FileEditor::open(rt, ctx, sftp, remote_join(&dir, &name)));
+                }
+                None => self.error(t("Not connected.")),
+            },
             SideAction::Refresh(true) => {
                 if !self.remote.cwd.is_empty() {
                     let cwd = self.remote.cwd.clone();
