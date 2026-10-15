@@ -759,6 +759,32 @@ const ID: &[(&str, &str)] = &[
         "{} was changed by someone else after you opened it. Saving replaces those changes.",
         "{} diubah oleh pihak lain setelah Anda membukanya. Menyimpan akan menimpa perubahan itu.",
     ),
+    ("Cancel all", "Batalkan semua"),
+    (
+        "Choose files on this Mac to upload into this folder",
+        "Pilih file di Mac ini untuk di-upload ke folder ini",
+    ),
+    ("Downloaded {} file(s).", "{} file selesai di-download."),
+    ("Downloading {} file(s)", "Mengunduh {} file"),
+    ("Files…", "File…"),
+    ("Folders…", "Folder…"),
+    ("Into the local folder {}", "Ke folder lokal {}"),
+    ("Into the remote folder {}", "Ke folder remote {}"),
+    ("Transferred {} file(s).", "{} file selesai ditransfer."),
+    ("Transferring {} file(s)", "Mentransfer {} file"),
+    ("Upload to {}", "Upload ke {}"),
+    ("Uploaded {} file(s).", "{} file selesai di-upload."),
+    ("Uploading {} file(s)", "Mengunggah {} file"),
+    ("Upload…", "Upload…"),
+    ("about {} left", "sisa sekitar {}"),
+    ("{} done", "{} selesai"),
+    ("{} folder(s)", "{} folder"),
+    ("{} selected", "{} dipilih"),
+    ("{} transfer(s) failed.", "{} transfer gagal."),
+    (
+        "⌘-click or ⇧-click to select several",
+        "⌘-klik atau ⇧-klik untuk memilih beberapa",
+    ),
 ];
 
 #[cfg(test)]

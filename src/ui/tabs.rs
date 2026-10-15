@@ -306,6 +306,47 @@ impl Tab {
         self.conn.disconnect();
     }
 
+    /// Cancels this tab's running transfers; returns the ones still cleaning up.
+    pub fn cancel_transfers(&self) -> Vec<Arc<crate::sftp::transfer::Transfer>> {
+        let Some(panel) = &self.sftp else {
+            return Vec::new();
+        };
+        panel.transfers.cancel_all();
+        panel
+            .transfers
+            .items
+            .iter()
+            .filter(|t| !t.is_finished())
+            .cloned()
+            .collect()
+    }
+
+    /// Closes the tab. Running transfers are cancelled first and get a few seconds to remove
+    /// their partial files (on the server too) before the connection closes.
+    pub fn close(self, rt: &tokio::runtime::Handle) {
+        let pending = self.cancel_transfers();
+        if pending.is_empty() {
+            self.conn.disconnect();
+            return;
+        }
+        let conn = self.conn;
+        rt.spawn(async move {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while pending.iter().any(|t| !t.is_finished()) && std::time::Instant::now() < deadline {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            conn.disconnect();
+        });
+    }
+
+    /// Progress of the SFTP transfers in this tab, while any run.
+    pub fn transfer_progress(&self) -> Option<crate::sftp::transfer::Summary> {
+        self.sftp
+            .as_ref()
+            .and_then(|p| p.transfer_summary())
+            .filter(|s| s.running())
+    }
+
     /// A remote file open in the editor with unsaved changes.
     pub fn unsaved_file(&self) -> Option<String> {
         self.sftp.as_ref().and_then(|p| p.unsaved_file())

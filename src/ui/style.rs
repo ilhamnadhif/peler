@@ -76,3 +76,30 @@ pub fn chrome_fill(dark: bool) -> Color32 {
         Color32::from_rgb(0xe9, 0xeb, 0xee)
     }
 }
+
+/// A small ring that fills clockwise with `fraction`.
+pub fn progress_ring(
+    painter: &egui::Painter,
+    center: egui::Pos2,
+    radius: f32,
+    fraction: f32,
+    dark: bool,
+) {
+    let track = if dark {
+        Color32::from_gray(80)
+    } else {
+        Color32::from_gray(200)
+    };
+    painter.circle_stroke(center, radius, egui::Stroke::new(2.0, track));
+    let steps = (fraction.clamp(0.0, 1.0) * 32.0).ceil() as usize;
+    if steps > 0 {
+        let points: Vec<egui::Pos2> = (0..=steps)
+            .map(|i| {
+                let a = -std::f32::consts::FRAC_PI_2
+                    + std::f32::consts::TAU * fraction.clamp(0.0, 1.0) * i as f32 / steps as f32;
+                center + egui::vec2(a.cos(), a.sin()) * radius
+            })
+            .collect();
+        painter.add(egui::Shape::line(points, egui::Stroke::new(2.0, ACCENT)));
+    }
+}

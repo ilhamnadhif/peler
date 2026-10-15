@@ -9,7 +9,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use russh_sftp::protocol::FileType;
@@ -146,11 +146,55 @@ impl Transfer {
     }
 }
 
+/// Overall progress of a batch: the transfers started since nothing was running.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Summary {
+    pub batch: u64,
+    pub uploads: usize,
+    pub downloads: usize,
+    /// Transfers not finished yet (running or waiting).
+    pub active: usize,
+    pub done: usize,
+    pub failed: usize,
+    pub cancelled: usize,
+    pub files_done: u64,
+    pub files_total: u64,
+    pub bytes_done: u64,
+    pub bytes_total: u64,
+    /// Bytes per second over the whole batch so far.
+    pub speed: f64,
+}
+
+impl Summary {
+    pub fn running(&self) -> bool {
+        self.active > 0
+    }
+
+    pub fn fraction(&self) -> f32 {
+        if self.bytes_total == 0 {
+            return if self.running() { 0.0 } else { 1.0 };
+        }
+        (self.bytes_done as f64 / self.bytes_total as f64).min(1.0) as f32
+    }
+
+    /// Estimated time left, once there is enough to go on.
+    pub fn eta(&self) -> Option<Duration> {
+        if !self.running() || self.speed < 1.0 || self.bytes_done == 0 {
+            return None;
+        }
+        let left = self.bytes_total.saturating_sub(self.bytes_done) as f64;
+        Some(Duration::from_secs_f64(left / self.speed))
+    }
+}
+
 /// Runs transfers with a limit on how many run at once.
 pub struct Transfers {
     pub items: Vec<Arc<Transfer>>,
     limiter: Arc<Semaphore>,
     next_id: u64,
+    /// First transfer id of the current batch, and when the batch started.
+    batch_first: u64,
+    batch_started: Option<Instant>,
 }
 
 impl Default for Transfers {
@@ -159,11 +203,70 @@ impl Default for Transfers {
             items: Vec::new(),
             limiter: Arc::new(Semaphore::new(2)),
             next_id: 1,
+            batch_first: 1,
+            batch_started: None,
         }
     }
 }
 
 impl Transfers {
+    /// Progress of the current batch (`None` before the first transfer).
+    pub fn summary(&self) -> Option<Summary> {
+        let started = self.batch_started?;
+        let mut s = Summary {
+            batch: self.batch_first,
+            ..Default::default()
+        };
+        let mut last_finish = None;
+        for t in self.items.iter().filter(|t| t.id >= self.batch_first) {
+            match t.direction {
+                Direction::Upload => s.uploads += 1,
+                Direction::Download => s.downloads += 1,
+            }
+            let state = t.state();
+            let files = t.files_total.load(Ordering::Relaxed).max(1);
+            s.files_total += files;
+            match state {
+                TransferState::Done => {
+                    s.done += 1;
+                    s.files_done += files;
+                }
+                TransferState::Failed(_) => s.failed += 1,
+                TransferState::Cancelled => s.cancelled += 1,
+                TransferState::Queued | TransferState::Running => {
+                    s.active += 1;
+                    s.files_done += t.files_done.load(Ordering::Relaxed);
+                }
+            }
+            if !matches!(state, TransferState::Cancelled) {
+                s.bytes_total += t.total.load(Ordering::Relaxed);
+                s.bytes_done += t.done.load(Ordering::Relaxed);
+            }
+            if let Some(f) = *t.finished.lock() {
+                last_finish = Some(last_finish.map_or(f, |l: Instant| l.max(f)));
+            }
+        }
+        if s.uploads + s.downloads == 0 {
+            return None;
+        }
+        let end = if s.running() {
+            Instant::now()
+        } else {
+            last_finish.unwrap_or_else(Instant::now)
+        };
+        s.speed = s.bytes_done as f64 / end.duration_since(started).as_secs_f64().max(0.001);
+        Some(s)
+    }
+
+    /// Cancels every unfinished transfer.
+    pub fn cancel_all(&self) {
+        for t in &self.items {
+            if !t.is_finished() {
+                t.cancel();
+            }
+        }
+    }
+
     pub fn any_running(&self) -> bool {
         self.items.iter().any(|t| !t.is_finished())
     }
@@ -193,6 +296,11 @@ impl Transfers {
     ) -> Arc<Transfer> {
         let t = Arc::new(t);
         self.next_id += 1;
+        // A transfer started while nothing else runs begins a new batch.
+        if !self.any_running() {
+            self.batch_first = t.id;
+            self.batch_started = Some(Instant::now());
+        }
         self.items.push(t.clone());
         let limiter = self.limiter.clone();
         let task = t.clone();

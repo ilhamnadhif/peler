@@ -813,7 +813,7 @@ impl PelerApp {
     fn close_tab(&mut self, idx: usize) {
         if idx < self.tabs.len() {
             let tab = self.tabs.remove(idx);
-            tab.disconnect();
+            tab.close(self.rt.handle());
             if self.active >= self.tabs.len() {
                 self.active = self.tabs.len().saturating_sub(1);
             } else if idx < self.active {
@@ -1380,11 +1380,21 @@ impl PelerApp {
                                 },
                                 bg,
                             );
-                            painter.circle_filled(
-                                egui::pos2(rect.left() + 12.0, rect.center().y),
-                                4.0,
-                                dot,
-                            );
+                            let dot_pos = egui::pos2(rect.left() + 12.0, rect.center().y);
+                            match tab.transfer_progress() {
+                                // Transfers running: a small progress ring instead of the dot.
+                                Some(p) => {
+                                    style::progress_ring(painter, dot_pos, 5.0, p.fraction(), dark);
+                                    resp.clone().on_hover_text(format!(
+                                        "{}\n{}",
+                                        crate::ui::sftp_panel::summary_title(&p),
+                                        crate::ui::sftp_panel::summary_detail(&p)
+                                    ));
+                                }
+                                None => {
+                                    painter.circle_filled(dot_pos, 4.0, dot);
+                                }
+                            }
                             let text_color = if active {
                                 ui.visuals().strong_text_color()
                             } else {
@@ -1499,12 +1509,38 @@ impl PelerApp {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let has_tab = !self.tabs.is_empty();
                 let sftp_on = self.tabs.get(self.active).is_some_and(|t| t.show_sftp);
+                // While files move, the button shows how far along they are (also when the
+                // panel is hidden).
+                let progress = self.tabs.get(self.active).and_then(Tab::transfer_progress);
+                let label = match &progress {
+                    Some(p) => {
+                        let arrow = if p.downloads > 0 && p.uploads == 0 {
+                            "⬇"
+                        } else {
+                            "⬆"
+                        };
+                        format!(
+                            "{} {arrow} {}%",
+                            t("SFTP"),
+                            (p.fraction() * 100.0).floor() as u32
+                        )
+                    }
+                    None => t("SFTP").to_string(),
+                };
+                let hover = match &progress {
+                    Some(p) => format!(
+                        "{}\n{}",
+                        crate::ui::sftp_panel::summary_title(p),
+                        crate::ui::sftp_panel::summary_detail(p)
+                    ),
+                    None => format!("{} (⇧⌘F)", t("SFTP Panel")),
+                };
                 if ui
                     .add_enabled(
                         has_tab,
-                        egui::Button::new(RichText::new(t("SFTP"))).selected(sftp_on),
+                        egui::Button::new(RichText::new(label)).selected(sftp_on),
                     )
-                    .on_hover_text(format!("{} (⇧⌘F)", t("SFTP Panel")))
+                    .on_hover_text(hover)
                     .clicked()
                 {
                     self.actions.push(Action::ToggleSftp);
@@ -2288,6 +2324,37 @@ impl PelerApp {
         self.toasts.show(ctx);
     }
 
+    /// SFTP panels that are not on screen still finish their transfers: their events are
+    /// processed here, finished batches are announced, and progress keeps being drawn.
+    fn background_transfers(&mut self, ctx: &egui::Context) {
+        let rt = self.rt.handle().clone();
+        let mut running = false;
+        let several = self.tabs.len() > 1;
+        for (i, tab) in self.tabs.iter_mut().enumerate() {
+            let visible = i == self.active && tab.show_sftp;
+            let Some(panel) = &mut tab.sftp else { continue };
+            if !visible {
+                panel.poll(&rt, ctx);
+            }
+            running |= panel.transfer_summary().is_some_and(|s| s.running());
+            if let Some((text, is_error)) = panel.take_notice() {
+                let text = if several {
+                    format!("{} — {text}", tab.title())
+                } else {
+                    text
+                };
+                if is_error {
+                    self.toasts.error(text);
+                } else {
+                    self.toasts.info(text);
+                }
+            }
+        }
+        if running {
+            ctx.request_repaint_after(Duration::from_millis(250));
+        }
+    }
+
     /// End-of-frame focus bookkeeping.
     fn track_focus(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
         // Leaving a tab: its panes lose focus (a focus-out report for programs that asked).
@@ -2477,6 +2544,7 @@ impl eframe::App for PelerApp {
                 self.central(ui)
             });
 
+        self.background_transfers(&ctx);
         self.prompt_ui(&ctx);
         self.overlays(&ctx);
         self.process_actions(&ctx);
@@ -2486,6 +2554,13 @@ impl eframe::App for PelerApp {
     }
 
     fn on_exit(&mut self) {
+        // Transfers cut off by quitting remove their partial files first (a few seconds at
+        // most), while the connections are still open.
+        let pending: Vec<_> = self.tabs.iter().flat_map(Tab::cancel_transfers).collect();
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while pending.iter().any(|t| !t.is_finished()) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(30));
+        }
         for tab in &self.tabs {
             tab.disconnect();
         }

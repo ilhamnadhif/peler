@@ -982,11 +982,17 @@ pub struct Toasts {
 
 impl Toasts {
     pub fn info(&mut self, msg: impl Into<String>) {
-        self.items.push((msg.into(), false, Instant::now()));
+        let msg = msg.into();
+        #[cfg(debug_assertions)]
+        eprintln!("DEVTEST LOG: toast info: {msg}");
+        self.items.push((msg, false, Instant::now()));
     }
 
     pub fn error(&mut self, msg: impl Into<String>) {
-        self.items.push((msg.into(), true, Instant::now()));
+        let msg = msg.into();
+        #[cfg(debug_assertions)]
+        eprintln!("DEVTEST LOG: toast error: {msg}");
+        self.items.push((msg, true, Instant::now()));
     }
 
     pub fn show(&mut self, ctx: &egui::Context) {

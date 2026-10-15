@@ -19,7 +19,7 @@ use crate::i18n::{t, tf};
 use crate::paths;
 use crate::sftp::entry::{self, FileEntry, SortKey, remote_join, remote_parent};
 use crate::sftp::remote::{self, Sftp};
-use crate::sftp::transfer::{Direction, TransferState, Transfers};
+use crate::sftp::transfer::{Direction, Summary, TransferState, Transfers};
 use crate::ui::file_editor::{EditorOutput, FileEditor};
 use crate::ui::icons::{self, Icon};
 
@@ -152,6 +152,10 @@ pub struct SftpPanel {
     refresh_remote_pending: bool,
     /// A remote text file open in the built-in editor.
     editor: Option<FileEditor>,
+    /// The last transfer batch whose completion was announced.
+    reported_batch: u64,
+    /// A finished batch to announce (text, is an error).
+    notice: Option<(String, bool)>,
 }
 
 /// Something the app should do after the panel was drawn.
@@ -179,6 +183,11 @@ enum SideAction {
         dir: String,
         name: String,
     },
+    /// Choose local files (or folders) to upload into the remote folder.
+    PickUpload {
+        folders: bool,
+    },
+    SelectAll(bool),
     Select(bool, String, bool, bool),
     Sort(bool, SortKey),
     Transfer {
@@ -234,6 +243,8 @@ impl SftpPanel {
             menu_target: None,
             refresh_remote_pending: false,
             editor: None,
+            reported_batch: 0,
+            notice: None,
         };
         panel.local_cd(&local_cwd);
         panel
@@ -516,7 +527,19 @@ impl SftpPanel {
         }
     }
 
-    fn poll(&mut self, rt: &tokio::runtime::Handle, ctx: &egui::Context) {
+    /// Progress of the current transfer batch.
+    pub fn transfer_summary(&self) -> Option<Summary> {
+        self.transfers.summary()
+    }
+
+    /// A finished transfer batch to announce, once.
+    pub fn take_notice(&mut self) -> Option<(String, bool)> {
+        self.notice.take()
+    }
+
+    /// Processes finished operations and listings; also called while the panel is hidden, so
+    /// transfers finishing in the background refresh the lists and are announced.
+    pub fn poll(&mut self, rt: &tokio::runtime::Handle, ctx: &egui::Context) {
         if let Session::Opening(rx) = &mut self.session {
             match rx.try_recv() {
                 Ok(Ok(sftp)) => {
@@ -601,6 +624,13 @@ impl SftpPanel {
             let cwd = self.local.cwd.clone();
             self.local_cd(&cwd);
         }
+        if let Some(s) = self.transfers.summary()
+            && !s.running()
+            && s.batch != self.reported_batch
+        {
+            self.reported_batch = s.batch;
+            self.notice = batch_notice(&s);
+        }
         if self.is_ready()
             && self.dialog.is_none()
             && !self.remote.cwd.is_empty()
@@ -647,10 +677,15 @@ impl SftpPanel {
             Session::Ready(_) => {}
         }
 
+        let running = self.transfers.summary().is_some_and(|s| s.running());
         let transfers_height = if self.transfers.items.is_empty() {
             0.0
         } else {
-            (self.transfers.items.len().min(4) as f32) * 26.0 + 34.0
+            // Header, overall bar while running, and up to three rows (the rest scroll).
+            TRANSFER_HEADER_H
+                + if running { 14.0 } else { 0.0 }
+                + self.transfers.items.len().min(3) as f32 * TRANSFER_ROW_H
+                + 14.0
         };
         let message_height = if self.message.is_some() { 26.0 } else { 0.0 };
         let lists_height =
@@ -664,7 +699,14 @@ impl SftpPanel {
             ui.allocate_ui(egui::vec2(half, lists_height), |ui| {
                 local_actions = self.side_ui(ui, false, input_enabled);
             });
-            ui.separator();
+            // A vertical separator only as tall as the lists: `ui.separator()` would take all
+            // the height left in the panel and push the transfer list out of view.
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(9.0, lists_height), Sense::hover());
+            ui.painter().vline(
+                rect.center().x,
+                rect.y_range(),
+                ui.visuals().widgets.noninteractive.bg_stroke,
+            );
             ui.allocate_ui(egui::vec2(half, lists_height), |ui| {
                 remote_actions = self.side_ui(ui, true, input_enabled);
             });
@@ -729,11 +771,19 @@ impl SftpPanel {
         let mut actions = Vec::new();
         let show_hidden = self.show_hidden;
         let menu_target = self.menu_target.clone().filter(|m| m.remote == is_remote);
+        // Where the footer buttons send the selection.
+        let other_cwd = if is_remote {
+            self.local.cwd.clone()
+        } else {
+            self.remote.cwd.clone()
+        };
+        let remote_ready = self.is_ready() && !self.remote.cwd.is_empty();
         let side = if is_remote {
             &mut self.remote
         } else {
             &mut self.local
         };
+        let mut path_focused = false;
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(if is_remote { t("Remote") } else { t("Local") }).strong());
@@ -777,6 +827,7 @@ impl SftpPanel {
                 if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     actions.push(SideAction::Cd(is_remote, side.path_edit.clone()));
                 }
+                path_focused = edit.has_focus();
             });
             if let Some(err) = &side.error {
                 ui.colored_label(ui.visuals().error_fg_color, err);
@@ -790,283 +841,327 @@ impl SftpPanel {
                 .map(|(i, _)| i)
                 .collect();
             let row_h = 20.0;
-            let (_, dropped) = ui.dnd_drop_zone::<DragFiles, _>(egui::Frame::NONE, |ui| {
-                ui.set_min_size(ui.available_size());
-                let mut sort_clicked = None;
-                // The list always reaches the bottom of the panel, and its columns follow the
-                // panel's width (resized columns would otherwise keep their old widths and leave
-                // a gap, or overflow, after the window or the split changes size).
-                let body_height = (ui.available_height() - row_h - 6.0).max(0.0);
-                let width = ui.available_width();
-                let relayout = (width - side.table_width).abs() > 0.5;
-                side.table_width = width;
-                let mut table = TableBuilder::new(ui)
-                    .id_salt(if is_remote {
-                        "sftp-remote"
-                    } else {
-                        "sftp-local"
-                    })
-                    .striped(true)
-                    // Rows take both clicks and drags: a separate drag-only area on top of a
-                    // row would swallow its clicks.
-                    .sense(Sense::click_and_drag())
-                    .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                    .resizable(true)
-                    .auto_shrink([false, false])
-                    .min_scrolled_height(body_height)
-                    .max_scroll_height(f32::INFINITY)
-                    .column(Column::remainder().at_least(120.0).clip(true))
-                    .column(Column::initial(70.0).at_least(50.0))
-                    .column(Column::initial(118.0).at_least(60.0).clip(true));
-                if is_remote {
-                    table = table.column(Column::initial(80.0).at_least(60.0));
-                }
-                if relayout {
-                    table.reset();
-                }
-                let arrow = |k: SortKey| {
-                    if side.sort == k {
-                        if side.descending { " ▼" } else { " ▲" }
-                    } else {
-                        ""
+            // The list fills the space above the footer (selection and buttons).
+            const FOOTER_H: f32 = 28.0;
+            let list_size = egui::vec2(
+                ui.available_width(),
+                (ui.available_height() - FOOTER_H).max(60.0),
+            );
+            let list = ui.allocate_ui(list_size, |ui| {
+                ui.dnd_drop_zone::<DragFiles, _>(egui::Frame::NONE, |ui| {
+                    ui.set_min_size(ui.available_size());
+                    let mut sort_clicked = None;
+                    // The list always reaches the bottom of the panel, and its columns follow the
+                    // panel's width (resized columns would otherwise keep their old widths and leave
+                    // a gap, or overflow, after the window or the split changes size).
+                    let body_height = (ui.available_height() - row_h - 6.0).max(0.0);
+                    let width = ui.available_width();
+                    let relayout = (width - side.table_width).abs() > 0.5;
+                    side.table_width = width;
+                    let mut table = TableBuilder::new(ui)
+                        .id_salt(if is_remote {
+                            "sftp-remote"
+                        } else {
+                            "sftp-local"
+                        })
+                        .striped(true)
+                        // Rows take both clicks and drags: a separate drag-only area on top of a
+                        // row would swallow its clicks.
+                        .sense(Sense::click_and_drag())
+                        .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
+                        .resizable(true)
+                        .auto_shrink([false, false])
+                        .min_scrolled_height(body_height)
+                        .max_scroll_height(f32::INFINITY)
+                        .column(Column::remainder().at_least(120.0).clip(true))
+                        .column(Column::initial(70.0).at_least(50.0))
+                        .column(Column::initial(118.0).at_least(60.0).clip(true));
+                    if is_remote {
+                        table = table.column(Column::initial(80.0).at_least(60.0));
                     }
-                };
-                let header_button =
-                    |ui: &mut Ui, label: &str, key: SortKey, clicked: &mut Option<SortKey>| {
-                        if ui
-                            .add(egui::Button::new(format!("{label}{}", arrow(key))).frame(false))
-                            .clicked()
-                        {
-                            *clicked = Some(key);
+                    if relayout {
+                        table.reset();
+                    }
+                    let arrow = |k: SortKey| {
+                        if side.sort == k {
+                            if side.descending { " ▼" } else { " ▲" }
+                        } else {
+                            ""
                         }
                     };
-                table
-                    .header(row_h, |mut header| {
-                        header.col(|ui| {
-                            header_button(ui, t("Name"), SortKey::Name, &mut sort_clicked)
-                        });
-                        header.col(|ui| {
-                            header_button(ui, t("Size"), SortKey::Size, &mut sort_clicked)
-                        });
-                        header.col(|ui| {
-                            header_button(ui, t("Modified"), SortKey::Modified, &mut sort_clicked)
-                        });
-                        if is_remote {
+                    let header_button =
+                        |ui: &mut Ui, label: &str, key: SortKey, clicked: &mut Option<SortKey>| {
+                            if ui
+                                .add(
+                                    egui::Button::new(format!("{label}{}", arrow(key)))
+                                        .frame(false),
+                                )
+                                .clicked()
+                            {
+                                *clicked = Some(key);
+                            }
+                        };
+                    table
+                        .header(row_h, |mut header| {
                             header.col(|ui| {
-                                // Same look and baseline as the sortable headers.
-                                ui.add(
-                                    egui::Button::new(t("Permissions"))
-                                        .frame(false)
-                                        .sense(Sense::hover()),
-                                );
+                                header_button(ui, t("Name"), SortKey::Name, &mut sort_clicked)
                             });
-                        }
-                    })
-                    .body(|body| {
-                        body.rows(row_h, visible.len(), |mut row| {
-                            let e = &side.entries[visible[row.index()]];
-                            row.set_selected(side.selected.contains(&e.name));
-                            row.col(|ui| {
-                                let icon = if e.is_dir {
-                                    Icon::Folder
-                                } else if e.is_symlink {
-                                    Icon::Link
-                                } else {
-                                    Icon::File
-                                };
-                                icons::icon_label(ui, icon, &e.name);
+                            header.col(|ui| {
+                                header_button(ui, t("Size"), SortKey::Size, &mut sort_clicked)
                             });
-                            row.col(|ui| {
-                                if !e.is_dir {
-                                    ui.label(entry::human_size(e.size));
-                                }
-                            });
-                            row.col(|ui| {
-                                ui.label(e.modified.map(entry::format_time).unwrap_or_default());
+                            header.col(|ui| {
+                                header_button(
+                                    ui,
+                                    t("Modified"),
+                                    SortKey::Modified,
+                                    &mut sort_clicked,
+                                )
                             });
                             if is_remote {
-                                row.col(|ui| {
-                                    ui.monospace(
-                                        e.mode.map(entry::mode_string).unwrap_or_default(),
+                                header.col(|ui| {
+                                    // Same look and baseline as the sortable headers.
+                                    ui.add(
+                                        egui::Button::new(t("Permissions"))
+                                            .frame(false)
+                                            .sense(Sense::hover()),
                                     );
                                 });
                             }
-                            let resp = row.response();
-                            #[cfg(debug_assertions)]
-                            crate::devtest::record(
-                                format!(
-                                    "{}-row:{}",
-                                    if is_remote { "remote" } else { "local" },
-                                    e.name
-                                ),
-                                resp.rect,
-                            );
-                            // The names a drag or menu acts on: the selection if this row is
-                            // part of it, otherwise just this row.
-                            let names_here = || -> Vec<String> {
-                                if side.selected.contains(&e.name) {
-                                    let mut v: Vec<String> =
-                                        side.selected.iter().cloned().collect();
-                                    v.sort();
-                                    v
-                                } else {
-                                    vec![e.name.clone()]
-                                }
-                            };
-                            if resp.drag_started() {
-                                let names = names_here();
-                                actions.push(SideAction::DragStarted(if names.len() == 1 {
-                                    names[0].clone()
-                                } else {
-                                    tf("{} items", &[&names.len().to_string()])
-                                }));
-                                egui::DragAndDrop::set_payload(
-                                    &resp.ctx,
-                                    DragFiles {
-                                        from_remote: is_remote,
-                                        dir: side.cwd.clone(),
-                                        names,
-                                    },
-                                );
-                            }
-                            if resp.double_clicked() {
-                                // A remote file opens in the editor; folders open, and local
-                                // files upload.
-                                actions.push(if is_remote && !e.is_dir {
-                                    SideAction::Edit {
-                                        dir: side.cwd.clone(),
-                                        name: e.name.clone(),
-                                    }
-                                } else {
-                                    SideAction::Open {
-                                        remote: is_remote,
-                                        dir: side.cwd.clone(),
-                                        entry: e.clone(),
+                        })
+                        .body(|body| {
+                            body.rows(row_h, visible.len(), |mut row| {
+                                let e = &side.entries[visible[row.index()]];
+                                row.set_selected(side.selected.contains(&e.name));
+                                row.col(|ui| {
+                                    let icon = if e.is_dir {
+                                        Icon::Folder
+                                    } else if e.is_symlink {
+                                        Icon::Link
+                                    } else {
+                                        Icon::File
+                                    };
+                                    icons::icon_label(ui, icon, &e.name);
+                                });
+                                row.col(|ui| {
+                                    if !e.is_dir {
+                                        ui.label(entry::human_size(e.size));
                                     }
                                 });
-                            } else if resp.clicked() {
-                                let mods = ui_mods(&resp);
-                                actions.push(SideAction::Select(
-                                    is_remote,
-                                    e.name.clone(),
-                                    mods.0,
-                                    mods.1,
-                                ));
-                            }
-                            if resp.secondary_clicked() {
-                                actions.push(SideAction::MenuOpened(MenuTarget {
-                                    remote: is_remote,
-                                    dir: side.cwd.clone(),
-                                    names: names_here(),
-                                    entry: e.clone(),
-                                }));
-                            }
-                            resp.context_menu(|ui| {
-                                // Act on what was right-clicked, even if the listing changed since.
-                                let target = menu_target.clone().unwrap_or_else(|| MenuTarget {
-                                    remote: is_remote,
-                                    dir: side.cwd.clone(),
-                                    names: names_here(),
-                                    entry: e.clone(),
+                                row.col(|ui| {
+                                    ui.label(
+                                        e.modified.map(entry::format_time).unwrap_or_default(),
+                                    );
                                 });
-                                if is_remote
-                                    && !target.entry.is_dir
-                                    && target.names.len() == 1
-                                    && ui.button(t("Edit")).clicked()
-                                {
-                                    actions.push(SideAction::Edit {
-                                        dir: target.dir.clone(),
-                                        name: target.entry.name.clone(),
-                                    });
-                                    ui.close();
-                                }
-                                let label = if is_remote {
-                                    t("Download")
-                                } else {
-                                    t("Upload")
-                                };
-                                if ui.button(label).clicked() {
-                                    actions.push(SideAction::Transfer {
-                                        from_remote: is_remote,
-                                        dir: target.dir.clone(),
-                                        names: target.names.clone(),
-                                    });
-                                    ui.close();
-                                }
-                                if target.entry.is_dir && ui.button(t("Open")).clicked() {
-                                    actions.push(SideAction::Open {
-                                        remote: is_remote,
-                                        dir: target.dir.clone(),
-                                        entry: target.entry.clone(),
-                                    });
-                                    ui.close();
-                                }
-                                ui.separator();
-                                if ui
-                                    .add_enabled(
-                                        target.names.len() == 1,
-                                        egui::Button::new(t("Rename…")),
-                                    )
-                                    .clicked()
-                                {
-                                    actions.push(SideAction::Rename {
-                                        remote: is_remote,
-                                        dir: target.dir.clone(),
-                                        name: target.entry.name.clone(),
-                                    });
-                                    ui.close();
-                                }
                                 if is_remote {
-                                    let can_chmod =
-                                        target.names.len() == 1 && target.entry.mode.is_some();
-                                    if ui
-                                        .add_enabled(
-                                            can_chmod,
-                                            egui::Button::new(t("Permissions…")),
-                                        )
-                                        .clicked()
+                                    row.col(|ui| {
+                                        ui.monospace(
+                                            e.mode.map(entry::mode_string).unwrap_or_default(),
+                                        );
+                                    });
+                                }
+                                let resp = row.response();
+                                #[cfg(debug_assertions)]
+                                crate::devtest::record(
+                                    format!(
+                                        "{}-row:{}",
+                                        if is_remote { "remote" } else { "local" },
+                                        e.name
+                                    ),
+                                    resp.rect,
+                                );
+                                // The names a drag or menu acts on: the selection if this row is
+                                // part of it, otherwise just this row.
+                                let names_here = || -> Vec<String> {
+                                    if side.selected.contains(&e.name) {
+                                        let mut v: Vec<String> =
+                                            side.selected.iter().cloned().collect();
+                                        v.sort();
+                                        v
+                                    } else {
+                                        vec![e.name.clone()]
+                                    }
+                                };
+                                if resp.drag_started() {
+                                    let names = names_here();
+                                    actions.push(SideAction::DragStarted(if names.len() == 1 {
+                                        names[0].clone()
+                                    } else {
+                                        tf("{} items", &[&names.len().to_string()])
+                                    }));
+                                    egui::DragAndDrop::set_payload(
+                                        &resp.ctx,
+                                        DragFiles {
+                                            from_remote: is_remote,
+                                            dir: side.cwd.clone(),
+                                            names,
+                                        },
+                                    );
+                                }
+                                if resp.double_clicked() {
+                                    // A remote file opens in the editor; folders open, and local
+                                    // files upload.
+                                    actions.push(if is_remote && !e.is_dir {
+                                        SideAction::Edit {
+                                            dir: side.cwd.clone(),
+                                            name: e.name.clone(),
+                                        }
+                                    } else {
+                                        SideAction::Open {
+                                            remote: is_remote,
+                                            dir: side.cwd.clone(),
+                                            entry: e.clone(),
+                                        }
+                                    });
+                                } else if resp.clicked() {
+                                    let mods = ui_mods(&resp);
+                                    actions.push(SideAction::Select(
+                                        is_remote,
+                                        e.name.clone(),
+                                        mods.0,
+                                        mods.1,
+                                    ));
+                                }
+                                if resp.secondary_clicked() {
+                                    actions.push(SideAction::MenuOpened(MenuTarget {
+                                        remote: is_remote,
+                                        dir: side.cwd.clone(),
+                                        names: names_here(),
+                                        entry: e.clone(),
+                                    }));
+                                }
+                                resp.context_menu(|ui| {
+                                    // Act on what was right-clicked, even if the listing changed since.
+                                    let target =
+                                        menu_target.clone().unwrap_or_else(|| MenuTarget {
+                                            remote: is_remote,
+                                            dir: side.cwd.clone(),
+                                            names: names_here(),
+                                            entry: e.clone(),
+                                        });
+                                    if is_remote
+                                        && !target.entry.is_dir
+                                        && target.names.len() == 1
+                                        && ui.button(t("Edit")).clicked()
                                     {
-                                        actions.push(SideAction::Chmod {
-                                            path: remote_join(&target.dir, &target.entry.name),
-                                            mode: target.entry.mode.unwrap_or(0),
+                                        actions.push(SideAction::Edit {
+                                            dir: target.dir.clone(),
+                                            name: target.entry.name.clone(),
                                         });
                                         ui.close();
                                     }
-                                }
-                                if ui.button(t("Delete…")).clicked() {
-                                    actions.push(SideAction::Delete {
-                                        remote: is_remote,
-                                        dir: target.dir.clone(),
-                                        names: target.names.clone(),
-                                    });
-                                    ui.close();
-                                }
-                                ui.separator();
-                                if ui.button(t("Copy Path")).clicked() {
-                                    let p = if is_remote {
-                                        remote_join(&target.dir, &target.entry.name)
+                                    let label = if is_remote {
+                                        t("Download")
                                     } else {
-                                        Path::new(&target.dir)
-                                            .join(&target.entry.name)
-                                            .display()
-                                            .to_string()
+                                        t("Upload")
                                     };
-                                    ui.ctx().copy_text(p);
-                                    ui.close();
-                                }
-                                if !is_remote && ui.button(t("Show in Finder")).clicked() {
-                                    let p = Path::new(&target.dir).join(&target.entry.name);
-                                    let _ =
-                                        std::process::Command::new("open").arg("-R").arg(p).spawn();
-                                    ui.close();
-                                }
+                                    if ui.button(label).clicked() {
+                                        actions.push(SideAction::Transfer {
+                                            from_remote: is_remote,
+                                            dir: target.dir.clone(),
+                                            names: target.names.clone(),
+                                        });
+                                        ui.close();
+                                    }
+                                    if target.entry.is_dir && ui.button(t("Open")).clicked() {
+                                        actions.push(SideAction::Open {
+                                            remote: is_remote,
+                                            dir: target.dir.clone(),
+                                            entry: target.entry.clone(),
+                                        });
+                                        ui.close();
+                                    }
+                                    if ui.button(t("Select All")).clicked() {
+                                        actions.push(SideAction::SelectAll(is_remote));
+                                        ui.close();
+                                    }
+                                    ui.separator();
+                                    if ui
+                                        .add_enabled(
+                                            target.names.len() == 1,
+                                            egui::Button::new(t("Rename…")),
+                                        )
+                                        .clicked()
+                                    {
+                                        actions.push(SideAction::Rename {
+                                            remote: is_remote,
+                                            dir: target.dir.clone(),
+                                            name: target.entry.name.clone(),
+                                        });
+                                        ui.close();
+                                    }
+                                    if is_remote {
+                                        let can_chmod =
+                                            target.names.len() == 1 && target.entry.mode.is_some();
+                                        if ui
+                                            .add_enabled(
+                                                can_chmod,
+                                                egui::Button::new(t("Permissions…")),
+                                            )
+                                            .clicked()
+                                        {
+                                            actions.push(SideAction::Chmod {
+                                                path: remote_join(&target.dir, &target.entry.name),
+                                                mode: target.entry.mode.unwrap_or(0),
+                                            });
+                                            ui.close();
+                                        }
+                                    }
+                                    if ui.button(t("Delete…")).clicked() {
+                                        actions.push(SideAction::Delete {
+                                            remote: is_remote,
+                                            dir: target.dir.clone(),
+                                            names: target.names.clone(),
+                                        });
+                                        ui.close();
+                                    }
+                                    ui.separator();
+                                    if ui.button(t("Copy Path")).clicked() {
+                                        let p = if is_remote {
+                                            remote_join(&target.dir, &target.entry.name)
+                                        } else {
+                                            Path::new(&target.dir)
+                                                .join(&target.entry.name)
+                                                .display()
+                                                .to_string()
+                                        };
+                                        ui.ctx().copy_text(p);
+                                        ui.close();
+                                    }
+                                    if !is_remote && ui.button(t("Show in Finder")).clicked() {
+                                        let p = Path::new(&target.dir).join(&target.entry.name);
+                                        let _ = std::process::Command::new("open")
+                                            .arg("-R")
+                                            .arg(p)
+                                            .spawn();
+                                        ui.close();
+                                    }
+                                });
                             });
                         });
-                    });
-                if let Some(k) = sort_clicked {
-                    actions.push(SideAction::Sort(is_remote, k));
-                }
+                    if let Some(k) = sort_clicked {
+                        actions.push(SideAction::Sort(is_remote, k));
+                    }
+                })
             });
+            let list_hovered = list.response.contains_pointer();
+            let (_, dropped) = list.inner;
+            // ⌘A over the list selects everything shown.
+            if list_hovered
+                && !path_focused
+                && ui.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::A))
+            {
+                actions.push(SideAction::SelectAll(is_remote));
+            }
+            self::footer_ui(
+                ui,
+                side,
+                is_remote,
+                show_hidden,
+                &other_cwd,
+                remote_ready,
+                &mut actions,
+            );
+
             if let Some(drop) = dropped
                 && drop.from_remote != is_remote
             {
@@ -1127,6 +1222,29 @@ impl SftpPanel {
             SideAction::Home(false) => {
                 self.local_cd("~");
                 return Some(PanelOutput::LocalDir(self.local.cwd.clone()));
+            }
+            SideAction::PickUpload { folders } => {
+                let picker = rfd::FileDialog::new()
+                    .set_title(tf("Upload to {}", &[&self.remote.cwd]))
+                    .set_directory(&self.local.cwd);
+                let picked = if folders {
+                    picker.pick_folders()
+                } else {
+                    picker.pick_files()
+                };
+                if let Some(paths) = picked.filter(|p| !p.is_empty()) {
+                    self.upload_paths(rt, ctx, paths);
+                }
+            }
+            SideAction::SelectAll(remote) => {
+                let show_hidden = self.show_hidden;
+                let side = if remote {
+                    &mut self.remote
+                } else {
+                    &mut self.local
+                };
+                side.selected = side.visible(show_hidden).map(|e| e.name.clone()).collect();
+                side.anchor = None;
             }
             SideAction::Edit { dir, name } => match self.sftp() {
                 Some(sftp) => {
@@ -1322,26 +1440,62 @@ impl SftpPanel {
     }
 
     fn transfers_ui(&mut self, ui: &mut Ui) {
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(t("Transfers")).strong());
-            if ui.small_button(t("Clear finished")).clicked() {
-                self.transfers.clear_finished();
+        let summary = self.transfers.summary().filter(Summary::running);
+        ui.horizontal(|ui| match &summary {
+            Some(s) => {
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), Sense::hover());
+                crate::ui::style::progress_ring(
+                    ui.painter(),
+                    rect.center(),
+                    6.0,
+                    s.fraction(),
+                    ui.visuals().dark_mode,
+                );
+                ui.label(RichText::new(summary_title(s)).strong());
+                ui.label(RichText::new(summary_detail(s)).weak());
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button(t("Cancel all")).clicked() {
+                        self.transfers.cancel_all();
+                    }
+                });
+            }
+            None => {
+                ui.label(RichText::new(t("Transfers")).strong());
+                if ui.small_button(t("Clear finished")).clicked() {
+                    self.transfers.clear_finished();
+                }
             }
         });
+        if let Some(s) = &summary {
+            ui.add(
+                egui::ProgressBar::new(s.fraction())
+                    .desired_width(ui.available_width())
+                    .desired_height(8.0)
+                    .fill(crate::ui::style::ACCENT),
+            );
+        }
         egui::ScrollArea::vertical()
             .id_salt("sftp-transfers")
-            .max_height(110.0)
+            .max_height(3.0 * TRANSFER_ROW_H)
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 let mut remove = None;
                 for tr in self.transfers.items.iter().rev() {
                     ui.horizontal(|ui| {
+                        ui.set_height(TRANSFER_ROW_H - ui.spacing().item_spacing.y);
                         ui.label(if tr.direction == Direction::Upload {
                             "⬆"
                         } else {
                             "⬇"
                         });
-                        ui.add_sized([180.0, 18.0], egui::Label::new(&tr.name).truncate());
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(180.0, 18.0),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.set_width(180.0);
+                                ui.add(egui::Label::new(&tr.name).truncate());
+                            },
+                        );
                         let done = tr.done.load(std::sync::atomic::Ordering::Relaxed);
                         let total = tr.total.load(std::sync::atomic::Ordering::Relaxed);
                         let state = tr.state();
@@ -1372,6 +1526,7 @@ impl SftpPanel {
                         }
                         let bar = egui::ProgressBar::new(tr.fraction())
                             .desired_width(220.0)
+                            .desired_height(14.0)
                             .text(match state {
                                 TransferState::Done => t("Done"),
                                 TransferState::Failed(_) => t("Failed"),
@@ -1651,6 +1806,160 @@ impl SftpPanel {
 }
 
 /// (toggle, range) selection modifiers for a click.
+const TRANSFER_HEADER_H: f32 = 26.0;
+const TRANSFER_ROW_H: f32 = 22.0;
+
+/// "Uploading 7 file(s)" (files inside folders count one by one).
+pub fn summary_title(s: &Summary) -> String {
+    let n = s.files_total.to_string();
+    match (s.uploads > 0, s.downloads > 0) {
+        (true, false) => tf("Uploading {} file(s)", &[&n]),
+        (false, true) => tf("Downloading {} file(s)", &[&n]),
+        _ => tf("Transferring {} file(s)", &[&n]),
+    }
+}
+
+/// "3 done · 45% · 1.2 GB / 2.6 GB · 12.3 MB/s · about 20s left"
+pub fn summary_detail(s: &Summary) -> String {
+    let mut text = String::new();
+    if s.files_total > 1 {
+        text.push_str(&tf("{} done", &[&s.files_done.to_string()]));
+        text.push_str(" · ");
+    }
+    text.push_str(&format!(
+        "{}% · {} / {} · {}/s",
+        (s.fraction() * 100.0).floor() as u32,
+        entry::human_size(s.bytes_done),
+        entry::human_size(s.bytes_total),
+        entry::human_size(s.speed as u64)
+    ));
+    if let Some(eta) = s.eta() {
+        let secs = eta.as_secs();
+        let left = if secs >= 3600 {
+            format!("{}h {}m", secs / 3600, secs % 3600 / 60)
+        } else if secs >= 60 {
+            format!("{}m {}s", secs / 60, secs % 60)
+        } else {
+            format!("{}s", secs.max(1))
+        };
+        text.push_str(&format!(" · {}", tf("about {} left", &[&left])));
+    }
+    text
+}
+
+/// What to say when a batch has finished (nothing if it was all cancelled).
+fn batch_notice(s: &Summary) -> Option<(String, bool)> {
+    let files = s.files_done.to_string();
+    let mut text = match (s.uploads > 0, s.downloads > 0) {
+        (true, false) => tf("Uploaded {} file(s).", &[&files]),
+        (false, true) => tf("Downloaded {} file(s).", &[&files]),
+        _ => tf("Transferred {} file(s).", &[&files]),
+    };
+    if s.failed > 0 {
+        text.push(' ');
+        text.push_str(&tf("{} transfer(s) failed.", &[&s.failed.to_string()]));
+        return Some((text, true));
+    }
+    (s.done > 0).then_some((text, false))
+}
+
+/// Under each list: what is selected, and the button that sends it to the other side (plus,
+/// on the remote side, picking files to upload).
+fn footer_ui(
+    ui: &mut Ui,
+    side: &SideState,
+    is_remote: bool,
+    show_hidden: bool,
+    other_cwd: &str,
+    remote_ready: bool,
+    actions: &mut Vec<SideAction>,
+) {
+    let selected: Vec<&FileEntry> = side
+        .entries
+        .iter()
+        .filter(|e| side.selected.contains(&e.name) && (show_hidden || !e.is_hidden()))
+        .collect();
+    let n = selected.len();
+    let mut names: Vec<String> = selected.iter().map(|e| e.name.clone()).collect();
+    names.sort();
+    ui.horizontal(|ui| {
+        ui.set_min_height(24.0);
+        if n == 0 {
+            ui.label(
+                RichText::new(t("⌘-click or ⇧-click to select several"))
+                    .weak()
+                    .small(),
+            );
+        } else {
+            let bytes: u64 = selected.iter().filter(|e| !e.is_dir).map(|e| e.size).sum();
+            let folders = selected.iter().filter(|e| e.is_dir).count();
+            let mut text = tf("{} selected", &[&n.to_string()]);
+            if bytes > 0 {
+                text.push_str(&format!(" · {}", entry::human_size(bytes)));
+            }
+            if folders > 0 {
+                text.push_str(&format!(
+                    " · {}",
+                    tf("{} folder(s)", &[&folders.to_string()])
+                ));
+            }
+            ui.label(RichText::new(text).small());
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let count = if n > 1 {
+                format!(" ({n})")
+            } else {
+                String::new()
+            };
+            if is_remote {
+                ui.menu_button(t("Upload…"), |ui| {
+                    if ui.button(t("Files…")).clicked() {
+                        actions.push(SideAction::PickUpload { folders: false });
+                        ui.close();
+                    }
+                    if ui.button(t("Folders…")).clicked() {
+                        actions.push(SideAction::PickUpload { folders: true });
+                        ui.close();
+                    }
+                })
+                .response
+                .on_hover_text(t("Choose files on this Mac to upload into this folder"));
+                let download = ui
+                    .add_enabled(
+                        n > 0,
+                        egui::Button::new(format!("⬇ {}{count}", t("Download"))),
+                    )
+                    .on_hover_text(tf("Into the local folder {}", &[other_cwd]));
+                #[cfg(debug_assertions)]
+                crate::devtest::record("download-button", download.rect);
+                if download.clicked() {
+                    actions.push(SideAction::Transfer {
+                        from_remote: true,
+                        dir: side.cwd.clone(),
+                        names,
+                    });
+                }
+            } else {
+                let upload = ui
+                    .add_enabled(
+                        n > 0 && remote_ready,
+                        egui::Button::new(format!("⬆ {}{count}", t("Upload"))),
+                    )
+                    .on_hover_text(tf("Into the remote folder {}", &[other_cwd]));
+                #[cfg(debug_assertions)]
+                crate::devtest::record("upload-button", upload.rect);
+                if upload.clicked() {
+                    actions.push(SideAction::Transfer {
+                        from_remote: false,
+                        dir: side.cwd.clone(),
+                        names,
+                    });
+                }
+            }
+        });
+    });
+}
+
 fn ui_mods(resp: &egui::Response) -> (bool, bool) {
     let m = resp.ctx.input(|i| i.modifiers);
     (m.command, m.shift)

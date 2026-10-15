@@ -206,6 +206,13 @@ fn file_operations_and_transfers() {
         .unwrap();
     assert_eq!(wait_transfer(&up, 60), TransferState::Done);
     assert_eq!(up.files_done.load(std::sync::atomic::Ordering::Relaxed), 4);
+    // The folder upload started a new batch on its own: its summary counts the files inside.
+    let summary = transfers.summary().unwrap();
+    assert!(!summary.running());
+    assert_eq!((summary.uploads, summary.done, summary.failed), (1, 1, 0));
+    assert_eq!((summary.files_done, summary.files_total), (4, 4));
+    assert_eq!(summary.bytes_done, summary.bytes_total);
+    assert_eq!(summary.fraction(), 1.0);
     let back2 = local.join("back2");
     std::fs::create_dir(&back2).unwrap();
     let down = transfers
