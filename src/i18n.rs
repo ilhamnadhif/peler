@@ -72,6 +72,17 @@ fn table() -> &'static HashMap<&'static str, &'static str> {
 /// English → Indonesian.
 const ID: &[(&str, &str)] = &[
     ("(copy)", "(salinan)"),
+    // connection errors
+    ("Host not found: {}", "Host tidak ditemukan: {}"),
+    ("Connection refused: nothing is listening on that port.", "Koneksi ditolak: tidak ada layanan di port tersebut."),
+    ("Connection timed out.", "Koneksi melewati batas waktu."),
+    ("Network unreachable: {}", "Jaringan tidak terjangkau: {}"),
+    ("Host key not accepted.", "Host key tidak diterima."),
+    ("The server's host key has changed. Connection refused to protect you.", "Host key server berubah. Koneksi ditolak untuk melindungi Anda."),
+    ("Authentication failed: {}", "Autentikasi gagal: {}"),
+    ("Cancelled.", "Dibatalkan."),
+    ("Private key error: {}", "Kesalahan private key: {}"),
+    ("Disconnected: {}", "Terputus: {}"),
 ];
 
 #[cfg(test)]

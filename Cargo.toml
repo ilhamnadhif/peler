@@ -1,7 +1,9 @@
 [package]
 name = "peler"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
+description = "Lightweight SSH/SFTP client for macOS"
+publish = false
 
 [dependencies]
 alacritty_terminal = "0.26.0"
@@ -25,8 +27,16 @@ uuid = { version = "1.28.0", features = ["v4", "serde", "v5"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
+tiny-skia = "0.12.0"
 
 # Dependencies are built optimized even in dev builds: Argon2, the terminal parser and the
 # renderer are far too slow unoptimized.
 [profile.dev.package."*"]
 opt-level = 2
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+# Keep unwinding: a panic inside one session's task must not take the whole app down.
+panic = "unwind"
