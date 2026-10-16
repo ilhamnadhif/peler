@@ -19,7 +19,7 @@ use crate::i18n::{t, tf};
 use crate::paths;
 use crate::sftp::entry::{self, FileEntry, SortKey, remote_join, remote_parent};
 use crate::sftp::remote::{self, Sftp};
-use crate::sftp::transfer::{Direction, Summary, TransferState, Transfers};
+use crate::sftp::transfer::{Direction, Summary, Transfer, TransferState, Transfers};
 use crate::ui::file_editor::{EditorOutput, FileEditor};
 use crate::ui::icons::{self, Icon};
 
@@ -154,6 +154,10 @@ pub struct SftpPanel {
     editor: Option<FileEditor>,
     /// The last transfer batch whose completion was announced.
     reported_batch: u64,
+    /// Distinguishes this panel's UI state (panel sizes) from other tabs'.
+    uid: u64,
+    /// The transfer list shows only its summary line.
+    transfers_collapsed: bool,
     /// A finished batch to announce (text, is an error).
     notice: Option<(String, bool)>,
 }
@@ -244,6 +248,11 @@ impl SftpPanel {
             refresh_remote_pending: false,
             editor: None,
             reported_batch: 0,
+            uid: {
+                static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            },
+            transfers_collapsed: false,
             notice: None,
         };
         panel.local_cd(&local_cwd);
@@ -677,62 +686,80 @@ impl SftpPanel {
             Session::Ready(_) => {}
         }
 
-        let running = self.transfers.summary().is_some_and(|s| s.running());
-        let transfers_height = if self.transfers.items.is_empty() {
-            0.0
-        } else {
-            // Header, overall bar while running, and up to three rows (the rest scroll).
-            TRANSFER_HEADER_H
-                + if running { 14.0 } else { 0.0 }
-                + self.transfers.items.len().min(3) as f32 * TRANSFER_ROW_H
-                + 14.0
-        };
-        let message_height = if self.message.is_some() { 26.0 } else { 0.0 };
-        let lists_height =
-            (ui.available_height() - transfers_height - message_height - 4.0).max(80.0);
-        let total_width = ui.available_width();
-        let half = ((total_width - 28.0) / 2.0).max(120.0);
+        // Layout: messages and transfers are panels along the bottom (the transfer list can be
+        // resized or collapsed), and the two file lists fill whatever is left. egui sizes the
+        // panels, so nothing is cut off whatever the window or split size.
+        if let Some((msg, is_err)) = self.message.clone() {
+            egui::Panel::bottom(egui::Id::new(("sftp-message", self.uid)))
+                .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(0, 4)))
+                .show_separator_line(false)
+                .show(ui, |ui| {
+                    let color = if is_err {
+                        ui.visuals().error_fg_color
+                    } else {
+                        ui.visuals().text_color()
+                    };
+                    ui.horizontal(|ui| {
+                        ui.add(egui::Label::new(RichText::new(msg).color(color)).truncate());
+                        if ui.small_button("×").clicked() {
+                            self.message = None;
+                        }
+                    });
+                });
+        }
+        if !self.transfers.items.is_empty() {
+            let id = egui::Id::new(("sftp-transfers", self.uid));
+            let frame = egui::Frame::NONE.inner_margin(egui::Margin {
+                left: 0,
+                right: 0,
+                top: 6,
+                bottom: 2,
+            });
+            let max = (ui.available_height() * 0.7).max(TRANSFER_MIN_H);
+            let panel = if self.transfers_collapsed {
+                egui::Panel::bottom(id.with("collapsed"))
+                    .frame(frame)
+                    .resizable(false)
+            } else {
+                egui::Panel::bottom(id)
+                    .frame(frame)
+                    .resizable(true)
+                    .default_size(TRANSFER_DEFAULT_H)
+                    .size_range(TRANSFER_MIN_H..=max)
+            };
+            panel.show(ui, |ui| self.transfers_ui(ui));
+        }
 
         let mut local_actions = Vec::new();
         let mut remote_actions = Vec::new();
-        ui.horizontal_top(|ui| {
-            ui.allocate_ui(egui::vec2(half, lists_height), |ui| {
-                local_actions = self.side_ui(ui, false, input_enabled);
+        egui::CentralPanel::default()
+            .frame(egui::Frame::NONE)
+            .show(ui, |ui| {
+                let lists_height = ui.available_height();
+                let half = ((ui.available_width() - 9.0 - 2.0 * ui.spacing().item_spacing.x) / 2.0)
+                    .max(120.0);
+                ui.horizontal_top(|ui| {
+                    ui.allocate_ui(egui::vec2(half, lists_height), |ui| {
+                        local_actions = self.side_ui(ui, false, input_enabled);
+                    });
+                    // A separator as tall as the lists (`ui.separator()` would take all the
+                    // height left).
+                    let (rect, _) =
+                        ui.allocate_exact_size(egui::vec2(9.0, lists_height), Sense::hover());
+                    ui.painter().vline(
+                        rect.center().x,
+                        rect.y_range(),
+                        ui.visuals().widgets.noninteractive.bg_stroke,
+                    );
+                    ui.allocate_ui(egui::vec2(half, lists_height), |ui| {
+                        remote_actions = self.side_ui(ui, true, input_enabled);
+                    });
+                });
             });
-            // A vertical separator only as tall as the lists: `ui.separator()` would take all
-            // the height left in the panel and push the transfer list out of view.
-            let (rect, _) = ui.allocate_exact_size(egui::vec2(9.0, lists_height), Sense::hover());
-            ui.painter().vline(
-                rect.center().x,
-                rect.y_range(),
-                ui.visuals().widgets.noninteractive.bg_stroke,
-            );
-            ui.allocate_ui(egui::vec2(half, lists_height), |ui| {
-                remote_actions = self.side_ui(ui, true, input_enabled);
-            });
-        });
         for a in local_actions.into_iter().chain(remote_actions) {
             if let Some(out) = self.apply(a, rt, &ctx) {
                 output = out;
             }
-        }
-
-        if let Some((msg, is_err)) = self.message.clone() {
-            let color = if is_err {
-                ui.visuals().error_fg_color
-            } else {
-                ui.visuals().text_color()
-            };
-            ui.horizontal(|ui| {
-                ui.colored_label(color, msg);
-                if ui.small_button("×").clicked() {
-                    self.message = None;
-                }
-            });
-        }
-        if !self.transfers.items.is_empty() {
-            ui.separator();
-            self.transfers_ui(ui);
         }
         self.drag_preview(&ctx);
         self.dialog_ui(&ctx, rt);
@@ -841,11 +868,12 @@ impl SftpPanel {
                 .map(|(i, _)| i)
                 .collect();
             let row_h = 20.0;
-            // The list fills the space above the footer (selection and buttons).
-            const FOOTER_H: f32 = 28.0;
+            // The list fills the space above the footer (selection and buttons): a row of
+            // buttons plus the spacing around it.
+            let footer_h = ui.spacing().interact_size.y + 2.0 * ui.spacing().item_spacing.y + 6.0;
             let list_size = egui::vec2(
                 ui.available_width(),
-                (ui.available_height() - FOOTER_H).max(60.0),
+                (ui.available_height() - footer_h).max(60.0),
             );
             let list = ui.allocate_ui(list_size, |ui| {
                 ui.dnd_drop_zone::<DragFiles, _>(egui::Frame::NONE, |ui| {
@@ -1440,132 +1468,86 @@ impl SftpPanel {
     }
 
     fn transfers_ui(&mut self, ui: &mut Ui) {
-        let summary = self.transfers.summary().filter(Summary::running);
-        ui.horizontal(|ui| match &summary {
-            Some(s) => {
-                let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), Sense::hover());
-                crate::ui::style::progress_ring(
-                    ui.painter(),
-                    rect.center(),
-                    6.0,
-                    s.fraction(),
-                    ui.visuals().dark_mode,
-                );
-                ui.label(RichText::new(summary_title(s)).strong());
-                ui.label(RichText::new(summary_detail(s)).weak());
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.small_button(t("Cancel all")).clicked() {
-                        self.transfers.cancel_all();
-                    }
-                });
+        let summary = self.transfers.summary();
+        let running = summary.as_ref().filter(|s| s.running());
+        ui.horizontal(|ui| {
+            ui.set_height(TRANSFER_HEADER_H - 4.0);
+            let chevron = if self.transfers_collapsed {
+                "▸"
+            } else {
+                "▾"
+            };
+            if ui
+                .add(egui::Button::new(chevron).frame(false))
+                .on_hover_text(if self.transfers_collapsed {
+                    t("Show transfers")
+                } else {
+                    t("Hide transfers")
+                })
+                .clicked()
+            {
+                self.transfers_collapsed = !self.transfers_collapsed;
             }
-            None => {
-                ui.label(RichText::new(t("Transfers")).strong());
-                if ui.small_button(t("Clear finished")).clicked() {
-                    self.transfers.clear_finished();
+            match running {
+                Some(s) => {
+                    let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), Sense::hover());
+                    crate::ui::style::progress_ring(
+                        ui.painter(),
+                        rect.center(),
+                        6.0,
+                        s.fraction(),
+                        ui.visuals().dark_mode,
+                    );
+                    ui.label(RichText::new(summary_title(s)).strong());
+                    ui.add(egui::Label::new(RichText::new(summary_detail(s)).weak()).truncate());
+                }
+                None => {
+                    ui.label(RichText::new(t("Transfers")).strong());
+                    if let Some(s) = &summary {
+                        ui.label(RichText::new(finished_detail(s)).weak());
+                    }
                 }
             }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if running.is_some() {
+                    if ui.button(t("Cancel all")).clicked() {
+                        self.transfers.cancel_all();
+                    }
+                } else if ui
+                    .button(t("Clear"))
+                    .on_hover_text(t("Remove finished transfers from the list"))
+                    .clicked()
+                {
+                    self.transfers.clear_finished();
+                }
+            });
         });
-        if let Some(s) = &summary {
+        if let Some(s) = running {
             ui.add(
                 egui::ProgressBar::new(s.fraction())
                     .desired_width(ui.available_width())
-                    .desired_height(8.0)
+                    .desired_height(5.0)
                     .fill(crate::ui::style::ACCENT),
             );
         }
+        if self.transfers_collapsed {
+            return;
+        }
+        ui.add_space(2.0);
+        let mut remove = None;
         egui::ScrollArea::vertical()
-            .id_salt("sftp-transfers")
-            .max_height(3.0 * TRANSFER_ROW_H)
-            .auto_shrink([false, true])
+            .id_salt(("sftp-transfers-list", self.uid))
+            .auto_shrink([false, false])
             .show(ui, |ui| {
-                let mut remove = None;
-                for tr in self.transfers.items.iter().rev() {
-                    ui.horizontal(|ui| {
-                        ui.set_height(TRANSFER_ROW_H - ui.spacing().item_spacing.y);
-                        ui.label(if tr.direction == Direction::Upload {
-                            "⬆"
-                        } else {
-                            "⬇"
-                        });
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(180.0, 18.0),
-                            egui::Layout::left_to_right(egui::Align::Center),
-                            |ui| {
-                                ui.set_width(180.0);
-                                ui.add(egui::Label::new(&tr.name).truncate());
-                            },
-                        );
-                        let done = tr.done.load(std::sync::atomic::Ordering::Relaxed);
-                        let total = tr.total.load(std::sync::atomic::Ordering::Relaxed);
-                        let state = tr.state();
-                        let skipped = tr.skipped.lock().clone();
-                        let mut text = match &state {
-                            TransferState::Queued => t("Waiting…").to_string(),
-                            TransferState::Running => format!(
-                                "{} / {} · {}/s",
-                                entry::human_size(done),
-                                entry::human_size(total),
-                                entry::human_size(tr.speed() as u64)
-                            ),
-                            TransferState::Done => {
-                                format!(
-                                    "{} · {}/s",
-                                    entry::human_size(total),
-                                    entry::human_size(tr.speed() as u64)
-                                )
-                            }
-                            TransferState::Failed(e) => e.clone(),
-                            TransferState::Cancelled => t("Cancelled").to_string(),
-                        };
-                        if !skipped.is_empty() {
-                            text.push_str(&format!(
-                                " · {}",
-                                tf("{} skipped", &[&skipped.len().to_string()])
-                            ));
-                        }
-                        let bar = egui::ProgressBar::new(tr.fraction())
-                            .desired_width(220.0)
-                            .desired_height(14.0)
-                            .text(match state {
-                                TransferState::Done => t("Done"),
-                                TransferState::Failed(_) => t("Failed"),
-                                TransferState::Cancelled => t("Cancelled"),
-                                _ => "",
-                            });
-                        ui.add(bar);
-                        let color =
-                            if matches!(state, TransferState::Failed(_)) || !skipped.is_empty() {
-                                ui.visuals().warn_fg_color
-                            } else {
-                                ui.visuals().weak_text_color()
-                            };
-                        let label = ui.add(
-                            egui::Label::new(RichText::new(text).color(color).small()).truncate(),
-                        );
-                        if !skipped.is_empty() {
-                            label.on_hover_text(
-                                skipped
-                                    .iter()
-                                    .take(20)
-                                    .cloned()
-                                    .collect::<Vec<_>>()
-                                    .join("\n"),
-                            );
-                        }
-                        if !tr.is_finished() {
-                            if ui.small_button("×").on_hover_text(t("Cancel")).clicked() {
-                                tr.cancel();
-                            }
-                        } else if ui.small_button("×").on_hover_text(t("Remove")).clicked() {
-                            remove = Some(tr.id);
-                        }
-                    });
-                }
-                if let Some(id) = remove {
-                    self.transfers.items.retain(|t| t.id != id);
+                for (i, tr) in self.transfers.items.iter().rev().enumerate() {
+                    if let Some(id) = transfer_row(ui, tr, i % 2 == 1) {
+                        remove = Some(id);
+                    }
                 }
             });
+        if let Some(id) = remove {
+            self.transfers.items.retain(|t| t.id != id);
+        }
     }
 
     fn dialog_ui(&mut self, ctx: &egui::Context, rt: &tokio::runtime::Handle) {
@@ -1806,8 +1788,183 @@ impl SftpPanel {
 }
 
 /// (toggle, range) selection modifiers for a click.
-const TRANSFER_HEADER_H: f32 = 26.0;
-const TRANSFER_ROW_H: f32 = 22.0;
+const TRANSFER_HEADER_H: f32 = 28.0;
+const TRANSFER_ROW_H: f32 = 26.0;
+const TRANSFER_DEFAULT_H: f32 = 150.0;
+const TRANSFER_MIN_H: f32 = 70.0;
+
+/// One transfer: direction, name, status (bar while running), details, and cancel/remove.
+/// Returns the id to remove when its × was clicked after it finished.
+fn transfer_row(ui: &mut Ui, tr: &Transfer, striped: bool) -> Option<u64> {
+    let mut remove = None;
+    let state = tr.state();
+    let done = tr.done.load(std::sync::atomic::Ordering::Relaxed);
+    let total = tr.total.load(std::sync::atomic::Ordering::Relaxed);
+    let skipped = tr.skipped.lock().clone();
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width(), TRANSFER_ROW_H),
+        Sense::hover(),
+    );
+    if striped {
+        ui.painter()
+            .rect_filled(rect, 3.0, ui.visuals().faint_bg_color);
+    }
+    let green = egui::Color32::from_rgb(0x3f, 0xb9, 0x50);
+    let mut row = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect.shrink2(egui::vec2(6.0, 0.0)))
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    let ui = &mut row;
+    let (arrow, arrow_color) = match tr.direction {
+        Direction::Upload => ("⬆", crate::ui::style::ACCENT),
+        Direction::Download => ("⬇", green),
+    };
+    ui.label(RichText::new(arrow).color(arrow_color));
+    // Right part, laid out from the right edge: action, details, status.
+    const STATUS_W: f32 = 150.0;
+    const DETAIL_W: f32 = 190.0;
+    let right_w = 24.0 + DETAIL_W + STATUS_W + 3.0 * ui.spacing().item_spacing.x;
+    let name_w = (ui.available_width() - right_w).max(60.0);
+    let name = ui
+        .allocate_ui_with_layout(
+            egui::vec2(name_w, TRANSFER_ROW_H),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.set_width(name_w);
+                let text = RichText::new(&tr.name);
+                let text = if matches!(state, TransferState::Running) {
+                    text.strong()
+                } else {
+                    text
+                };
+                ui.add(egui::Label::new(text).truncate())
+            },
+        )
+        .inner;
+    let (from, to) = match tr.direction {
+        Direction::Upload => (tr.local.display().to_string(), tr.remote.clone()),
+        Direction::Download => (tr.remote.clone(), tr.local.display().to_string()),
+    };
+    name.on_hover_text(format!("{from}\n→ {to}"));
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        if !tr.is_finished() {
+            if ui
+                .add(egui::Button::new("×").frame(false))
+                .on_hover_text(t("Cancel"))
+                .clicked()
+            {
+                tr.cancel();
+            }
+        } else if ui
+            .add(egui::Button::new("×").frame(false))
+            .on_hover_text(t("Remove"))
+            .clicked()
+        {
+            remove = Some(tr.id);
+        }
+        // Details: sizes and speed.
+        let detail = match &state {
+            TransferState::Queued => String::new(),
+            TransferState::Running => format!(
+                "{} / {} · {}/s",
+                entry::human_size(done),
+                entry::human_size(total),
+                entry::human_size(tr.speed() as u64)
+            ),
+            TransferState::Done => format!(
+                "{} · {}/s",
+                entry::human_size(total),
+                entry::human_size(tr.speed() as u64)
+            ),
+            TransferState::Failed(_) | TransferState::Cancelled => {
+                if total > 0 {
+                    format!("{} / {}", entry::human_size(done), entry::human_size(total))
+                } else {
+                    String::new()
+                }
+            }
+        };
+        ui.allocate_ui_with_layout(
+            egui::vec2(DETAIL_W, TRANSFER_ROW_H),
+            egui::Layout::right_to_left(egui::Align::Center),
+            |ui| {
+                ui.set_width(DETAIL_W);
+                ui.add(egui::Label::new(RichText::new(detail).weak().small()).truncate());
+            },
+        );
+        // Status: a bar while running, a word otherwise.
+        ui.allocate_ui_with_layout(
+            egui::vec2(STATUS_W, TRANSFER_ROW_H),
+            egui::Layout::left_to_right(egui::Align::Center),
+            |ui| {
+                ui.set_width(STATUS_W);
+                match &state {
+                    TransferState::Running => {
+                        ui.add(
+                            egui::ProgressBar::new(tr.fraction())
+                                .desired_width(STATUS_W - 44.0)
+                                .desired_height(6.0)
+                                .fill(crate::ui::style::ACCENT),
+                        );
+                        ui.label(
+                            RichText::new(format!("{}%", (tr.fraction() * 100.0).floor())).small(),
+                        );
+                    }
+                    TransferState::Queued => {
+                        ui.label(RichText::new(t("Waiting…")).weak());
+                    }
+                    TransferState::Done if skipped.is_empty() => {
+                        ui.label(RichText::new(format!("✓ {}", t("Done"))).color(green));
+                    }
+                    TransferState::Done => {
+                        ui.label(
+                            RichText::new(format!(
+                                "⚠ {}",
+                                tf("{} skipped", &[&skipped.len().to_string()])
+                            ))
+                            .color(ui.visuals().warn_fg_color),
+                        )
+                        .on_hover_text(
+                            skipped
+                                .iter()
+                                .take(20)
+                                .cloned()
+                                .collect::<Vec<_>>()
+                                .join("\n"),
+                        );
+                    }
+                    TransferState::Failed(e) => {
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(format!("✕ {}", t("Failed")))
+                                    .color(ui.visuals().error_fg_color),
+                            )
+                            .truncate(),
+                        )
+                        .on_hover_text(e.as_str());
+                    }
+                    TransferState::Cancelled => {
+                        ui.label(RichText::new(t("Cancelled")).weak());
+                    }
+                }
+            },
+        );
+    });
+    remove
+}
+
+/// "4 done · 1 failed" for a finished batch.
+fn finished_detail(s: &Summary) -> String {
+    let mut parts = vec![tf("{} done", &[&s.done.to_string()])];
+    if s.failed > 0 {
+        parts.push(tf("{} failed", &[&s.failed.to_string()]));
+    }
+    if s.cancelled > 0 {
+        parts.push(tf("{} cancelled", &[&s.cancelled.to_string()]));
+    }
+    parts.join(" · ")
+}
 
 /// "Uploading 7 file(s)" (files inside folders count one by one).
 pub fn summary_title(s: &Summary) -> String {

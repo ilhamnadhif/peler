@@ -785,6 +785,15 @@ const ID: &[(&str, &str)] = &[
         "⌘-click or ⇧-click to select several",
         "⌘-klik atau ⇧-klik untuk memilih beberapa",
     ),
+    ("Clear", "Bersihkan"),
+    ("Hide transfers", "Sembunyikan transfer"),
+    (
+        "Remove finished transfers from the list",
+        "Hapus transfer yang sudah selesai dari daftar",
+    ),
+    ("Show transfers", "Tampilkan transfer"),
+    ("{} cancelled", "{} dibatalkan"),
+    ("{} failed", "{} gagal"),
 ];
 
 #[cfg(test)]
