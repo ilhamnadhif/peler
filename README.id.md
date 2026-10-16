@@ -48,11 +48,16 @@ Unduh salah satu file ini dari [rilis terbaru](https://github.com/ilhamnadhif/pe
 - **`Peler-<versi>.pkg`**: installer macOS biasa yang memasang Peler ke `/Applications`.
 - **`Peler-<versi>.dmg`**: buka, lalu seret **Peler** ke **Applications**.
 
-> **Pembukaan pertama.** Build rilis belum ditandatangani dengan Apple Developer ID, jadi Gatekeeper
-> memblokir file yang diunduh lewat browser. Klik kanan file `.pkg` (atau `Peler.app`) → **Open** →
-> **Open**, sekali saja. Atau hapus tanda karantina:
-> `xattr -dr com.apple.quarantine /Applications/Peler.app`.
-> Installer satu baris tidak butuh langkah ini.
+> **Muncul “Peler” Not Opened / “Apple could not verify…”?** Build rilis belum dinotarisasi
+> Apple, jadi macOS memblokir app dan installer yang diunduh lewat browser. Sejak macOS 15, cara
+> lama klik kanan → Open sudah tidak bisa. Pilih salah satu cara berikut:
+>
+> - **Pakai installer satu baris** di atas. File yang diunduh lewat `curl` tidak diblokir.
+> - **Izinkan sekali lewat Settings**: klik **Done** di peringatannya, buka **System Settings →
+>   Privacy & Security**, gulir ke bagian **Security**, lalu klik **Open Anyway** di samping
+>   “Peler was blocked…”. Konfirmasi dengan password, lalu buka Peler (atau file `.pkg`) lagi.
+> - **Atau lewat Terminal**, setelah app diseret ke Applications:
+>   `xattr -dr com.apple.quarantine /Applications/Peler.app`
 
 ### Homebrew
 
@@ -61,6 +66,7 @@ Setiap rilis menyertakan file cask `peler.rb`:
 ```sh
 curl -fsSLO https://github.com/ilhamnadhif/peler/releases/latest/download/peler.rb
 brew install --cask ./peler.rb
+xattr -dr com.apple.quarantine /Applications/Peler.app   # selama rilis belum dinotarisasi
 ```
 
 ### Update otomatis
@@ -335,7 +341,8 @@ Dibangun dengan [egui](https://github.com/emilk/egui) (wgpu/Metal),
 
 ## Keterbatasan yang diketahui
 
-- Build rilis belum ditandatangani dengan Apple Developer ID. Lihat *Pembukaan pertama* di atas.
+- Build rilis belum ditandatangani dan dinotarisasi dengan Apple Developer ID, jadi macOS memberi
+  peringatan bila diunduh lewat browser; lihat catatan di bagian *Instalasi*.
 - Belum tercakup tes otomatis, jadi sebaiknya dicek manual: komposisi IME, mengurutkan koneksi
   dengan drag and drop, dan file yang di-drop dari Finder.
 - File yang di-drop dari Finder diunggah ke folder remote yang sedang terbuka; macOS tidak memberi

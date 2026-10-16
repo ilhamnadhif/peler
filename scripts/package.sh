@@ -91,6 +91,26 @@ echo "==> Creating DMG"
 STAGE="$(mktemp -d)"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
+if [ -z "${PELER_NOTARY_PROFILE:-}" ]; then
+    # Not notarized: say how to get past Gatekeeper, right next to the app.
+    cat > "$STAGE/If Peler does not open.txt" <<'HELP'
+macOS says "Peler" Not Opened / "Apple could not verify Peler is free of malware"?
+
+This build of Peler is not notarized by Apple yet, so macOS blocks it the first time.
+To open it:
+
+1. Drag Peler onto Applications (in this window).
+2. Open Peler. When the warning appears, click "Done".
+3. Open System Settings > Privacy & Security, scroll down to "Security",
+   and click "Open Anyway" next to "Peler was blocked...". Enter your password.
+4. Open Peler again and click "Open Anyway".
+
+Or, in Terminal:   xattr -dr com.apple.quarantine /Applications/Peler.app
+
+Easiest of all, install from Terminal instead (nothing is blocked):
+   curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/peler/master/scripts/install.sh | bash
+HELP
+fi
 hdiutil create -quiet -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 rm -rf "$STAGE"
 if [ -n "${PELER_SIGN_IDENTITY:-}" ]; then

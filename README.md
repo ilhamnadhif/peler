@@ -48,11 +48,16 @@ Download one of these from the [latest release](https://github.com/ilhamnadhif/p
 - **`Peler-<version>.pkg`**: a regular macOS installer that puts Peler in `/Applications`.
 - **`Peler-<version>.dmg`**: open it and drag **Peler** onto **Applications**.
 
-> **First launch.** Release builds are not yet signed with an Apple Developer ID, so Gatekeeper
-> blocks files downloaded with a browser. Right-click the `.pkg` (or `Peler.app`) → **Open** →
-> **Open** once. Or clear the quarantine flag:
-> `xattr -dr com.apple.quarantine /Applications/Peler.app`.
-> The one-line installer avoids this step.
+> **“Peler” Not Opened / “Apple could not verify…”?** Release builds are not notarized by Apple
+> yet, so macOS blocks apps and installers downloaded with a browser. Since macOS 15, the old
+> right-click → Open trick no longer works. Do one of these:
+>
+> - **Use the one-line installer** above. Nothing downloaded with `curl` is blocked.
+> - **Allow it once in Settings**: click **Done** in the warning, open **System Settings → Privacy &
+>   Security**, scroll down to **Security**, and click **Open Anyway** next to “Peler was blocked…”.
+>   Confirm with your password, then open Peler (or the `.pkg`) again.
+> - **Or in Terminal**, after dragging the app to Applications:
+>   `xattr -dr com.apple.quarantine /Applications/Peler.app`
 
 ### Homebrew
 
@@ -61,6 +66,7 @@ Each release includes a cask file, `peler.rb`:
 ```sh
 curl -fsSLO https://github.com/ilhamnadhif/peler/releases/latest/download/peler.rb
 brew install --cask ./peler.rb
+xattr -dr com.apple.quarantine /Applications/Peler.app   # until releases are notarized
 ```
 
 ### Automatic updates
@@ -333,7 +339,8 @@ Built with [egui](https://github.com/emilk/egui) (wgpu/Metal),
 
 ## Known limitations
 
-- Release builds are not signed with an Apple Developer ID yet. See *First launch* above.
+- Release builds are not signed and notarized with an Apple Developer ID yet, so macOS warns when
+  they are downloaded with a browser; see the note under *Install*.
 - Not covered by the automated tests, so worth a manual check: IME composition, reordering connections
   by drag and drop, and files dropped from Finder.
 - Files dropped from Finder upload to the remote folder that is open; macOS does not report where
