@@ -356,6 +356,7 @@ impl PelerApp {
                     "shortcuts" => Some(Action::Shortcuts),
                     "next-tab" => Some(Action::NextTab),
                     "reconnect" => Some(Action::Reconnect),
+                    "check-updates" => Some(Action::CheckForUpdates),
                     "bigger" => Some(Action::FontBigger),
                     "sidebar" => Some(Action::ToggleSidebar),
                     "close" => Some(Action::CloseTabOrPane),
@@ -917,7 +918,7 @@ impl PelerApp {
                         } else if self.editor.is_some() {
                             self.editor = None;
                         } else if self.updater.dialog_open {
-                            self.updater.dialog_open = false;
+                            self.updater.close_dialog();
                         } else if let Some(tab) = self.tabs.get_mut(self.active) {
                             if let Some(panel) = tab.sftp.as_mut().filter(|p| p.dialog_open()) {
                                 panel.close_dialog();
