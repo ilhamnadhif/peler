@@ -193,13 +193,19 @@ cask "peler" do
 end
 CASK
 
-# Forget the build if anything registered it, so "Peler" keeps meaning the installed app.
-"$LSREGISTER" -u "$APP" 2>/dev/null || true
+APP_SIZE="$(du -sh "$APP" | awk '{print $1}')"
+ARCHS_BUILT="$(lipo -archs "$APP/Contents/MacOS/$BIN_NAME")"
+# The app is in the installers now. macOS registers any app it comes across (even here, after
+# a while), and would then open this build instead of the installed Peler, so it goes. Set
+# PELER_KEEP_APP=1 to keep it for testing.
+if [ -z "${PELER_KEEP_APP:-}" ]; then
+    "$LSREGISTER" -u "$APP" 2>/dev/null || true
+    rm -rf "$(dirname "$APP")"
+fi
 
 echo
-echo "App:      $APP ($(du -sh "$APP" | awk '{print $1}'))"
+echo "App:      $APP_SIZE, $ARCHS_BUILT$([ -n "${PELER_KEEP_APP:-}" ] && echo " ($APP)")"
 echo "DMG:      $DMG ($(du -h "$DMG" | awk '{print $1}'))"
 echo "PKG:      $PKG ($(du -h "$PKG" | awk '{print $1}'))"
 echo "ZIP:      $ZIP ($(du -h "$ZIP" | awk '{print $1}'))"
 echo "Cask:     $DIST/homebrew/peler.rb"
-echo "Binary:   $(lipo -archs "$APP/Contents/MacOS/$BIN_NAME")"
