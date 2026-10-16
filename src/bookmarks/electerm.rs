@@ -349,7 +349,7 @@ pub fn read(value: &Value) -> Result<Incoming> {
         skipped_types.sort();
         skipped_types.dedup();
         warnings.push(tf(
-            "Skipped bookmarks that are not SSH connections: {}.",
+            "Skipped entries that are not SSH connections: {}.",
             &[&skipped_types.join(", ")],
         ));
     }
@@ -367,7 +367,7 @@ pub fn read(value: &Value) -> Result<Incoming> {
         );
     }
     if bookmarks.is_empty() {
-        bail!("{}", t("The Electerm file contains no SSH bookmarks."));
+        bail!("{}", t("The Electerm file contains no SSH connections."));
     }
 
     Ok(Incoming {

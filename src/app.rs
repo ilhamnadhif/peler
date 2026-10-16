@@ -109,6 +109,7 @@ pub struct PelerApp {
     title: String,
     first_frame: bool,
     startup: Vec<String>,
+    updater: crate::ui::update_ui::Updater,
     /// The tab that was active last frame (to notice tab switches).
     last_active_tab: Option<u64>,
     modal_was_open: bool,
@@ -203,7 +204,7 @@ impl PelerApp {
                 // Keep the unreadable file instead of overwriting it with an empty store.
                 match backup_corrupt(&paths::bookmarks_file()) {
                     Some(backup) => toasts.error(tf(
-                        "Could not read the bookmarks file ({}). It was kept as {}.",
+                        "Could not read the connections file ({}). It was kept as {}.",
                         &[&format!("{e:#}"), &backup.display().to_string()],
                     )),
                     None => {
@@ -258,6 +259,7 @@ impl PelerApp {
             first_frame: true,
             startup: targets,
             instance_rx: listener.map(|l| crate::instance::serve(l, ctx.clone())),
+            updater: Default::default(),
             last_active_tab: None,
             modal_was_open: false,
             option_as_alt: None,
@@ -510,7 +512,7 @@ impl PelerApp {
                 Some(b) => self.open_tab(ctx, b),
                 None => self
                     .toasts
-                    .error(tf("Unknown bookmark or address: {}", &[&target])),
+                    .error(tf("Unknown connection or address: {}", &[&target])),
             }
         }
     }
@@ -535,7 +537,7 @@ impl PelerApp {
     fn save_store(&mut self) {
         if !self.store_writable {
             self.toasts.error(t(
-                "Bookmark changes are not saved: the bookmarks file could not be read safely.",
+                "Connection changes are not saved: the connections file could not be read safely.",
             ));
             return;
         }
@@ -573,6 +575,7 @@ impl PelerApp {
         self.editor.is_some()
             || self.palette.is_some()
             || self.dialog.is_some()
+            || self.updater.dialog_open
             || self.tabs.get(self.active).is_some_and(|t| {
                 t.sftp.as_ref().is_some_and(SftpPanel::dialog_open)
                     || t.conn.shared.lock().prompt.is_some()
@@ -942,7 +945,7 @@ impl PelerApp {
             Action::DeleteBookmark(id) => {
                 if let Some(b) = self.store.bookmark(id) {
                     self.dialog = Some(dialogs::confirm(
-                        t("Delete bookmark?"),
+                        t("Delete connection?"),
                         tf(
                             "\"{}\" and its saved password will be removed.",
                             &[&b.display_name()],
@@ -982,7 +985,7 @@ impl PelerApp {
                     self.dialog = Some(dialogs::confirm(
                         t("Delete group?"),
                         tf(
-                            "The group \"{}\" will be removed. Its bookmarks and sub-groups move up one level.",
+                            "The group \"{}\" will be removed. Its connections and sub-groups move up one level.",
                             &[&g.name],
                         ),
                         t("Delete"),
@@ -1154,8 +1157,8 @@ impl PelerApp {
             }
             Action::Import => {
                 if let Some(path) = rfd::FileDialog::new()
-                    .set_title(t("Import Bookmarks"))
-                    .add_filter(t("Bookmark exports"), &["json"])
+                    .set_title(t("Import Connections"))
+                    .add_filter(t("Connection exports"), &["json"])
                     .add_filter(t("All files"), &["*"])
                     .pick_file()
                 {
@@ -1180,13 +1183,15 @@ impl PelerApp {
             }
             Action::Export(scope) => {
                 if self.store.bookmarks.is_empty() {
-                    self.toasts.info(t("There are no bookmarks to export yet."));
+                    self.toasts
+                        .info(t("There are no connections to export yet."));
                 } else {
                     self.dialog = Some(Dialog::Export(ExportDialog::new(scope)));
                 }
             }
             Action::Settings => self.dialog = Some(Dialog::Settings(SettingsDialog::default())),
             Action::About => {}
+            Action::CheckForUpdates => self.updater.check_now(ctx),
             Action::Shortcuts => self.dialog = Some(Dialog::Shortcuts),
             Action::Quit => {
                 if let Some(message) = self.quit_warning() {
@@ -1209,7 +1214,7 @@ impl PelerApp {
         match std::fs::metadata(&path) {
             Ok(m) if !m.is_file() || m.len() > transfer::MAX_IMPORT_BYTES => {
                 self.toasts.error(tf(
-                    "The file is too large to be a bookmark export (more than {} MB).",
+                    "The file is too large to be a connection export (more than {} MB).",
                     &[&(transfer::MAX_IMPORT_BYTES / 1024 / 1024).to_string()],
                 ));
                 return;
@@ -1238,11 +1243,11 @@ impl PelerApp {
 
     fn do_export(&mut self, scope: ExportScope, passphrase: Option<String>) {
         let default_name = format!(
-            "peler-bookmarks-{}.json",
+            "peler-connections-{}.json",
             chrono::Local::now().format("%Y-%m-%d")
         );
         let Some(path) = rfd::FileDialog::new()
-            .set_title(t("Export Bookmarks"))
+            .set_title(t("Export Connections"))
             .set_file_name(default_name)
             .add_filter("JSON", &["json"])
             .save_file()
@@ -1481,7 +1486,7 @@ impl PelerApp {
                                     self.actions.push(Action::Reconnect);
                                     ui.close();
                                 }
-                                if ui.button(t("Edit Bookmark…")).clicked() {
+                                if ui.button(t("Edit Connection…")).clicked() {
                                     self.actions
                                         .push(Action::EditBookmark(self.tabs[i].bookmark.id));
                                     ui.close();
@@ -1546,6 +1551,7 @@ impl PelerApp {
                     self.actions.push(Action::ToggleSftp);
                 }
                 self.theme_button(ui);
+                self.updater.toolbar_button(ui);
                 ui.add_enabled_ui(has_tab, |ui| {
                     ui.menu_button("⚡", |ui| {
                         if self.settings.quick_commands.is_empty() {
@@ -1645,7 +1651,7 @@ impl PelerApp {
             if ui
                 .add(
                     egui::Button::new(
-                        RichText::new(format!("{}   ⌘K", t("Search bookmarks and connect")))
+                        RichText::new(format!("{}   ⌘K", t("Search connections and connect")))
                             .size(15.0),
                     )
                     .min_size(vec2(320.0, 34.0)),
@@ -1657,7 +1663,7 @@ impl PelerApp {
             ui.add_space(6.0);
             if ui
                 .add(
-                    egui::Button::new(format!("{}   ⌘N", t("New Bookmark…")))
+                    egui::Button::new(format!("{}   ⌘N", t("New Connection…")))
                         .min_size(vec2(320.0, 30.0)),
                 )
                 .clicked()
@@ -1670,7 +1676,7 @@ impl PelerApp {
                 ui.add_space((ui.available_width() - w) / 2.0);
                 if ui
                     .add(
-                        egui::Button::new(t("Import Bookmarks…"))
+                        egui::Button::new(t("Import Connections…"))
                             .min_size(vec2(w / 2.0 - 4.0, 28.0)),
                     )
                     .clicked()
@@ -1690,7 +1696,7 @@ impl PelerApp {
             ui.add_space(14.0);
             ui.label(
                 RichText::new(t(
-                    "Tip: double-click a bookmark, or select it in the search and press Enter.",
+                    "Tip: double-click a connection, or select it in the search and press Enter.",
                 ))
                 .weak()
                 .small(),
@@ -1760,7 +1766,7 @@ impl PelerApp {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.button(t("Edit Bookmark…")).clicked() {
+                                    if ui.button(t("Edit Connection…")).clicked() {
                                         self.actions.push(Action::EditBookmark(tab.bookmark.id));
                                     }
                                     if ui
@@ -2294,6 +2300,7 @@ impl PelerApp {
                                 self.reconnect_tab(ctx, i);
                             }
                         }
+                        ConfirmAction::RestartForUpdate => self.install_update(ctx),
                         ConfirmAction::Quit => {
                             self.allow_close = true;
                             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -2322,6 +2329,19 @@ impl PelerApp {
             }
         }
         self.toasts.show(ctx);
+    }
+
+    /// Starts the update installer and quits; the new version opens by itself.
+    fn install_update(&mut self, ctx: &egui::Context) {
+        match self.updater.launch_installer() {
+            Ok(()) => {
+                self.allow_close = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            Err(e) => self
+                .toasts
+                .error(tf("The update could not be installed: {}", &[&e])),
+        }
     }
 
     /// SFTP panels that are not on screen still finish their transfers: their events are
@@ -2545,8 +2565,26 @@ impl eframe::App for PelerApp {
             });
 
         self.background_transfers(&ctx);
+        if let Some(text) = self.updater.tick(&ctx, &mut self.settings) {
+            self.toasts.info(text);
+        }
         self.prompt_ui(&ctx);
         self.overlays(&ctx);
+        if let crate::ui::update_ui::UpdateEvent::Restart =
+            self.updater.show_dialog(&ctx, &mut self.settings)
+        {
+            match self.quit_warning() {
+                Some(message) => {
+                    self.dialog = Some(dialogs::confirm(
+                        t("Restart to update?"),
+                        message,
+                        t("Restart"),
+                        ConfirmAction::RestartForUpdate,
+                    ))
+                }
+                None => self.install_update(&ctx),
+            }
+        }
         self.process_actions(&ctx);
         self.track_focus(&ctx, frame);
         self.remember_window(&ctx, frame);

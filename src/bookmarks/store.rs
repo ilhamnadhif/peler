@@ -31,7 +31,7 @@ pub struct NewerSchema(pub u32);
 impl std::fmt::Display for NewerSchema {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&crate::i18n::tf(
-            "The bookmarks were saved by a newer version of Peler (schema {}). Please update the app; until then bookmark changes are not saved.",
+            "The connections were saved by a newer version of Peler (schema {}). Please update the app; until then changes to connections are not saved.",
             &[&self.0.to_string()],
         ))
     }
@@ -340,8 +340,12 @@ mod tests {
             r#"{"schema_version": 99, "groups": [], "bookmarks": []}"#,
         )
         .unwrap();
-        let err = BookmarkStore::load(&path).unwrap_err().to_string();
-        assert!(err.contains("newer"), "{err}");
+        // Checked by type: the message is translated (and another test may switch language).
+        let err = BookmarkStore::load(&path).unwrap_err();
+        assert!(
+            matches!(err.downcast_ref::<NewerSchema>(), Some(NewerSchema(99))),
+            "{err}"
+        );
     }
 
     #[test]

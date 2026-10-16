@@ -8,11 +8,11 @@ dalam ±0,1 detik, CPU 0% saat diam, dan memakai sekitar 70 MB memori dengan sat
 
 [English](README.md)
 
-![Peler: bookmark, tab, dan split pane dalam satu koneksi SSH](docs/screenshots/terminal.png)
+![Peler: koneksi tersimpan, tab, dan split pane dalam satu koneksi SSH](docs/screenshots/terminal.png)
 
 ## Sorotan
 
-- **Bookmark** dalam grup bertingkat, dengan drag and drop, pencarian fuzzy, dan quick connect `⌘K`.
+- **Koneksi tersimpan** dalam grup bertingkat, dengan drag and drop, pencarian fuzzy, dan quick connect `⌘K`.
   Password dan passphrase disimpan di **macOS Keychain**, tidak pernah di file.
 - **Terminal sungguhan** (alacritty_terminal): warna 24-bit, mouse untuk vim/htop/tmux, IME, CJK,
   dan garis kotak yang digambar presisi.
@@ -24,6 +24,7 @@ dalam ±0,1 detik, CPU 0% saat diam, dan memakai sekitar 70 MB memori dengan sat
   terenkripsi bila diinginkan.
 - **Hati-hati dengan server Anda**: pemeriksaan host key yang ketat (`known_hosts` ter-hash,
   `@revoked`), penyimpanan yang aman, dan transfer yang tidak pernah meninggalkan file setengah jadi.
+- **Update otomatis** dari rilis GitHub, dipasang dengan satu klik.
 - Antarmuka bahasa Inggris dan Indonesia, tema terang dan gelap, tanpa telemetri.
 
 ## Instalasi
@@ -62,18 +63,34 @@ curl -fsSLO https://github.com/ilhamnadhif/peler/releases/latest/download/peler.
 brew install --cask ./peler.rb
 ```
 
+### Update otomatis
+
+Peler memeriksa rilis baru di GitHub saat dibuka dan sekali sehari. Kalau ada versi baru, tombol
+**Update** muncul di toolbar. **Install and Restart** lalu:
+
+1. mengunduh versi baru dan memverifikasinya (ukuran, SHA-256 yang dipublikasikan GitHub, bundle
+   id, versi, dan tanda tangan kode);
+2. menutup Peler, mengganti aplikasinya, dan membuka versi baru.
+
+Kalau Peler dipasang lewat `.pkg` (aplikasinya milik root), macOS meminta password administrator.
+Anda juga bisa memakai **Peler → Check for Updates…**, melewati satu versi, atau mematikan
+pengecekan otomatis di **Settings → General**. Pengecekan update adalah satu-satunya koneksi yang
+dibuat Peler selain ke server Anda sendiri.
+
+Versi 1.0.0 belum punya updater; versi berikutnya perlu dipasang manual sekali.
+
 ### Uninstall
 
 ```sh
 rm -rf /Applications/Peler.app
-rm -rf ~/Library/Application\ Support/peler      # bookmark, pengaturan, known hosts
+rm -rf ~/Library/Application\ Support/peler      # koneksi, pengaturan, known hosts
 ```
 
 Password yang tersimpan adalah item Keychain dengan service `peler`; hapus lewat Keychain Access.
 
 ## Fitur
 
-### Bookmark
+### Koneksi
 
 - Isian: nama, host, port, user, autentikasi password atau private key (file key, atau key yang
   disimpan di Keychain), grup, tag, catatan, folder awal remote dan lokal, startup command, dan
@@ -81,7 +98,7 @@ Password yang tersimpan adalah item Keychain dengan service `peler`; hapus lewat
 - Grup bertingkat; drag and drop untuk mengurutkan atau memindah grup.
 - Pencarian fuzzy pada nama, host, user, tag, dan grup. Tekan Enter untuk konek.
 - `⌘K` membuka palet perintah. Mengetik `user@host:port` di sana (IPv6 sebagai `[::1]:22`) langsung
-  konek tanpa bookmark.
+  konek tanpa menyimpan koneksi.
 - Buka dari Terminal: `open -a Peler --args web-01` atau `--args deploy@10.0.0.5:2222`. Peler hanya
   berjalan satu instance: menjalankannya lagi membuka tab di jendela yang sudah terbuka.
 
@@ -140,16 +157,16 @@ Klik dua kali file remote (atau klik kanan → **Edit**) untuk mengeditnya langs
 
 ### Import dan export
 
-- **Export** semua bookmark, satu grup, atau pilihan tertentu ke JSON berversi (`schema_version`,
+- **Export** semua koneksi, satu grup, atau pilihan tertentu ke JSON berversi (`schema_version`,
   `exported_at`, `groups`, `bookmarks`).
 - Kredensial **tidak** diekspor kecuali diminta. Jika diminta, kredensial dienkripsi dengan
   passphrase (Argon2id 64 MiB + XChaCha20-Poly1305) dan terikat ke host, port, dan user-nya. Kalau
-  ada yang mengubah daftar bookmark di file agar menunjuk ke server lain, kredensial itu tidak ikut
+  ada yang mengubah daftar koneksi di file agar menunjuk ke server lain, kredensial itu tidak ikut
   di-import.
 - **Import** menampilkan pratinjau apa yang akan ditambah, diperbarui, atau dilewati. Setiap konflik
   bisa dilewati, ditimpa, atau disimpan keduanya. Import file yang sama dua kali tidak mengubah apa
   pun. Startup command dari file hanya ikut bila Anda mencentangnya.
-- File export **Electerm** (bookmark dengan grup bertingkat, password, dan key yang ditempel) dan
+- File export **Electerm** (koneksi dengan grup bertingkat, password, dan key yang ditempel) dan
   **`~/.ssh/config`** (`Host`, `HostName`, `Port`, `User`, `IdentityFile`, `Host *`, negasi,
   `Include`).
 
@@ -157,8 +174,8 @@ Klik dua kali file remote (atau klik kanan → **Edit**) untuk mengeditnya langs
 
 | Aksi | Pintasan |
 | --- | --- |
-| Quick connect / cari bookmark | `⌘K` |
-| Bookmark baru | `⌘N` |
+| Quick connect / cari koneksi | `⌘K` |
+| Koneksi baru | `⌘N` |
 | Tab baru (server yang sama) | `⌘T` |
 | Tutup pane / tab | `⌘W` |
 | Pindah tab | `⌘1`–`⌘9`, `⇧⌘[` / `⇧⌘]` |
@@ -170,7 +187,7 @@ Klik dua kali file remote (atau klik kanan → **Edit**) untuk mengeditnya langs
 | Ukuran teks | `⌘=` / `⌘-` / `⌘0` |
 | Hapus scrollback | `⌥⌘K` |
 | Gulir riwayat | `⇧PageUp` / `⇧PageDown` / `⇧Home` / `⇧End` |
-| Export bookmark | `⇧⌘E` |
+| Export koneksi | `⇧⌘E` |
 | Pengaturan | `⌘,` |
 | Simpan (editor file remote) | `⌘S` |
 
@@ -195,7 +212,7 @@ sering membuka banyak tab yang ramai.
 
 | Apa | Lokasi |
 | --- | --- |
-| Bookmark | `~/Library/Application Support/peler/bookmarks.json` (mode 0600) |
+| Koneksi | `~/Library/Application Support/peler/bookmarks.json` (mode 0600) |
 | Pengaturan (termasuk ukuran dan posisi jendela) | `~/Library/Application Support/peler/settings.json` |
 | Host key tepercaya | `~/Library/Application Support/peler/known_hosts` |
 | Password, passphrase, key hasil import | macOS Keychain, service `peler` |
@@ -209,11 +226,11 @@ sering membuka banyak tab yang ramai.
   - Key yang di-revoke langsung ditolak.
 - **Algoritma**: AES-256-GCM diutamakan (AES hardware, lewat *ring*), lalu ChaCha20-Poly1305.
   Signature SHA-1, cipher CBC, dan key exchange SHA-1 hanya aktif bila **Legacy algorithms**
-  dicentang di bookmark.
-- **File** ditulis secara atomik (file sementara unik, `fsync`, rename). File bookmark atau
+  dicentang di pengaturan koneksi.
+- **File** ditulis secara atomik (file sementara unik, `fsync`, rename). File koneksi atau
   pengaturan yang tidak terbaca disisihkan sebagai `*.corrupt-<waktu>.json`, tidak pernah ditimpa.
-  File bookmark dari versi yang lebih baru tidak pernah disentuh.
-- **Rahasia** hanya ditawarkan untuk disimpan bila bookmark-nya memang tersimpan. Mengganti metode
+  File koneksi dari versi yang lebih baru tidak pernah disentuh.
+- **Rahasia** hanya ditawarkan untuk disimpan bila koneksinya memang tersimpan. Mengganti metode
   login menghapus rahasia yang tidak lagi dipakai. Tidak ada rahasia yang dicatat di log, dan tidak
   ada telemetri.
 
@@ -224,10 +241,28 @@ Butuh toolchain Rust stable (lewat [rustup](https://rustup.rs)) dan Xcode Comman
 ```sh
 git clone https://github.com/ilhamnadhif/peler.git && cd peler
 cargo run --release                       # build dan jalankan
-cargo run --release -- web-01             # buka bookmark (atau user@host[:port])
+cargo run --release -- web-01             # buka koneksi tersimpan (atau user@host[:port])
 scripts/package.sh                        # Peler.app universal, .dmg, .pkg, dan Homebrew cask di dist/
 PELER_ARCHS=aarch64 scripts/package.sh    # hanya Apple Silicon (lebih cepat)
 ```
+
+### Merilis versi baru
+
+```sh
+scripts/release.sh 1.1.0              # catatan rilis dibuat dari daftar commit
+scripts/release.sh 1.1.0 notes.md     # atau ditulis sendiri
+```
+
+Skrip ini menjalankan langkah-langkah berikut secara berurutan:
+
+1. menaikkan versi di `Cargo.toml`;
+2. menjalankan tes;
+3. mem-build app universal beserta `.dmg`, `.pkg`, `.zip`, dan cask Homebrew;
+4. commit, membuat tag `v1.1.0`, lalu push;
+5. menerbitkan GitHub Release dengan file-filenya terlampir.
+
+Aplikasi yang sudah terpasang akan menawarkannya pada pengecekan berikutnya. Butuh GitHub CLI
+(`gh auth login`) dan working tree yang bersih.
 
 ### Tanda tangan dan notarisasi
 
@@ -286,8 +321,9 @@ src/
   secrets.rs          Keychain
   i18n.rs             teks Inggris/Indonesia (ada tes yang memastikan semua teks UI diterjemahkan)
   instance.rs         satu instance dan penerusan argumen
+  update.rs           cek update, unduh, verifikasi, dan pasang
 tests/                tes integrasi (sshd lokal, server in-process, SFTP 1 GiB)
-scripts/              package.sh, install.sh, dev-sshd.sh
+scripts/              package.sh, release.sh, install.sh, dev-sshd.sh
 ```
 
 Dibangun dengan [egui](https://github.com/emilk/egui) (wgpu/Metal),
@@ -298,7 +334,7 @@ Dibangun dengan [egui](https://github.com/emilk/egui) (wgpu/Metal),
 ## Keterbatasan yang diketahui
 
 - Build rilis belum ditandatangani dengan Apple Developer ID. Lihat *Pembukaan pertama* di atas.
-- Belum tercakup tes otomatis, jadi sebaiknya dicek manual: komposisi IME, mengurutkan bookmark
+- Belum tercakup tes otomatis, jadi sebaiknya dicek manual: komposisi IME, mengurutkan koneksi
   dengan drag and drop, dan file yang di-drop dari Finder.
 - File yang di-drop dari Finder diunggah ke folder remote yang sedang terbuka; macOS tidak memberi
   tahu di bagian jendela mana file itu di-drop.

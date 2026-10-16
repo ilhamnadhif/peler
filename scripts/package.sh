@@ -2,6 +2,7 @@
 # Builds Peler.app (universal: Apple Silicon + Intel), signs it, and produces the installers:
 #   dist/Peler-<version>.dmg   drag-to-Applications disk image
 #   dist/Peler-<version>.pkg   macOS Installer package (installs into /Applications)
+#   dist/Peler-<version>.zip   the app alone, which the in-app updater downloads
 #   dist/homebrew/peler.rb     Homebrew cask pointing at the GitHub release
 #
 #   scripts/package.sh                 # ad-hoc signed (runs on this Mac)
@@ -27,6 +28,7 @@ DIST="dist"
 APP="$DIST/$APP_NAME.app"
 DMG="$DIST/$APP_NAME-$VERSION.dmg"
 PKG="$DIST/$APP_NAME-$VERSION.pkg"
+ZIP="$DIST/$APP_NAME-$VERSION.zip"
 REPO="${PELER_REPO:-ilhamnadhif/peler}"
 export MACOSX_DEPLOYMENT_TARGET=12.0
 
@@ -39,7 +41,7 @@ for arch in $ARCHS; do
     BINS+=("target/$target/release/$BIN_NAME")
 done
 
-rm -rf "$APP" "$DMG" "$PKG"
+rm -rf "$APP" "$DMG" "$PKG" "$ZIP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 if [ "${#BINS[@]}" -gt 1 ]; then
     lipo -create -output "$APP/Contents/MacOS/$BIN_NAME" "${BINS[@]}"
@@ -81,6 +83,9 @@ else
     codesign --force --sign - "$APP"
 fi
 codesign --verify --strict --verbose=1 "$APP"
+
+echo "==> Creating update archive"
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
 
 echo "==> Creating DMG"
 STAGE="$(mktemp -d)"
@@ -164,5 +169,6 @@ echo
 echo "App:      $APP ($(du -sh "$APP" | awk '{print $1}'))"
 echo "DMG:      $DMG ($(du -h "$DMG" | awk '{print $1}'))"
 echo "PKG:      $PKG ($(du -h "$PKG" | awk '{print $1}'))"
+echo "ZIP:      $ZIP ($(du -h "$ZIP" | awk '{print $1}'))"
 echo "Cask:     $DIST/homebrew/peler.rb"
 echo "Binary:   $(lipo -archs "$APP/Contents/MacOS/$BIN_NAME")"

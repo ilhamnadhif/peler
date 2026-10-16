@@ -476,7 +476,7 @@ fn classify_russh(e: anyhow::Error, flags: &Flags, host: &str) -> ConnError {
                 ConnError::Other(tf("{} did not answer as an SSH server.", &[host]))
             }
             russh::Error::NoCommonAlgo { .. } => ConnError::Other(tf(
-                "No common algorithm with the server ({}). Try enabling legacy algorithms in the bookmark.",
+                "No common algorithm with the server ({}). Try enabling legacy algorithms for this connection.",
                 &[&re.to_string()],
             )),
             russh::Error::Disconnect | russh::Error::HUP => {
@@ -821,7 +821,7 @@ async fn auth_publickey(
         // SHA-1 signatures (`ssh-rsa`) only with legacy algorithms enabled, like OpenSSH.
         let sha1_only = || {
             ConnError::AuthFailed(t(
-                "the server only accepts RSA keys with SHA-1 signatures. Enable legacy algorithms in the bookmark to allow it.",
+                "the server only accepts RSA keys with SHA-1 signatures. Enable legacy algorithms for this connection to allow it.",
             )
             .into())
         };

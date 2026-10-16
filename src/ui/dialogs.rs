@@ -52,7 +52,7 @@ impl Palette {
             .show(ctx, |ui| {
                 ui.set_width(520.0);
                 let edit = egui::TextEdit::singleline(&mut self.query)
-                    .hint_text(t("Connect to… (type to search bookmarks)"))
+                    .hint_text(t("Connect to… (type to search connections)"))
                     .font(egui::TextStyle::Heading)
                     .desired_width(f32::INFINITY);
                 let r = ui.add(edit);
@@ -106,7 +106,7 @@ impl Palette {
                 } else if hits.is_empty() {
                     ui.label(
                         RichText::new(if store.bookmarks.is_empty() {
-                            t("No bookmarks yet")
+                            t("No connections yet")
                         } else {
                             t("No matches")
                         })
@@ -160,6 +160,8 @@ pub enum ConfirmAction {
     CloseTab(u64),
     /// Tab id.
     Reconnect(u64),
+    /// Quit so the downloaded update can install.
+    RestartForUpdate,
     Quit,
 }
 
@@ -312,7 +314,7 @@ fn shortcuts(ctx: &egui::Context) -> DialogResult {
             .spacing([24.0, 6.0])
             .show(ui, |ui| {
                 for (keys, what) in [
-                    ("⌘K", t("Search bookmarks and connect")),
+                    ("⌘K", t("Search connections and connect")),
                     ("⌘T", t("New tab (same server)")),
                     ("⌘W", t("Close pane or tab")),
                     ("⌘1 … ⌘9", t("Switch to tab")),
@@ -322,7 +324,7 @@ fn shortcuts(ctx: &egui::Context) -> DialogResult {
                     ("⌘[  ⌘]", t("Previous / next pane")),
                     ("⌘B", t("Show/Hide Sidebar")),
                     ("⇧⌘F", t("SFTP Panel")),
-                    ("⌘N", t("New Bookmark…")),
+                    ("⌘N", t("New Connection…")),
                     ("⌘=  ⌘-  ⌘0", t("Text size")),
                     ("⌥⌘K", t("Clear Scrollback")),
                     ("⇧PageUp / ⇧PageDown", t("Scroll back")),
@@ -376,11 +378,11 @@ impl ExportDialog {
         let mut result = DialogResult::Open;
         let modal = egui::Modal::new(egui::Id::new("export")).show(ctx, |ui| {
             ui.set_width(460.0);
-            ui.heading(t("Export Bookmarks"));
+            ui.heading(t("Export Connections"));
             ui.add_space(6.0);
             ui.label(RichText::new(t("What to export")).strong());
             let is_all = self.scope == ExportScope::All;
-            if ui.radio(is_all, tf("All bookmarks ({})", &[&store.bookmarks.len().to_string()])).clicked() {
+            if ui.radio(is_all, tf("All connections ({})", &[&store.bookmarks.len().to_string()])).clicked() {
                 self.scope = ExportScope::All;
             }
             let group = match &self.scope {
@@ -404,7 +406,7 @@ impl ExportDialog {
                 });
             });
             let selected_mode = matches!(self.scope, ExportScope::Selected(_));
-            if ui.radio(selected_mode, t("Selected bookmarks")).clicked() && !selected_mode {
+            if ui.radio(selected_mode, t("Selected connections")).clicked() && !selected_mode {
                 self.scope = ExportScope::Selected(self.picked.iter().copied().collect());
             }
             if selected_mode {
@@ -445,7 +447,7 @@ impl ExportDialog {
             ui.horizontal(|ui| {
                 if ui.button(RichText::new(t("Export…")).strong()).clicked() {
                     if matches!(&self.scope, ExportScope::Selected(ids) if ids.is_empty()) {
-                        self.error = Some(t("Select at least one bookmark.").into());
+                        self.error = Some(t("Select at least one connection.").into());
                     } else if self.include_credentials && self.pass1.len() < 8 {
                         self.error = Some(t("Use a passphrase of at least 8 characters.").into());
                     } else if self.include_credentials && self.pass1 != self.pass2 {
@@ -522,7 +524,7 @@ impl ImportDialog {
             match result.and_then(|plain| self.plan.attach_credentials(&plain)) {
                 Ok(n) => (
                     tf(
-                        "Unlocked credentials for {} bookmark(s).",
+                        "Unlocked credentials for {} connection(s).",
                         &[&n.to_string()],
                     ),
                     false,
@@ -542,7 +544,7 @@ impl ImportDialog {
                 SourceKind::Electerm => "Electerm",
                 SourceKind::SshConfig => "SSH config",
             };
-            ui.heading(t("Import Bookmarks"));
+            ui.heading(t("Import Connections"));
             ui.label(RichText::new(format!("{} · {kind}", self.source)).weak());
             for w in &self.plan.warnings {
                 ui.label(RichText::new(format!("⚠ {w}")).color(Color32::from_rgb(0xd0, 0x9a, 0x2a)));
@@ -574,9 +576,9 @@ impl ImportDialog {
                 ui.group(|ui| {
                     ui.checkbox(
                         &mut self.plan.import_startup_commands,
-                        tf("Import startup commands ({} bookmark(s))", &[&commands.to_string()]),
+                        tf("Import startup commands ({} connection(s))", &[&commands.to_string()]),
                     );
-                    ui.label(RichText::new(t("Startup commands run on the server every time the bookmark connects. Only import them from a file you trust.")).weak().small());
+                    ui.label(RichText::new(t("Startup commands run on the server every time the connection opens. Only import them from a file you trust.")).weak().small());
                 });
             }
 
@@ -600,7 +602,7 @@ impl ImportDialog {
             ui.add_space(4.0);
             egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]).show(ui, |ui| {
                 egui::Grid::new("import-items").num_columns(4).striped(true).spacing([12.0, 4.0]).show(ui, |ui| {
-                    ui.label(RichText::new(t("Bookmark")).strong());
+                    ui.label(RichText::new(t("Connection")).strong());
                     ui.label(RichText::new(t("Address")).strong());
                     ui.label(RichText::new(t("Group")).strong());
                     ui.label(RichText::new(t("Action")).strong());
@@ -630,7 +632,7 @@ impl ImportDialog {
                             }
                             ItemStatus::Conflict { matched_by, .. } => {
                                 let why = match matched_by {
-                                    MatchedBy::Id => t("same bookmark, changed"),
+                                    MatchedBy::Id => t("same connection, changed"),
                                     MatchedBy::Endpoint => t("same host, port and user"),
                                 };
                                 ui.horizontal(|ui| {
@@ -771,6 +773,13 @@ fn general(ui: &mut egui::Ui, s: &mut Settings) {
                 &mut s.confirm_close_connected,
                 t("Ask before closing a connected tab"),
             );
+            ui.end_row();
+
+            ui.label(t("Updates"));
+            ui.checkbox(&mut s.check_updates, t("Check for updates automatically"))
+                .on_hover_text(t(
+                    "Peler asks GitHub for the latest release at launch and once a day.",
+                ));
             ui.end_row();
 
             ui.label(t("Data folder"));

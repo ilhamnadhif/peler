@@ -13,3 +13,4 @@ pub mod sidebar;
 pub mod style;
 pub mod tabs;
 pub mod terminal;
+pub mod update_ui;

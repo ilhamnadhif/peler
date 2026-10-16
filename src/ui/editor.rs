@@ -130,9 +130,9 @@ impl Editor {
     pub fn show(&mut self, ctx: &egui::Context, store: &BookmarkStore) -> EditorResult {
         let mut result = EditorResult::Open;
         let title = if self.is_new {
-            t("New Bookmark")
+            t("New Connection")
         } else {
-            t("Edit Bookmark")
+            t("Edit Connection")
         };
         let modal = egui::Modal::new(egui::Id::new("bookmark-editor")).show(ctx, |ui| {
             ui.set_width(460.0);

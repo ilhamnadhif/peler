@@ -80,7 +80,7 @@ impl Sidebar {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let selected_group = self.selected_group(store);
                 ui.menu_button("+", |ui| {
-                    if ui.button(t("New Bookmark…")).clicked() {
+                    if ui.button(t("New Connection…")).clicked() {
                         cx.actions.push(Action::NewBookmark {
                             group: selected_group,
                         });
@@ -91,7 +91,7 @@ impl Sidebar {
                         ui.close();
                     }
                     ui.separator();
-                    if ui.button(t("Import Bookmarks…")).clicked() {
+                    if ui.button(t("Import Connections…")).clicked() {
                         cx.actions.push(Action::Import);
                         ui.close();
                     }
@@ -99,7 +99,7 @@ impl Sidebar {
                         cx.actions.push(Action::ImportSshConfig);
                         ui.close();
                     }
-                    if ui.button(t("Export Bookmarks…")).clicked() {
+                    if ui.button(t("Export Connections…")).clicked() {
                         cx.actions.push(Action::Export(ExportScope::All));
                         ui.close();
                     }
@@ -107,7 +107,7 @@ impl Sidebar {
                 let search_id = egui::Id::new("sidebar-search");
                 let edit = egui::TextEdit::singleline(&mut self.search)
                     .id(search_id)
-                    .hint_text(t("Search bookmarks"))
+                    .hint_text(t("Search connections"))
                     .desired_width(ui.available_width());
                 let resp = ui.add(edit);
                 if std::mem::take(&mut self.focus_search) {
@@ -154,15 +154,15 @@ impl Sidebar {
                     if store.bookmarks.is_empty() && store.groups.is_empty() {
                         ui.add_space(20.0);
                         ui.vertical_centered(|ui| {
-                            ui.label(RichText::new(t("No bookmarks yet")).weak());
+                            ui.label(RichText::new(t("No connections yet")).weak());
                             ui.add_space(6.0);
-                            if ui.button(t("New Bookmark…")).clicked() {
+                            if ui.button(t("New Connection…")).clicked() {
                                 cx.actions.push(Action::NewBookmark { group: None });
                             }
                             if ui.button(t("Import from ~/.ssh/config")).clicked() {
                                 cx.actions.push(Action::ImportSshConfig);
                             }
-                            if ui.button(t("Import Bookmarks…")).clicked() {
+                            if ui.button(t("Import Connections…")).clicked() {
                                 cx.actions.push(Action::Import);
                             }
                         });
@@ -200,7 +200,7 @@ impl Sidebar {
                         self.selected = None;
                     }
                     resp.context_menu(|ui| {
-                        if ui.button(t("New Bookmark…")).clicked() {
+                        if ui.button(t("New Connection…")).clicked() {
                             cx.actions.push(Action::NewBookmark { group: None });
                             ui.close();
                         }
@@ -398,7 +398,7 @@ impl Sidebar {
             }
         }
         resp.context_menu(|ui| {
-            if ui.button(t("New Bookmark…")).clicked() {
+            if ui.button(t("New Connection…")).clicked() {
                 cx.actions.push(Action::NewBookmark { group: Some(gid) });
                 ui.close();
             }
@@ -609,6 +609,6 @@ impl Sidebar {
     }
 
     pub fn status_line(store: &BookmarkStore) -> String {
-        tf("{} bookmarks", &[&store.bookmarks.len().to_string()])
+        tf("{} connections", &[&store.bookmarks.len().to_string()])
     }
 }

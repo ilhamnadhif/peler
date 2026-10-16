@@ -46,12 +46,14 @@ impl AppMenu {
             }),
         );
         let settings = item(t("Settings…"), acc(CMD, Code::Comma), Action::Settings);
+        let updates = item(t("Check for Updates…"), None, Action::CheckForUpdates);
         let quit = item(t("Quit Peler"), acc(CMD, Code::KeyQ), Action::Quit);
         let app_menu = Submenu::with_items(
             "Peler",
             true,
             &[
                 &about,
+                &updates,
                 &PredefinedMenuItem::separator(),
                 &settings,
                 &PredefinedMenuItem::separator(),
@@ -67,7 +69,7 @@ impl AppMenu {
         .expect("app menu");
 
         let new_bookmark = item(
-            t("New Bookmark…"),
+            t("New Connection…"),
             acc(CMD, Code::KeyN),
             Action::NewBookmark { group: None },
         );
@@ -79,14 +81,14 @@ impl AppMenu {
         let new_tab = item(t("New Tab"), acc(CMD, Code::KeyT), Action::NewTab);
         let close = item(t("Close"), acc(CMD, Code::KeyW), Action::CloseTabOrPane);
         let reconnect = item(t("Reconnect"), acc(CMD, Code::KeyR), Action::Reconnect);
-        let import = item(t("Import Bookmarks…"), None, Action::Import);
+        let import = item(t("Import Connections…"), None, Action::Import);
         let import_ssh = item(
             t("Import from ~/.ssh/config"),
             None,
             Action::ImportSshConfig,
         );
         let export = item(
-            t("Export Bookmarks…"),
+            t("Export Connections…"),
             acc(shift_cmd, Code::KeyE),
             Action::Export(ExportScope::All),
         );

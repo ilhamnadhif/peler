@@ -8,11 +8,11 @@ and uses around 70 MB of memory with a session open.
 
 [Bahasa Indonesia](README.id.md)
 
-![Peler: bookmarks, tabs and split panes over one SSH connection](docs/screenshots/terminal.png)
+![Peler: saved connections, tabs and split panes over one SSH connection](docs/screenshots/terminal.png)
 
 ## Highlights
 
-- **Bookmarks** in nested groups, with drag and drop, fuzzy search and `⌘K` quick connect.
+- **Saved connections** in nested groups, with drag and drop, fuzzy search and `⌘K` quick connect.
   Passwords and passphrases live in the **macOS Keychain**, never in a file.
 - **A real terminal** (alacritty_terminal): 24-bit colour, mouse reporting for vim/htop/tmux, IME,
   CJK, and box drawing drawn pixel-exact.
@@ -24,6 +24,7 @@ and uses around 70 MB of memory with a session open.
   credentials.
 - **Careful with your servers**: strict host-key checking (hashed `known_hosts`, `@revoked`), safe
   saves, and transfers that never leave half-written files behind.
+- **Automatic updates** from GitHub releases, with one click to install.
 - English and Indonesian UI, light and dark themes, no telemetry.
 
 ## Install
@@ -62,18 +63,34 @@ curl -fsSLO https://github.com/ilhamnadhif/peler/releases/latest/download/peler.
 brew install --cask ./peler.rb
 ```
 
+### Automatic updates
+
+Peler checks GitHub for a new release when it starts and once a day. When one is out, an
+**Update** button appears in the toolbar. **Install and Restart** then:
+
+1. downloads the new version and verifies it (size, the SHA-256 GitHub publishes, bundle id,
+   version and code signature);
+2. quits Peler, replaces the app, and opens the new version.
+
+If Peler was installed with the `.pkg` (the app is then owned by root), macOS asks for an
+administrator password. You can also use **Peler → Check for Updates…**, skip a version, or turn
+automatic checks off in **Settings → General**. The update check is the only connection Peler
+makes besides your own servers.
+
+Version 1.0.0 has no updater; install the next version by hand once.
+
 ### Uninstall
 
 ```sh
 rm -rf /Applications/Peler.app
-rm -rf ~/Library/Application\ Support/peler      # bookmarks, settings, known hosts
+rm -rf ~/Library/Application\ Support/peler      # connections, settings, known hosts
 ```
 
 Saved passwords are Keychain items with the service name `peler`; remove them in Keychain Access.
 
 ## Features
 
-### Bookmarks
+### Connections
 
 - Name, host, port, user, password or private-key authentication (key file, or a key stored in the
   Keychain), group, tags, notes, remote and local start folders, startup commands, and legacy
@@ -81,7 +98,7 @@ Saved passwords are Keychain items with the service name `peler`; remove them in
 - Nested groups; drag and drop to reorder or regroup.
 - Fuzzy search over name, host, user, tags and group. Press Enter to connect.
 - `⌘K` opens a command palette. Typing `user@host:port` there (IPv6 as `[::1]:22`) connects without
-  a bookmark.
+  a saved connection.
 - Open from the command line: `open -a Peler --args web-01` or `--args deploy@10.0.0.5:2222`.
   Peler runs as a single instance: launching it again opens the tab in the window that is already
   open.
@@ -141,15 +158,15 @@ Double-click a remote file (or right-click → **Edit**) to edit it in place:
 
 ### Import and export
 
-- **Export** all bookmarks, a group, or a selection to versioned JSON (`schema_version`,
+- **Export** all connections, a group, or a selection to versioned JSON (`schema_version`,
   `exported_at`, `groups`, `bookmarks`).
 - Credentials are **not** exported unless you ask. If you do, they are encrypted with a passphrase
   (Argon2id 64 MiB + XChaCha20-Poly1305) and bound to their host, port and user. If someone edits the
-  bookmark list in the file to point elsewhere, the credentials are not imported.
+  connection list in the file to point elsewhere, the credentials are not imported.
 - **Import** shows a preview of what will be added, updated or skipped. Each conflict can be
   skipped, overwritten or kept as both. Importing the same file twice changes nothing. Startup
   commands from a file are imported only if you opt in.
-- **Electerm** exports (bookmarks with nested groups, passwords and pasted keys) and
+- **Electerm** exports (connections with nested groups, passwords and pasted keys) and
   **`~/.ssh/config`** (`Host`, `HostName`, `Port`, `User`, `IdentityFile`, `Host *`, negation,
   `Include`).
 
@@ -157,8 +174,8 @@ Double-click a remote file (or right-click → **Edit**) to edit it in place:
 
 | Action | Shortcut |
 | --- | --- |
-| Quick connect / search bookmarks | `⌘K` |
-| New bookmark | `⌘N` |
+| Quick connect / search connections | `⌘K` |
+| New connection | `⌘N` |
 | New tab (same server) | `⌘T` |
 | Close pane / tab | `⌘W` |
 | Switch tab | `⌘1`–`⌘9`, `⇧⌘[` / `⇧⌘]` |
@@ -170,7 +187,7 @@ Double-click a remote file (or right-click → **Edit**) to edit it in place:
 | Text size | `⌘=` / `⌘-` / `⌘0` |
 | Clear scrollback | `⌥⌘K` |
 | Scroll history | `⇧PageUp` / `⇧PageDown` / `⇧Home` / `⇧End` |
-| Export bookmarks | `⇧⌘E` |
+| Export connections | `⇧⌘E` |
 | Settings | `⌘,` |
 | Save (remote file editor) | `⌘S` |
 
@@ -194,7 +211,7 @@ history, add up to about 210 MB. Lower **Scrollback** in Settings if you keep ma
 
 | What | Where |
 | --- | --- |
-| Bookmarks | `~/Library/Application Support/peler/bookmarks.json` (mode 0600) |
+| Connections | `~/Library/Application Support/peler/bookmarks.json` (mode 0600) |
 | Settings (including window size and position) | `~/Library/Application Support/peler/settings.json` |
 | Trusted host keys | `~/Library/Application Support/peler/known_hosts` |
 | Passwords, passphrases, imported keys | macOS Keychain, service `peler` |
@@ -208,11 +225,11 @@ history, add up to about 210 MB. Lower **Scrollback** in Settings if you keep ma
   - Revoked keys are refused.
 - **Algorithms**: AES-256-GCM is preferred (hardware AES, via *ring*), then ChaCha20-Poly1305.
   SHA-1 signatures, CBC ciphers and SHA-1 key exchange are only enabled when **Legacy algorithms**
-  is ticked for a bookmark.
-- **Files** are written atomically (unique temp file, `fsync`, rename). An unreadable bookmarks or
-  settings file is set aside as `*.corrupt-<time>.json`, never overwritten. A bookmarks file from a
+  is ticked for a connection.
+- **Files** are written atomically (unique temp file, `fsync`, rename). An unreadable connections or
+  settings file is set aside as `*.corrupt-<time>.json`, never overwritten. A connections file from a
   newer version is never touched.
-- **Secrets** are only offered for saving for stored bookmarks. Switching a bookmark's login method
+- **Secrets** are only offered for saving for stored connections. Switching a connection's login method
   removes secrets it no longer uses. Nothing secret is logged, and there is no telemetry.
 
 ## Building from source
@@ -223,10 +240,28 @@ Tools.
 ```sh
 git clone https://github.com/ilhamnadhif/peler.git && cd peler
 cargo run --release                       # build and run
-cargo run --release -- web-01             # open a bookmark (or user@host[:port])
+cargo run --release -- web-01             # open a saved connection (or user@host[:port])
 scripts/package.sh                        # universal Peler.app, .dmg, .pkg and Homebrew cask in dist/
 PELER_ARCHS=aarch64 scripts/package.sh    # Apple Silicon only (faster)
 ```
+
+### Releasing a new version
+
+```sh
+scripts/release.sh 1.1.0              # release notes generated from the commits
+scripts/release.sh 1.1.0 notes.md     # or written by you
+```
+
+The script runs these steps in order:
+
+1. bumps the version in `Cargo.toml`;
+2. runs the tests;
+3. builds the universal app with its `.dmg`, `.pkg`, `.zip` and Homebrew cask;
+4. commits and tags `v1.1.0`, and pushes;
+5. publishes the GitHub release with the files attached.
+
+Installed copies pick it up on their next check. It needs the GitHub CLI (`gh auth login`) and a
+clean working tree.
 
 ### Signing and notarization
 
@@ -284,8 +319,9 @@ src/
   secrets.rs          Keychain
   i18n.rs             English/Indonesian strings (a test checks every UI string is translated)
   instance.rs         single instance and argument forwarding
+  update.rs           update check, download, verification and install
 tests/                integration tests (local sshd, in-process server, 1 GiB SFTP)
-scripts/              package.sh, install.sh, dev-sshd.sh
+scripts/              package.sh, release.sh, install.sh, dev-sshd.sh
 ```
 
 Built with [egui](https://github.com/emilk/egui) (wgpu/Metal),
@@ -296,7 +332,7 @@ Built with [egui](https://github.com/emilk/egui) (wgpu/Metal),
 ## Known limitations
 
 - Release builds are not signed with an Apple Developer ID yet. See *First launch* above.
-- Not covered by the automated tests, so worth a manual check: IME composition, reordering bookmarks
+- Not covered by the automated tests, so worth a manual check: IME composition, reordering connections
   by drag and drop, and files dropped from Finder.
 - Files dropped from Finder upload to the remote folder that is open; macOS does not report where
   in the window they were dropped.

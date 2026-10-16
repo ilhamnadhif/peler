@@ -254,7 +254,7 @@ pub fn read_import(data: &[u8]) -> Result<Incoming> {
         bail!(
             "{}",
             tf(
-                "The file is too large to be a bookmark export (more than {} MB).",
+                "The file is too large to be a connection export (more than {} MB).",
                 &[&(MAX_IMPORT_BYTES / 1024 / 1024).to_string()]
             )
         );
@@ -286,7 +286,7 @@ pub fn read_import(data: &[u8]) -> Result<Incoming> {
     bail!(
         "{}",
         t(
-            "Unrecognized file format: expected a peler export, an Electerm bookmark export or an SSH config."
+            "Unrecognized file format: expected a Peler export, an Electerm export or an SSH config."
         )
     )
 }
@@ -331,7 +331,7 @@ fn read_peler(value: serde_json::Value) -> Result<Incoming> {
         .any(|b| b.group.is_some_and(|g| !ids.contains(&g)))
     {
         warnings.push(
-            t("Some bookmarks refer to missing groups; they will be placed at the top level.")
+            t("Some connections refer to missing groups; they will be placed at the top level.")
                 .into(),
         );
     }
@@ -511,13 +511,13 @@ impl ImportPlan {
         }
         if mismatched > 0 {
             self.warnings.push(tf(
-                "{} saved credential(s) were left out: the bookmark's address in the file differs from the address they were saved for.",
+                "{} saved credential(s) were left out: the connection's address in the file differs from the address they were saved for.",
                 &[&mismatched.to_string()],
             ));
         }
         if legacy {
             self.warnings.push(
-                t("This file is from an older version: check each bookmark's address before connecting with the imported credentials.")
+                t("This file is from an older version: check each connection's address before connecting with the imported credentials.")
                     .into(),
             );
         }

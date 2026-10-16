@@ -61,6 +61,7 @@ pub enum Action {
     // app
     Settings,
     About,
+    CheckForUpdates,
     Shortcuts,
     Quit,
 }
