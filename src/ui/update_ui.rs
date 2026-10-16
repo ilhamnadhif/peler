@@ -27,10 +27,7 @@ enum State {
 }
 
 enum Msg {
-    Checked {
-        manual: bool,
-        result: Result<Option<Release>, String>,
-    },
+    Checked(Result<Option<Release>, String>),
     Downloaded(Result<Prepared, String>),
 }
 
@@ -54,6 +51,8 @@ pub struct Updater {
     launched: Instant,
     /// The version already announced with a toast.
     announced: Option<String>,
+    /// The previous run's update was reported and its leftovers cleaned (first frame).
+    started: bool,
 }
 
 impl Default for Updater {
@@ -65,6 +64,7 @@ impl Default for Updater {
             dialog_open: false,
             launched: Instant::now(),
             announced: None,
+            started: false,
         }
     }
 }
@@ -80,23 +80,18 @@ impl Updater {
         self.rx.is_some()
     }
 
-    fn start_check(&mut self, ctx: &egui::Context, manual: bool) {
+    /// Starts a check unless one is running; whoever is waiting when it ends gets its answer.
+    fn start_check(&mut self, ctx: &egui::Context) {
         if self.busy() {
             return;
         }
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(Msg::Checked {
-                manual,
-                result: update::check(),
-            });
+            let _ = tx.send(Msg::Checked(update::check()));
             ctx.request_repaint();
         });
         self.rx = Some(rx);
-        if manual || matches!(self.state, State::Idle | State::UpToDate | State::Error(_)) {
-            self.state = State::Checking;
-        }
     }
 
     /// "Check for Updates…" from the menu.
@@ -105,7 +100,50 @@ impl Updater {
         match self.state {
             // Already found or downloading: just show it.
             State::Available(_) | State::Downloading(_) | State::Ready(..) => {}
-            _ => self.start_check(ctx, true),
+            // An automatic check that is already running answers this one too.
+            _ => {
+                self.state = State::Checking;
+                self.start_check(ctx);
+            }
+        }
+    }
+
+    /// Closes the dialog. A check still running carries on like an automatic one.
+    pub fn close_dialog(&mut self) {
+        self.dialog_open = false;
+        if matches!(
+            self.state,
+            State::UpToDate | State::Error(_) | State::Checking
+        ) {
+            self.state = State::Idle;
+        }
+    }
+
+    /// Shows the dialog with an error.
+    fn show_error(&mut self, message: String) {
+        self.state = State::Error(message);
+        self.dialog_open = true;
+    }
+
+    /// First frame: reports how the update the previous run installed went, and removes what
+    /// an interrupted one left behind.
+    fn report_last_update(&mut self) -> Option<String> {
+        std::thread::spawn(update::remove_leftovers);
+        match update::take_outcome()? {
+            update::Outcome::Installed(version) => {
+                (version == CURRENT).then(|| tf("Peler was updated to version {}.", &[CURRENT]))
+            }
+            update::Outcome::Cancelled => {
+                self.show_error(
+                    t("The update was not installed because no administrator password was entered.")
+                        .to_string(),
+                );
+                None
+            }
+            update::Outcome::Failed(reason) => {
+                self.show_error(tf("The update could not be installed: {}", &[&reason]));
+                None
+            }
         }
     }
 
@@ -113,12 +151,19 @@ impl Updater {
     /// show as a toast.
     pub fn tick(&mut self, ctx: &egui::Context, settings: &mut Settings) -> Option<String> {
         let mut toast = None;
+        if !self.started {
+            self.started = true;
+            toast = self.report_last_update();
+        }
         if let Some(rx) = &self.rx
             && let Ok(msg) = rx.try_recv()
         {
             self.rx = None;
             match msg {
-                Msg::Checked { manual, result } => {
+                Msg::Checked(result) => {
+                    // Someone is looking at "Checking for updates…" (whichever check it was).
+                    let manual =
+                        self.dialog_open && matches!(self.state, State::Idle | State::Checking);
                     settings.last_update_check = Some(now_secs());
                     match result {
                         Ok(Some(release)) => {
@@ -133,14 +178,12 @@ impl Updater {
                                 }
                                 self.announced = Some(release.version.clone());
                                 self.state = State::Available(release);
-                            } else {
-                                self.state = State::Idle;
                             }
                         }
-                        Ok(None) => self.state = if manual { State::UpToDate } else { State::Idle },
-                        Err(e) => {
-                            self.state = if manual { State::Error(e) } else { State::Idle };
-                        }
+                        Ok(None) if manual => self.state = State::UpToDate,
+                        Err(e) if manual => self.state = State::Error(e),
+                        // Automatic checks fail silently.
+                        Ok(None) | Err(_) => {}
                     }
                 }
                 Msg::Downloaded(result) => {
@@ -169,7 +212,7 @@ impl Updater {
             && matches!(self.state, State::Idle)
             && self.launched.elapsed() >= FIRST_CHECK_AFTER
         {
-            self.start_check(ctx, false);
+            self.start_check(ctx);
         }
         if matches!(self.state, State::Downloading(_)) {
             ctx.request_repaint_after(Duration::from_millis(200));
@@ -383,13 +426,7 @@ impl Updater {
             None => {}
         }
         if close {
-            self.dialog_open = false;
-            if matches!(
-                self.state,
-                State::UpToDate | State::Error(_) | State::Checking
-            ) {
-                self.state = State::Idle;
-            }
+            self.close_dialog();
         }
         event
     }
@@ -436,4 +473,83 @@ fn release_notes(ui: &mut egui::Ui, notes: &str) {
                     }
                 });
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn release(version: &str) -> Release {
+        Release {
+            version: version.into(),
+            notes: String::new(),
+            page: String::new(),
+            archive: None,
+        }
+    }
+
+    /// An updater with an automatic check running, as 4 s after launch. (`started` skips the
+    /// first-frame report, which reads the real data folder.)
+    fn checking_in_background() -> (Updater, mpsc::Sender<Msg>) {
+        let (tx, rx) = mpsc::channel();
+        let updater = Updater {
+            rx: Some(rx),
+            started: true,
+            ..Default::default()
+        };
+        (updater, tx)
+    }
+
+    /// "Check for Updates…" while the automatic check runs, which then answers. Returns the
+    /// state the dialog shows.
+    fn manual_check_during_automatic_check(answer: Result<Option<Release>, String>) -> State {
+        let ctx = egui::Context::default();
+        // Shown even when skipped: the user asked.
+        let mut settings = Settings {
+            skipped_version: Some("9.0.0".into()),
+            ..Default::default()
+        };
+        let (mut updater, tx) = checking_in_background();
+        updater.check_now(&ctx);
+        assert!(matches!(updater.state, State::Checking) && updater.dialog_open);
+        tx.send(Msg::Checked(answer)).unwrap();
+        assert_eq!(updater.tick(&ctx, &mut settings), None);
+        assert!(updater.dialog_open && !updater.busy());
+        updater.state
+    }
+
+    #[test]
+    fn manual_check_during_automatic_check_gets_an_answer() {
+        assert!(matches!(
+            manual_check_during_automatic_check(Ok(None)),
+            State::UpToDate
+        ));
+        assert!(matches!(
+            manual_check_during_automatic_check(Err("offline".into())),
+            State::Error(e) if e == "offline"
+        ));
+        assert!(matches!(
+            manual_check_during_automatic_check(Ok(Some(release("9.0.0")))),
+            State::Available(_)
+        ));
+    }
+
+    /// Closing the dialog while checking turns the check into an automatic one.
+    #[test]
+    fn closed_dialog_gets_the_automatic_behavior() {
+        let ctx = egui::Context::default();
+        let mut settings = Settings::default();
+        let (mut updater, tx) = checking_in_background();
+        updater.check_now(&ctx);
+        updater.close_dialog();
+        assert!(matches!(updater.state, State::Idle) && !updater.dialog_open);
+        tx.send(Msg::Checked(Ok(Some(release("9.0.0"))))).unwrap();
+        assert!(updater.tick(&ctx, &mut settings).is_some(), "announced");
+        assert!(matches!(updater.state, State::Available(_)) && !updater.dialog_open);
+
+        let (mut updater, tx) = checking_in_background();
+        tx.send(Msg::Checked(Err("offline".into()))).unwrap();
+        assert_eq!(updater.tick(&ctx, &mut settings), None);
+        assert!(matches!(updater.state, State::Idle) && !updater.dialog_open);
+    }
 }

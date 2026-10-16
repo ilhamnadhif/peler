@@ -850,6 +850,14 @@ const ID: &[(&str, &str)] = &[
         "Peler {} sudah tersedia. Pakai tombol Perbarui untuk memasangnya.",
     ),
     ("Peler {} is ready to install", "Peler {} siap dipasang"),
+    (
+        "Peler wants to install an update.",
+        "Peler ingin memasang pembaruan.",
+    ),
+    (
+        "Peler was updated to version {}.",
+        "Peler sudah diperbarui ke versi {}.",
+    ),
     ("Release notes on GitHub", "Catatan rilis di GitHub"),
     ("Restart", "Mulai Ulang"),
     ("Restart Now", "Mulai Ulang Sekarang"),
@@ -861,6 +869,10 @@ const ID: &[(&str, &str)] = &[
     (
         "The update could not be installed: {}",
         "Pembaruan tidak bisa dipasang: {}",
+    ),
+    (
+        "The update was not installed because no administrator password was entered.",
+        "Pembaruan tidak dipasang karena kata sandi administrator tidak dimasukkan.",
     ),
     ("Update", "Perbarui"),
     ("Updates", "Pembaruan"),
