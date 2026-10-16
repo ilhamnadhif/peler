@@ -852,6 +852,32 @@ const ID: &[(&str, &str)] = &[
         "Versi {} adalah versi terbaru.",
     ),
     ("You have version {}.", "Versi Anda saat ini {}."),
+    (
+        "A private key is saved in the Keychain.",
+        "Private key tersimpan di Keychain.",
+    ),
+    ("Import from file…", "Ambil dari file…"),
+    ("Keep the saved key", "Pakai key yang tersimpan"),
+    ("Paste key", "Paste key"),
+    ("Paste the private key.", "Paste private key-nya."),
+    ("Replace…", "Ganti…"),
+    (
+        "Stored in the macOS Keychain, not in the connections file.",
+        "Disimpan di macOS Keychain, bukan di file koneksi.",
+    ),
+    (
+        "This does not look like a private key.",
+        "Ini tidak terlihat seperti private key.",
+    ),
+    (
+        "This is a public key. Paste the private key instead (the file without .pub).",
+        "Ini public key. Paste private key-nya (file yang tanpa .pub).",
+    ),
+    (
+        "✓ Encrypted private key: enter its passphrase below (or when connecting).",
+        "✓ Private key terenkripsi: isi passphrase-nya di bawah (atau saat konek).",
+    ),
+    ("✓ {} private key", "✓ Private key {}"),
 ];
 
 #[cfg(test)]

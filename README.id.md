@@ -92,9 +92,11 @@ Password yang tersimpan adalah item Keychain dengan service `peler`; hapus lewat
 
 ### Koneksi
 
-- Isian: nama, host, port, user, autentikasi password atau private key (file key, atau key yang
-  disimpan di Keychain), grup, tag, catatan, folder awal remote dan lokal, startup command, dan
-  algoritma lama per server.
+- Isian: nama, host, port, user, grup, tag, catatan, folder awal remote dan lokal, startup command,
+  dan algoritma lama per server.
+- Login dengan password atau private key. **Paste key-nya** (OpenSSH atau PEM; RSA, ECDSA, atau
+  Ed25519, terenkripsi atau tidak): Peler langsung memeriksanya saat di-paste dan menyimpannya di
+  Keychain. Atau pilih file key di `~/.ssh`.
 - Grup bertingkat; drag and drop untuk mengurutkan atau memindah grup.
 - Pencarian fuzzy pada nama, host, user, tag, dan grup. Tekan Enter untuk konek.
 - `⌘K` membuka palet perintah. Mengetik `user@host:port` di sana (IPv6 sebagai `[::1]:22`) langsung

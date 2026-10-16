@@ -92,9 +92,11 @@ Saved passwords are Keychain items with the service name `peler`; remove them in
 
 ### Connections
 
-- Name, host, port, user, password or private-key authentication (key file, or a key stored in the
-  Keychain), group, tags, notes, remote and local start folders, startup commands, and legacy
-  algorithms per server.
+- Name, host, port, user, group, tags, notes, remote and local start folders, startup commands, and
+  legacy algorithms per server.
+- Log in with a password or a private key. **Paste the key** (OpenSSH or PEM; RSA, ECDSA or
+  Ed25519, encrypted or not), and Peler checks it as you paste and keeps it in the Keychain. Or
+  point to a key file in `~/.ssh`.
 - Nested groups; drag and drop to reorder or regroup.
 - Fuzzy search over name, host, user, tags and group. Press Enter to connect.
 - `⌘K` opens a command palette. Typing `user@host:port` there (IPv6 as `[::1]:22`) connects without
