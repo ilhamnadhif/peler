@@ -117,6 +117,9 @@ pub struct PelerApp {
     /// The tab that was active last frame (to notice tab switches).
     last_active_tab: Option<u64>,
     modal_was_open: bool,
+    /// A dialog just closed with a key still held (the Enter that confirmed it): its
+    /// auto-repeat must not reach a terminal.
+    swallow_repeats: bool,
     /// What Option currently does in the window (Meta or composing), once set.
     option_as_alt: Option<bool>,
     /// Arguments of later launches, forwarded by `crate::instance`.
@@ -268,6 +271,7 @@ impl PelerApp {
             last_recovered_panic: None,
             last_active_tab: None,
             modal_was_open: false,
+            swallow_repeats: false,
             option_as_alt: None,
             focus_target: None,
             #[cfg(debug_assertions)]
@@ -1854,6 +1858,16 @@ impl PelerApp {
                 }
             }
         }
+        if self.swallow_repeats {
+            if ctx.input(|i| i.keys_down.is_empty()) {
+                self.swallow_repeats = false;
+            } else {
+                ctx.input_mut(|i| {
+                    i.events
+                        .retain(|e| !matches!(e, egui::Event::Key { repeat: true, .. }))
+                });
+            }
+        }
         // Keyboard focus follows the active pane (after a split, a tab switch, ⌘[ / ⌘]).
         let want_focus = (tab.id, tab.focused);
         if self.focus_target != Some(want_focus) && !modal_open && !has_prompt {
@@ -2455,6 +2469,7 @@ impl PelerApp {
         let modal = self.modal_open();
         if self.modal_was_open && !modal {
             self.focus_target = None;
+            self.swallow_repeats = true;
             ctx.request_repaint();
         }
         self.modal_was_open = modal;
