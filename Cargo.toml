@@ -1,6 +1,6 @@
 [package]
 name = "peler"
-version = "1.1.0"
+version = "1.1.1"
 edition = "2024"
 description = "Lightweight SSH/SFTP client for macOS"
 license = "MIT"
