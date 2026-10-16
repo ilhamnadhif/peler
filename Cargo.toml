@@ -71,3 +71,8 @@ opt-level = "s"
 opt-level = "s"
 [profile.release.package.objc2-foundation]
 opt-level = "s"
+
+# ssh-key with a fix for ECDSA keys whose private scalar OpenSSH stored without leading zero
+# bytes (about one P-256 key in 256); see vendor/ssh-key/PELER-PATCH.md.
+[patch.crates-io]
+ssh-key = { path = "vendor/ssh-key" }

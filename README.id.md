@@ -335,6 +335,7 @@ src/
   update.rs           cek update, unduh, verifikasi, dan pasang
 tests/                tes integrasi (sshd lokal, server in-process, SFTP 1 GiB)
 scripts/              package.sh, release.sh, install.sh, dev-sshd.sh
+vendor/ssh-key/       ssh-key dengan perbaikan untuk sebagian kunci ECDSA (lihat PELER-PATCH.md di sana)
 ```
 
 Dibangun dengan [egui](https://github.com/emilk/egui) (wgpu/Metal),

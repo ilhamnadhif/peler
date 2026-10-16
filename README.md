@@ -332,6 +332,7 @@ src/
   update.rs           update check, download, verification and install
 tests/                integration tests (local sshd, in-process server, 1 GiB SFTP)
 scripts/              package.sh, release.sh, install.sh, dev-sshd.sh
+vendor/ssh-key/       ssh-key with a fix for some ECDSA keys (see PELER-PATCH.md there)
 ```
 
 Built with [egui](https://github.com/emilk/egui) (wgpu/Metal),

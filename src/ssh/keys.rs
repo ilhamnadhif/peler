@@ -172,6 +172,23 @@ mod tests {
         std::fs::read_to_string(path).unwrap()
     }
 
+    /// About one P-256 key in 256 has a private scalar OpenSSH stores in 31 bytes (no leading
+    /// zero); such keys must load too (patched ssh-key, see vendor/ssh-key/PELER-PATCH.md).
+    #[test]
+    fn ecdsa_key_with_a_short_scalar() {
+        const KEY: &str = "-----BEGIN OPENSSH PRIVATE KEY-----
+b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAaAAAABNlY2RzYS
+1zaGEyLW5pc3RwMjU2AAAACG5pc3RwMjU2AAAAQQQF63eDOnWy5LAd1qI1YxPTqWNJ/goj
+p4uSW5X/5kykg00lNE1WGFQ0v8N705C02BWk0vi8YILznw2ZVZIWWcGLAAAAuK09AEutPQ
+BLAAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBAXrd4M6dbLksB3W
+ojVjE9OpY0n+CiOni5Jblf/mTKSDTSU0TVYYVDS/w3vTkLTYFaTS+LxggvOfDZlVkhZZwY
+sAAAAfVxLFmQxOYgK2TXCYjeG6RGUwirpBOBwlt9dO4uhNSgAAAB5pbGhhbUBpbGhhbXMt
+TWFjQm9vay1Qcm8ubG9jYWwBAgM=
+-----END OPENSSH PRIVATE KEY-----";
+        let key = decode_key(KEY, None).unwrap();
+        assert_eq!(key.algorithm().as_str(), "ecdsa-sha2-nistp256");
+    }
+
     #[test]
     fn decodes_keys_and_classifies_passphrase_errors() {
         let dir = tempfile::tempdir().unwrap();
