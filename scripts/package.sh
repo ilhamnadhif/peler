@@ -68,7 +68,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>LSMinimumSystemVersion</key><string>12.0</string>
     <key>NSHighResolutionCapable</key><true/>
     <key>NSSupportsAutomaticGraphicsSwitching</key><true/>
-    <key>NSHumanReadableCopyright</key><string>Peler — lightweight SSH/SFTP client</string>
+    <key>NSHumanReadableCopyright</key><string>© 2026 ilhamnadhif. MIT License.</string>
 </dict>
 </plist>
 PLIST

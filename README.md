@@ -307,4 +307,4 @@ Built with [egui](https://github.com/emilk/egui) (wgpu/Metal),
 
 ## License
 
-No license has been chosen yet; until one is added, all rights are reserved by the author.
+[MIT](LICENSE) © 2026 ilhamnadhif

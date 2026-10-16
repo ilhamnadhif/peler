@@ -309,4 +309,4 @@ Dibangun dengan [egui](https://github.com/emilk/egui) (wgpu/Metal),
 
 ## Lisensi
 
-Lisensi belum dipilih; sampai lisensi ditambahkan, seluruh hak dipegang oleh pembuatnya.
+[MIT](LICENSE) © 2026 ilhamnadhif

@@ -3,6 +3,8 @@ name = "peler"
 version = "1.0.0"
 edition = "2024"
 description = "Lightweight SSH/SFTP client for macOS"
+license = "MIT"
+repository = "https://github.com/ilhamnadhif/peler"
 publish = false
 
 [dependencies]
