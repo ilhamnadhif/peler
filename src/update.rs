@@ -46,6 +46,8 @@ pub struct Release {
     /// Version without the leading `v`.
     pub version: String,
     pub notes: String,
+    /// When it was published (`YYYY-MM-DD`).
+    pub date: Option<String>,
     /// The release page.
     pub page: String,
     /// The app archive the updater installs.
@@ -58,6 +60,8 @@ struct ApiRelease {
     #[serde(default)]
     body: Option<String>,
     html_url: String,
+    #[serde(default)]
+    published_at: Option<String>,
     #[serde(default)]
     draft: bool,
     #[serde(default)]
@@ -157,6 +161,7 @@ fn parse_release(json: &[u8]) -> Result<Release, String> {
     Ok(Release {
         version,
         notes: r.body.unwrap_or_default(),
+        date: r.published_at.and_then(|d| d.get(..10).map(str::to_string)),
         page: r.html_url,
         archive,
     })
@@ -638,11 +643,12 @@ mod tests {
 
     #[test]
     fn release_json() {
-        let json = br#"{"tag_name":"v1.2.0","body":"Notes","html_url":"https://github.com/x/y/releases/tag/v1.2.0","draft":false,"prerelease":false,
+        let json = br#"{"tag_name":"v1.2.0","body":"Notes","html_url":"https://github.com/x/y/releases/tag/v1.2.0","published_at":"2026-10-16T10:08:51Z","draft":false,"prerelease":false,
             "assets":[{"name":"Peler-1.2.0.dmg","browser_download_url":"https://a/dmg","size":10,"digest":"sha256:AA"},
                       {"name":"Peler-1.2.0.zip","browser_download_url":"https://a/zip","size":20,"digest":"sha256:ABCD"}]}"#;
         let r = parse_release(json).unwrap();
         assert_eq!(r.version, "1.2.0");
+        assert_eq!(r.date.as_deref(), Some("2026-10-16"));
         let a = r.archive.unwrap();
         assert_eq!(
             (a.url.as_str(), a.size, a.sha256.as_deref()),

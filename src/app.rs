@@ -865,11 +865,18 @@ impl PelerApp {
                     &[&transfers.to_string()],
                 ));
             }
+            // Only the plain "it's connected" question can be turned off; lost transfers and
+            // edits are always asked about.
+            let ask = if transfers == 0 && unsaved.is_none() {
+                dialogs::confirm_close
+            } else {
+                dialogs::confirm
+            };
             if let Some(file) = unsaved {
                 message.push('\n');
                 message.push_str(&tf("Unsaved changes to {} will be lost.", &[&file]));
             }
-            self.dialog = Some(dialogs::confirm(
+            self.dialog = Some(ask(
                 t("Close this tab?"),
                 message,
                 t("Close"),
@@ -2685,7 +2692,8 @@ impl PelerApp {
             });
 
         self.background_transfers(&ctx);
-        if let Some(text) = self.updater.tick(&ctx, &mut self.settings) {
+        let can_popup = !self.modal_open();
+        if let Some(text) = self.updater.tick(&ctx, &mut self.settings, can_popup) {
             self.toasts.info(text);
         }
         self.prompt_ui(&ctx);

@@ -71,16 +71,19 @@ xattr -dr com.apple.quarantine /Applications/Peler.app   # selama rilis belum di
 
 ### Update otomatis
 
-Peler memeriksa rilis baru di GitHub saat dibuka dan sekali sehari. Kalau ada versi baru, tombol
-**Update** muncul di toolbar. **Install and Restart** lalu:
+Setiap kali dibuka, Peler memeriksa rilis baru di GitHub. Kalau ada versi baru, jendela update
+langsung muncul berisi versi sekarang, versi baru, dan daftar perubahannya. **Install Update** lalu:
 
 1. mengunduh versi baru dan memverifikasinya (ukuran, SHA-256 yang dipublikasikan GitHub, bundle
    id, versi, dan tanda tangan kode);
 2. menutup Peler, mengganti aplikasinya, dan membuka versi baru.
 
-Kalau Peler dipasang lewat `.pkg` (aplikasinya milik root), macOS meminta password administrator.
-Anda juga bisa memakai **Peler → Check for Updates…**, melewati satu versi, atau mematikan
-pengecekan otomatis di **Settings → General**. Pengecekan update adalah satu-satunya koneksi yang
+**Close** akan menanyakan lagi saat Peler dibuka berikutnya; centang **Don't show again for
+version …** untuk melewati versi itu. Selama Peler tetap terbuka, pengecekan diulang setiap 6 jam
+dan hanya memunculkan tombol **Update** di toolbar supaya tidak mengganggu. Kalau Peler dipasang
+lewat `.pkg` (aplikasinya milik root), macOS meminta password administrator. Anda juga bisa
+memakai **Peler → Check for Updates…**, atau mematikan pengecekan otomatis di **Settings →
+General**. Pengecekan update adalah satu-satunya koneksi yang
 dibuat Peler selain ke server Anda sendiri.
 
 Versi 1.0.0 belum punya updater; versi berikutnya perlu dipasang manual sekali.

@@ -730,6 +730,26 @@ const ID: &[(&str, &str)] = &[
     ("Discard", "Buang"),
     ("Discard changes?", "Buang perubahan?"),
     (
+        "A new version of Peler is available.",
+        "Versi baru Peler tersedia.",
+    ),
+    ("Current version:", "Versi sekarang:"),
+    ("New version:", "Versi baru:"),
+    ("What's new:", "Yang baru:"),
+    ("No release notes.", "Tidak ada catatan rilis."),
+    (
+        "Don't show again for version {}",
+        "Jangan tampilkan lagi untuk versi {}",
+    ),
+    ("Install Update", "Pasang Update"),
+    ("Download…", "Unduh…"),
+    ("View on GitHub", "Lihat di GitHub"),
+    ("Don't ask again", "Jangan tanya lagi"),
+    (
+        "You can turn it back on in Settings.",
+        "Bisa dinyalakan lagi di Pengaturan.",
+    ),
+    (
         "Could not save to the Keychain: {}",
         "Tidak bisa menyimpan ke Keychain: {}",
     ),
@@ -832,7 +852,6 @@ const ID: &[(&str, &str)] = &[
     ("Checking for updates…", "Memeriksa pembaruan…"),
     ("Downloading… {} of {}", "Mengunduh… {} dari {}"),
     ("Hide", "Sembunyikan"),
-    ("Install and Restart", "Pasang dan Mulai Ulang"),
     ("Later", "Nanti"),
     ("Open Releases Page", "Buka Halaman Rilis"),
     (
@@ -844,7 +863,6 @@ const ID: &[(&str, &str)] = &[
         "Peler will quit, install the new version and open again. Open sessions are closed.",
         "Peler akan keluar, memasang versi baru, lalu terbuka lagi. Sesi yang terbuka akan ditutup.",
     ),
-    ("Peler {} is available", "Peler {} sudah tersedia"),
     (
         "Peler {} is available. Use the Update button to install it.",
         "Peler {} sudah tersedia. Pakai tombol Perbarui untuk memasangnya.",
@@ -858,12 +876,10 @@ const ID: &[(&str, &str)] = &[
         "Peler was updated to version {}.",
         "Peler sudah diperbarui ke versi {}.",
     ),
-    ("Release notes on GitHub", "Catatan rilis di GitHub"),
     ("Restart", "Mulai Ulang"),
     ("Restart Now", "Mulai Ulang Sekarang"),
     ("Restart to Update", "Mulai Ulang untuk Memperbarui"),
     ("Restart to update?", "Mulai ulang untuk memperbarui?"),
-    ("Skip This Version", "Lewati Versi Ini"),
     ("Software Update", "Pembaruan Aplikasi"),
     ("Starting…", "Memulai…"),
     (

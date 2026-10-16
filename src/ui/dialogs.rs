@@ -178,6 +178,9 @@ pub enum Dialog {
         action: ConfirmAction,
         /// When it first appeared (an Enter typed just before must not confirm it).
         shown_at: Option<Instant>,
+        /// "Don't ask again" (ticked or not), for closing a connected tab: confirming with it
+        /// ticked turns the question off.
+        dont_ask: Option<bool>,
     },
     GroupName {
         target: GroupTarget,
@@ -215,6 +218,19 @@ pub fn confirm(title: &str, message: String, button: &str, action: ConfirmAction
         button: button.into(),
         action,
         shown_at: None,
+        dont_ask: None,
+    }
+}
+
+/// The question before closing a connected tab, with "Don't ask again".
+pub fn confirm_close(title: &str, message: String, button: &str, action: ConfirmAction) -> Dialog {
+    Dialog::Confirm {
+        title: title.into(),
+        message,
+        button: button.into(),
+        action,
+        shown_at: None,
+        dont_ask: Some(false),
     }
 }
 
@@ -232,6 +248,7 @@ impl Dialog {
                 button,
                 action,
                 shown_at,
+                dont_ask,
             } => {
                 let mut result = DialogResult::Open;
                 // Enter confirms only when pressed (not auto-repeated, no modifiers) once the
@@ -253,6 +270,18 @@ impl Dialog {
                     ui.heading(title.as_str());
                     ui.add_space(4.0);
                     ui.label(message.as_str());
+                    if let Some(ticked) = dont_ask {
+                        ui.add_space(6.0);
+                        let r = ui
+                            .checkbox(ticked, t("Don't ask again"))
+                            .on_hover_text(t("You can turn it back on in Settings."));
+                        #[cfg(debug_assertions)]
+                        crate::devtest::record("confirm-dont-ask", r.rect);
+                        if r.changed() {
+                            // Enter then confirms instead of toggling the box back.
+                            r.surrender_focus();
+                        }
+                    }
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
                         let ok = ui.button(RichText::new(button.as_str()).strong());
@@ -271,6 +300,9 @@ impl Dialog {
                 });
                 if modal.should_close() && matches!(result, DialogResult::Open) {
                     result = DialogResult::Close;
+                }
+                if matches!(result, DialogResult::Confirmed(_)) && *dont_ask == Some(true) {
+                    settings.confirm_close_connected = false;
                 }
                 result
             }

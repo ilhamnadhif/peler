@@ -25,7 +25,10 @@ BUNDLE_ID="${PELER_BUNDLE_ID:-dev.peler.app}"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
 ARCHS="${PELER_ARCHS:-aarch64 x86_64}"
 DIST="dist"
-APP="$DIST/$APP_NAME.app"
+# The built app sits in a `.noindex` folder: Spotlight skips it, so macOS doesn't offer (and
+# open) this copy instead of the installed one when you launch Peler.
+APP="$DIST/app.noindex/$APP_NAME.app"
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 DMG="$DIST/$APP_NAME-$VERSION.dmg"
 PKG="$DIST/$APP_NAME-$VERSION.pkg"
 ZIP="$DIST/$APP_NAME-$VERSION.zip"
@@ -41,6 +44,11 @@ for arch in $ARCHS; do
     BINS+=("target/$target/release/$BIN_NAME")
 done
 
+# Where earlier versions of this script put the app.
+if [ -d "$DIST/$APP_NAME.app" ]; then
+    "$LSREGISTER" -u "$DIST/$APP_NAME.app" 2>/dev/null || true
+    rm -rf "${DIST:?}/$APP_NAME.app"
+fi
 rm -rf "$APP" "$DMG" "$PKG" "$ZIP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 if [ "${#BINS[@]}" -gt 1 ]; then
@@ -184,6 +192,9 @@ cask "peler" do
   ]
 end
 CASK
+
+# Forget the build if anything registered it, so "Peler" keeps meaning the installed app.
+"$LSREGISTER" -u "$APP" 2>/dev/null || true
 
 echo
 echo "App:      $APP ($(du -sh "$APP" | awk '{print $1}'))"

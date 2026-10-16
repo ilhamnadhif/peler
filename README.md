@@ -71,16 +71,18 @@ xattr -dr com.apple.quarantine /Applications/Peler.app   # until releases are no
 
 ### Automatic updates
 
-Peler checks GitHub for a new release when it starts and once a day. When one is out, an
-**Update** button appears in the toolbar. **Install and Restart** then:
+Every time Peler starts, it checks GitHub for a new release. When one is out, the update window
+opens with the current and new version and what's new. **Install Update** then:
 
 1. downloads the new version and verifies it (size, the SHA-256 GitHub publishes, bundle id,
    version and code signature);
 2. quits Peler, replaces the app, and opens the new version.
 
-If Peler was installed with the `.pkg` (the app is then owned by root), macOS asks for an
-administrator password. You can also use **Peler → Check for Updates…**, skip a version, or turn
-automatic checks off in **Settings → General**. The update check is the only connection Peler
+**Close** asks again at the next start; tick **Don't show again for version …** to skip that
+version. While Peler stays open it checks again every 6 hours and shows an **Update** button in
+the toolbar instead of interrupting you. If Peler was installed with the `.pkg` (the app is then
+owned by root), macOS asks for an administrator password. You can also use **Peler → Check for
+Updates…**, or turn automatic checks off in **Settings → General**. The update check is the only connection Peler
 makes besides your own servers.
 
 Version 1.0.0 has no updater; install the next version by hand once.

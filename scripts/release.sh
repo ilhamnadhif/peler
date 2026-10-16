@@ -112,7 +112,10 @@ else
     gh api "repos/$REPO_SLUG/releases/generate-notes" \
         -f tag_name="$TAG" -f target_commitish="$HEAD_SHA" --jq .body > "$BODY"
 fi
+# The app shows the notes above the marker in its update dialog.
 cat >> "$BODY" <<'INSTALL'
+
+<!-- peler:end-of-notes -->
 
 ## Install
 

@@ -12,9 +12,11 @@ use crate::settings::Settings;
 use crate::sftp::entry::human_size;
 use crate::update::{self, CURRENT, Prepared, Release, Stage};
 
-/// Automatic checks: a few seconds after launch (if the last one is old enough), then daily.
-const FIRST_CHECK_AFTER: Duration = Duration::from_secs(4);
-const CHECK_EVERY_SECS: i64 = 20 * 3600;
+/// Automatic checks: right after launch, where a new version opens the update dialog by
+/// itself, then every few hours while Peler stays open, where it only lights up the toolbar
+/// button (a dialog popping up while you type would take your keys).
+const FIRST_CHECK_AFTER: Duration = Duration::from_secs(2);
+const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
 
 enum State {
     Idle,
@@ -31,11 +33,6 @@ enum Msg {
     Downloaded(Result<Prepared, String>),
 }
 
-enum DialogAction {
-    Install(Release),
-    Skip(String),
-}
-
 /// What the app should do after drawing the dialog.
 pub enum UpdateEvent {
     None,
@@ -48,9 +45,17 @@ pub struct Updater {
     rx: Option<mpsc::Receiver<Msg>>,
     stage: Arc<Mutex<Stage>>,
     pub dialog_open: bool,
-    launched: Instant,
-    /// The version already announced with a toast.
+    next_check: Instant,
+    /// No check has answered yet in this run: an update it finds is shown in the dialog.
+    launch_check: bool,
+    /// The dialog opens for a new version as soon as no other dialog is on screen.
+    popup: bool,
+    /// The version already announced (dialog or toast).
     announced: Option<String>,
+    /// "Don't show again for this version" is ticked in the dialog.
+    skip_ticked: bool,
+    /// A version to skip from now on, for the settings.
+    skipped: Option<String>,
     /// The previous run's update was reported and its leftovers cleaned (first frame).
     started: bool,
 }
@@ -62,8 +67,12 @@ impl Default for Updater {
             rx: None,
             stage: Arc::default(),
             dialog_open: false,
-            launched: Instant::now(),
+            next_check: Instant::now() + FIRST_CHECK_AFTER,
+            launch_check: true,
+            popup: false,
             announced: None,
+            skip_ticked: false,
+            skipped: None,
             started: false,
         }
     }
@@ -108,9 +117,16 @@ impl Updater {
         }
     }
 
-    /// Closes the dialog. A check still running carries on like an automatic one.
+    /// Closes the dialog. A check still running carries on like an automatic one. A version
+    /// the user chose not to see again is dropped (no toolbar button either).
     pub fn close_dialog(&mut self) {
         self.dialog_open = false;
+        if std::mem::take(&mut self.skip_ticked)
+            && let State::Available(release) = &self.state
+        {
+            self.skipped = Some(release.version.clone());
+            self.state = State::Idle;
+        }
         if matches!(
             self.state,
             State::UpToDate | State::Error(_) | State::Checking
@@ -148,9 +164,17 @@ impl Updater {
     }
 
     /// Runs every frame: schedules automatic checks and collects results. Returns a message to
-    /// show as a toast.
-    pub fn tick(&mut self, ctx: &egui::Context, settings: &mut Settings) -> Option<String> {
+    /// show as a toast. `can_popup`: no other dialog is open, so the update dialog may appear.
+    pub fn tick(
+        &mut self,
+        ctx: &egui::Context,
+        settings: &mut Settings,
+        can_popup: bool,
+    ) -> Option<String> {
         let mut toast = None;
+        if let Some(version) = self.skipped.take() {
+            settings.skipped_version = Some(version);
+        }
         if !self.started {
             self.started = true;
             toast = self.report_last_update();
@@ -164,6 +188,7 @@ impl Updater {
                     // Someone is looking at "Checking for updates…" (whichever check it was).
                     let manual =
                         self.dialog_open && matches!(self.state, State::Idle | State::Checking);
+                    let at_launch = std::mem::take(&mut self.launch_check);
                     settings.last_update_check = Some(now_secs());
                     match result {
                         Ok(Some(release)) => {
@@ -171,10 +196,14 @@ impl Updater {
                                 == Some(release.version.as_str());
                             if manual || !skipped {
                                 if self.announced.as_deref() != Some(&release.version) && !manual {
-                                    toast = Some(tf(
-                                        "Peler {} is available. Use the Update button to install it.",
-                                        &[&release.version],
-                                    ));
+                                    if at_launch {
+                                        self.popup = true;
+                                    } else {
+                                        toast = Some(tf(
+                                            "Peler {} is available. Use the Update button to install it.",
+                                            &[&release.version],
+                                        ));
+                                    }
                                 }
                                 self.announced = Some(release.version.clone());
                                 self.state = State::Available(release);
@@ -202,23 +231,31 @@ impl Updater {
                 }
             }
         }
+        // A new version found at launch: shown once nothing else is on screen.
+        if self.popup && can_popup {
+            self.popup = false;
+            if matches!(self.state, State::Available(_)) {
+                self.dialog_open = true;
+            }
+        }
         // Automatic checks.
-        let due = settings
-            .last_update_check
-            .is_none_or(|last| now_secs() - last >= CHECK_EVERY_SECS);
+        let now = Instant::now();
         if settings.check_updates
-            && due
+            && now >= self.next_check
             && !self.busy()
             && matches!(self.state, State::Idle)
-            && self.launched.elapsed() >= FIRST_CHECK_AFTER
         {
+            self.next_check = now + CHECK_EVERY;
             self.start_check(ctx);
         }
         if matches!(self.state, State::Downloading(_)) {
             ctx.request_repaint_after(Duration::from_millis(200));
         } else if settings.check_updates && !self.busy() {
             // Wake up for the next scheduled check even when nothing else happens.
-            ctx.request_repaint_after(Duration::from_secs(600));
+            let wait = self.next_check.saturating_duration_since(now);
+            ctx.request_repaint_after(
+                wait.clamp(Duration::from_millis(50), Duration::from_secs(600)),
+            );
         }
         toast
     }
@@ -280,9 +317,15 @@ impl Updater {
         }
         let mut event = UpdateEvent::None;
         let mut close = false;
-        let mut action = None;
+        let mut install_release = None;
+        let screen = ctx.content_rect();
+        let width = if matches!(self.state, State::Available(_)) {
+            (screen.width() - 60.0).clamp(380.0, 640.0)
+        } else {
+            460.0
+        };
         let modal = egui::Modal::new(Id::new("update-dialog")).show(ctx, |ui| {
-            ui.set_width(460.0);
+            ui.set_width(width);
             match &self.state {
                 State::Idle | State::Checking => {
                     ui.heading(t("Software Update"));
@@ -321,14 +364,32 @@ impl Updater {
                     });
                 }
                 State::Available(release) => {
-                    ui.heading(tf("Peler {} is available", &[&release.version]));
-                    ui.label(RichText::new(tf("You have version {}.", &[CURRENT])).weak());
+                    ui.heading(t("Software Update"));
+                    ui.label(RichText::new(t("A new version of Peler is available.")).strong());
                     ui.add_space(6.0);
-                    release_notes(ui, &release.notes);
+                    egui::Grid::new("update-versions")
+                        .num_columns(2)
+                        .spacing([16.0, 4.0])
+                        .show(ui, |ui| {
+                            ui.label(t("Current version:"));
+                            ui.label(CURRENT);
+                            ui.end_row();
+                            ui.label(t("New version:"));
+                            let new = match &release.date {
+                                Some(date) => format!("{}   ({date})", release.version),
+                                None => release.version.clone(),
+                            };
+                            ui.label(RichText::new(new).strong());
+                            ui.end_row();
+                        });
                     ui.add_space(8.0);
+                    ui.label(RichText::new(t("What's new:")).weak());
+                    let notes_h = (screen.height() - 380.0).clamp(140.0, 360.0);
+                    release_notes(ui, &release.notes, notes_h);
                     let installable =
                         update::installed_bundle().is_some() && release.archive.is_some();
                     if !installable {
+                        ui.add_space(6.0);
                         ui.label(
                             RichText::new(t(
                                 "Automatic installation needs Peler in the Applications folder. Download the new version from GitHub instead.",
@@ -337,33 +398,51 @@ impl Updater {
                             .small(),
                         );
                     }
+                    ui.add_space(10.0);
                     ui.horizontal(|ui| {
-                        if installable {
-                            let install = ui.add(
-                                egui::Button::new(
-                                    RichText::new(t("Install and Restart")).color(egui::Color32::WHITE),
+                        let skip = ui.checkbox(
+                            &mut self.skip_ticked,
+                            tf("Don't show again for version {}", &[&release.version]),
+                        );
+                        #[cfg(debug_assertions)]
+                        crate::devtest::record("update-skip", skip.rect);
+                        let _ = skip;
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if installable {
+                                let install = ui.add(
+                                    egui::Button::new(
+                                        RichText::new(t("Install Update")).color(egui::Color32::WHITE),
+                                    )
+                                    .fill(style::ACCENT),
+                                );
+                                #[cfg(debug_assertions)]
+                                crate::devtest::record("update-install", install.rect);
+                                if install.clicked() {
+                                    install_release = Some(release.clone());
+                                }
+                            } else if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new(t("Download…")).color(egui::Color32::WHITE),
+                                    )
+                                    .fill(style::ACCENT),
                                 )
-                                .fill(style::ACCENT),
-                            );
-                            #[cfg(debug_assertions)]
-                            crate::devtest::record("update-install", install.rect);
-                            if install.clicked() {
-                                action = Some(DialogAction::Install(release.clone()));
+                                .clicked()
+                            {
+                                update::open_page(&release.page);
+                                close = true;
                             }
-                        } else if ui.button(RichText::new(t("Download")).strong()).clicked() {
-                            update::open_page(&release.page);
-                            close = true;
-                        }
-                        if ui.button(t("Later")).clicked() {
-                            close = true;
-                        }
-                        if ui.button(t("Skip This Version")).clicked() {
-                            action = Some(DialogAction::Skip(release.version.clone()));
-                        }
+                            let close_button = ui.button(t("Close"));
+                            #[cfg(debug_assertions)]
+                            crate::devtest::record("update-close", close_button.rect);
+                            if close_button.clicked() {
+                                close = true;
+                            }
+                            if ui.button(t("View on GitHub")).clicked() {
+                                update::open_page(&release.page);
+                            }
+                        });
                     });
-                    if ui.link(t("Release notes on GitHub")).clicked() {
-                        update::open_page(&release.page);
-                    }
                 }
                 State::Downloading(release) => {
                     ui.heading(tf("Updating to Peler {}", &[&release.version]));
@@ -416,59 +495,184 @@ impl Updater {
         if super::dialogs::escape_only(ctx, &modal) {
             close = true;
         }
-        match action {
-            Some(DialogAction::Install(release)) => self.start_download(ctx, release),
-            Some(DialogAction::Skip(version)) => {
-                settings.skipped_version = Some(version);
-                self.state = State::Idle;
-                close = true;
-            }
-            None => {}
+        if let Some(release) = install_release {
+            self.skip_ticked = false;
+            self.start_download(ctx, release);
         }
         if close {
             self.close_dialog();
+            if let Some(version) = self.skipped.take() {
+                settings.skipped_version = Some(version);
+            }
         }
         event
     }
 }
 
-/// Release notes from GitHub (Markdown), shown as simple text.
-fn release_notes(ui: &mut egui::Ui, notes: &str) {
-    if notes.trim().is_empty() {
-        return;
+/// Marks where the release notes end and the web-only part (how to install) begins.
+const NOTES_END: &str = "<!-- peler:end-of-notes -->";
+
+/// One piece of the release notes.
+#[derive(Debug, PartialEq)]
+enum Block {
+    Heading(String),
+    /// A list item, with its nesting level.
+    Item(usize, String),
+    Paragraph(String),
+    Code(String),
+}
+
+/// A small Markdown reader for release notes: headings, (nested) lists, paragraphs and code
+/// blocks; lines that continue a list item or paragraph are joined to it. Stops where the
+/// install instructions begin.
+fn parse_notes(notes: &str) -> Vec<Block> {
+    let mut blocks = Vec::new();
+    let mut in_code = false;
+    // The previous line continues: a list item or paragraph that a next line may extend.
+    let mut open = false;
+    for line in notes.lines() {
+        let line = line.trim_end();
+        if line.trim() == NOTES_END || line == "## Install" {
+            break;
+        }
+        if line.trim_start().starts_with("```") {
+            in_code = !in_code;
+            open = false;
+            continue;
+        }
+        if in_code {
+            blocks.push(Block::Code(line.to_string()));
+            continue;
+        }
+        let trimmed = line.trim_start();
+        let indent = line.len() - trimmed.len();
+        if trimmed.is_empty() || trimmed.starts_with("<!--") {
+            open = false;
+        } else if trimmed.starts_with('#') {
+            blocks.push(Block::Heading(
+                trimmed.trim_start_matches('#').trim().to_string(),
+            ));
+            open = false;
+        } else if let Some(text) = trimmed
+            .strip_prefix("- ")
+            .or_else(|| trimmed.strip_prefix("* "))
+        {
+            blocks.push(Block::Item(indent / 2, text.trim().to_string()));
+            open = true;
+        } else if open
+            && let Some(Block::Item(_, text) | Block::Paragraph(text)) = blocks.last_mut()
+        {
+            text.push(' ');
+            text.push_str(trimmed);
+        } else {
+            blocks.push(Block::Paragraph(trimmed.to_string()));
+            open = true;
+        }
     }
+    blocks
+}
+
+/// Inline Markdown: **bold** stands out, `code` is monospace, links show their text.
+fn inline(ui: &egui::Ui, text: &str) -> egui::text::LayoutJob {
+    let mut job = egui::text::LayoutJob::default();
+    let body = egui::TextStyle::Body.resolve(ui.style());
+    let mono = egui::TextStyle::Monospace.resolve(ui.style());
+    let normal = ui.visuals().text_color();
+    let strong = ui.visuals().strong_text_color();
+    // [text](url) → text
+    let mut plain = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('[') {
+        let after = &rest[open + 1..];
+        match after.find("](").and_then(|close| {
+            after[close + 2..]
+                .find(')')
+                .map(|end| (close, close + 2 + end))
+        }) {
+            Some((close, end)) => {
+                plain.push_str(&rest[..open]);
+                plain.push_str(&after[..close]);
+                rest = &after[end + 1..];
+            }
+            None => {
+                plain.push_str(&rest[..=open]);
+                rest = after;
+            }
+        }
+    }
+    plain.push_str(rest);
+    let (mut bold, mut code) = (false, false);
+    let mut chunk = String::new();
+    let mut chars = plain.chars().peekable();
+    let flush = |job: &mut egui::text::LayoutJob, chunk: &mut String, bold: bool, code: bool| {
+        if chunk.is_empty() {
+            return;
+        }
+        let format = egui::TextFormat {
+            font_id: if code { mono.clone() } else { body.clone() },
+            color: if bold { strong } else { normal },
+            ..Default::default()
+        };
+        job.append(&std::mem::take(chunk), 0.0, format);
+    };
+    while let Some(c) = chars.next() {
+        if c == '*' && chars.peek() == Some(&'*') && !code {
+            chars.next();
+            flush(&mut job, &mut chunk, bold, code);
+            bold = !bold;
+        } else if c == '`' {
+            flush(&mut job, &mut chunk, bold, code);
+            code = !code;
+        } else {
+            chunk.push(c);
+        }
+    }
+    flush(&mut job, &mut chunk, bold, code);
+    job
+}
+
+/// Release notes from GitHub (Markdown), in a scrolling box.
+fn release_notes(ui: &mut egui::Ui, notes: &str, max_height: f32) {
+    let blocks = parse_notes(notes);
     egui::Frame::NONE
-        .fill(ui.visuals().faint_bg_color)
-        .inner_margin(egui::Margin::same(8))
+        .fill(ui.visuals().extreme_bg_color)
+        .stroke(ui.visuals().widgets.noninteractive.bg_stroke)
+        .inner_margin(egui::Margin::same(10))
         .corner_radius(6)
         .show(ui, |ui| {
             egui::ScrollArea::vertical()
-                .max_height(220.0)
+                .max_height(max_height)
+                .min_scrolled_height(max_height.min(140.0))
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
-                    let mut in_code = false;
-                    for line in notes.lines() {
-                        let trimmed = line.trim_end();
-                        if trimmed.starts_with("```") {
-                            in_code = !in_code;
-                            continue;
-                        }
-                        if in_code {
-                            ui.label(RichText::new(trimmed).monospace().small());
-                        } else if let Some(h) = trimmed.trim_start_matches('#').strip_prefix(' ')
-                            && trimmed.starts_with('#')
-                        {
-                            ui.add_space(4.0);
-                            ui.label(RichText::new(h).strong());
-                        } else if trimmed.is_empty() {
-                            ui.add_space(4.0);
-                        } else {
-                            let text = trimmed.replace("**", "").replace('`', "");
-                            let text = match text.trim_start().strip_prefix("- ") {
-                                Some(rest) => format!("•  {rest}"),
-                                None => text,
-                            };
-                            ui.label(text);
+                    if blocks.is_empty() {
+                        ui.label(RichText::new(t("No release notes.")).weak());
+                    }
+                    for (i, block) in blocks.iter().enumerate() {
+                        match block {
+                            Block::Heading(text) => {
+                                if i > 0 {
+                                    ui.add_space(6.0);
+                                }
+                                ui.label(RichText::new(text).strong());
+                            }
+                            Block::Item(level, text) => {
+                                ui.horizontal_top(|ui| {
+                                    ui.add_space(4.0 + *level as f32 * 16.0);
+                                    ui.label(if *level == 0 { "•" } else { "◦" });
+                                    ui.vertical(|ui| {
+                                        let job = inline(ui, text);
+                                        ui.add(egui::Label::new(job).wrap());
+                                    });
+                                });
+                            }
+                            Block::Paragraph(text) => {
+                                let job = inline(ui, text);
+                                ui.add(egui::Label::new(job).wrap());
+                            }
+                            Block::Code(text) => {
+                                ui.label(RichText::new(text).monospace().small());
+                            }
                         }
                     }
                 });
@@ -483,18 +687,20 @@ mod tests {
         Release {
             version: version.into(),
             notes: String::new(),
+            date: None,
             page: String::new(),
             archive: None,
         }
     }
 
-    /// An updater with an automatic check running, as 4 s after launch. (`started` skips the
-    /// first-frame report, which reads the real data folder.)
-    fn checking_in_background() -> (Updater, mpsc::Sender<Msg>) {
+    /// An updater with an automatic check running: the one right after launch, or a later
+    /// one. (`started` skips the first-frame report, which reads the real data folder.)
+    fn checking_in_background(at_launch: bool) -> (Updater, mpsc::Sender<Msg>) {
         let (tx, rx) = mpsc::channel();
         let updater = Updater {
             rx: Some(rx),
             started: true,
+            launch_check: at_launch,
             ..Default::default()
         };
         (updater, tx)
@@ -509,11 +715,11 @@ mod tests {
             skipped_version: Some("9.0.0".into()),
             ..Default::default()
         };
-        let (mut updater, tx) = checking_in_background();
+        let (mut updater, tx) = checking_in_background(true);
         updater.check_now(&ctx);
         assert!(matches!(updater.state, State::Checking) && updater.dialog_open);
         tx.send(Msg::Checked(answer)).unwrap();
-        assert_eq!(updater.tick(&ctx, &mut settings), None);
+        assert_eq!(updater.tick(&ctx, &mut settings, false), None);
         assert!(updater.dialog_open && !updater.busy());
         updater.state
     }
@@ -539,17 +745,66 @@ mod tests {
     fn closed_dialog_gets_the_automatic_behavior() {
         let ctx = egui::Context::default();
         let mut settings = Settings::default();
-        let (mut updater, tx) = checking_in_background();
+        let (mut updater, tx) = checking_in_background(false);
         updater.check_now(&ctx);
         updater.close_dialog();
         assert!(matches!(updater.state, State::Idle) && !updater.dialog_open);
         tx.send(Msg::Checked(Ok(Some(release("9.0.0"))))).unwrap();
-        assert!(updater.tick(&ctx, &mut settings).is_some(), "announced");
+        assert!(
+            updater.tick(&ctx, &mut settings, true).is_some(),
+            "announced"
+        );
         assert!(matches!(updater.state, State::Available(_)) && !updater.dialog_open);
 
-        let (mut updater, tx) = checking_in_background();
+        let (mut updater, tx) = checking_in_background(false);
         tx.send(Msg::Checked(Err("offline".into()))).unwrap();
-        assert_eq!(updater.tick(&ctx, &mut settings), None);
+        assert_eq!(updater.tick(&ctx, &mut settings, true), None);
         assert!(matches!(updater.state, State::Idle) && !updater.dialog_open);
+    }
+
+    #[test]
+    fn notes_are_read_like_markdown() {
+        let notes = "## Fixes\n\n- **Peler no longer quits** when you close\n  a tab.\n- Dialogs\n  - Esc closes `Export` again.\n\nSee [the page](https://x) for more.\n\n<!-- peler:end-of-notes -->\n\n## Install\n\ncurl …";
+        assert_eq!(
+            parse_notes(notes),
+            [
+                Block::Heading("Fixes".into()),
+                Block::Item(0, "**Peler no longer quits** when you close a tab.".into()),
+                Block::Item(0, "Dialogs".into()),
+                Block::Item(1, "Esc closes `Export` again.".into()),
+                Block::Paragraph("See [the page](https://x) for more.".into()),
+            ]
+        );
+        // Releases made before the marker existed stop at their install section.
+        assert_eq!(
+            parse_notes("- One\n\n## Install\n\n- curl"),
+            [Block::Item(0, "One".into())]
+        );
+    }
+
+    /// A new version found right after launch opens the dialog, once no other dialog is up;
+    /// a skipped version doesn't, and later checks only announce it.
+    #[test]
+    fn launch_check_opens_the_dialog() {
+        let ctx = egui::Context::default();
+        let mut settings = Settings::default();
+        let (mut updater, tx) = checking_in_background(true);
+        tx.send(Msg::Checked(Ok(Some(release("9.0.0"))))).unwrap();
+        assert_eq!(updater.tick(&ctx, &mut settings, false), None, "no toast");
+        assert!(!updater.dialog_open, "waits for the other dialog");
+        assert_eq!(updater.tick(&ctx, &mut settings, true), None);
+        assert!(updater.dialog_open && matches!(updater.state, State::Available(_)));
+        updater.close_dialog();
+        assert_eq!(updater.tick(&ctx, &mut settings, true), None);
+        assert!(!updater.dialog_open, "Later: not shown again in this run");
+
+        let mut settings = Settings {
+            skipped_version: Some("9.0.0".into()),
+            ..Default::default()
+        };
+        let (mut updater, tx) = checking_in_background(true);
+        tx.send(Msg::Checked(Ok(Some(release("9.0.0"))))).unwrap();
+        assert_eq!(updater.tick(&ctx, &mut settings, true), None);
+        assert!(!updater.dialog_open && matches!(updater.state, State::Idle));
     }
 }
