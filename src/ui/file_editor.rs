@@ -5,7 +5,7 @@ use std::sync::mpsc;
 
 use eframe::egui::text::{CCursor, CCursorRange, CharIndex, LayoutJob};
 use eframe::egui::text_edit::TextEditState;
-use eframe::egui::{self, Color32, FontId, Id, Key, Modifiers, RichText, TextStyle, vec2};
+use eframe::egui::{self, Color32, Event, FontId, Id, Key, Modifiers, RichText, TextStyle, vec2};
 
 use super::style;
 use crate::i18n::{t, tf};
@@ -30,6 +30,8 @@ enum Confirm {
     Discard,
     /// The file changed on the server: overwrite it?
     Overwrite,
+    /// The file was deleted on the server: create it again?
+    Recreate,
 }
 
 pub enum EditorOutput {
@@ -148,6 +150,10 @@ impl FileEditor {
                         self.status = None;
                         self.confirm = Some(Confirm::Overwrite);
                     }
+                    Err(SaveError::Deleted) => {
+                        self.status = None;
+                        self.confirm = Some(Confirm::Recreate);
+                    }
                     // The text stays in the editor, so nothing typed is lost.
                     Err(SaveError::Failed(e)) => {
                         self.status = Some(Status::Error(tf("Could not save: {}", &[&e])))
@@ -196,50 +202,61 @@ impl FileEditor {
     }
 
     /// Tab and Enter, handled before the text field sees them: Tab indents with spaces (YAML
-    /// forbids tabs), Enter keeps the current line's indentation.
+    /// forbids tabs), Enter keeps the current line's indentation. Each key press becomes the
+    /// text it stands for, in place, so fast typing keeps its order.
     fn handle_keys(&mut self, ctx: &egui::Context, id: Id) {
         if !ctx.memory(|m| m.has_focus(id)) {
             return;
         }
-        let (tab, enter) = ctx.input_mut(|i| {
-            (
-                i.consume_key(Modifiers::NONE, Key::Tab),
-                i.consume_key(Modifiers::NONE, Key::Enter),
-            )
-        });
-        if !tab && !enter {
+        let pressed = |e: &Event, key: Key| matches!(e, Event::Key { key: k, pressed: true, modifiers, .. } if *k == key && modifiers.is_none());
+        if !ctx.input(|i| {
+            i.events
+                .iter()
+                .any(|e| pressed(e, Key::Tab) || pressed(e, Key::Enter))
+        }) {
             return;
         }
-        let Some(mut state) = TextEditState::load(ctx, id) else {
+        let cursor = TextEditState::load(ctx, id)
+            .and_then(|s| s.cursor.char_range())
+            .map_or(self.text.chars().count(), |r| {
+                r.as_sorted_char_range().start.0
+            });
+        let start = self
+            .text
+            .char_indices()
+            .nth(cursor)
+            .map_or(self.text.len(), |(b, _)| b);
+        let line_start = self.text[..start].rfind('\n').map_or(0, |i| i + 1);
+        let indent: String = self.text[line_start..start]
+            .chars()
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .collect();
+        let unit = self.indent_unit();
+        ctx.input_mut(|i| {
+            for e in &mut i.events {
+                if pressed(e, Key::Tab) {
+                    *e = Event::Text(unit.to_string());
+                } else if pressed(e, Key::Enter) {
+                    *e = Event::Text(format!("\n{indent}"));
+                }
+            }
+        });
+    }
+
+    /// Writes the text to a file on this Mac (when the server can't take it).
+    fn save_copy(&mut self) {
+        let Some(dest) = rfd::FileDialog::new()
+            .set_title(t("Save a Copy"))
+            .set_file_name(self.name())
+            .save_file()
+        else {
             return;
         };
-        let Some(range) = state.cursor.char_range() else {
-            return;
-        };
-        let chars = range.as_sorted_char_range();
-        let byte = |c: usize| {
-            self.text
-                .char_indices()
-                .nth(c)
-                .map_or(self.text.len(), |(b, _)| b)
-        };
-        let (start, end) = (byte(chars.start.0), byte(chars.end.0));
-        let insert = if tab {
-            self.indent_unit().to_string()
-        } else {
-            let line_start = self.text[..start].rfind('\n').map_or(0, |i| i + 1);
-            let indent: String = self.text[line_start..start]
-                .chars()
-                .take_while(|c| *c == ' ' || *c == '\t')
-                .collect();
-            format!("\n{indent}")
-        };
-        self.text.replace_range(start..end, &insert);
-        let at = chars.start.0 + insert.chars().count();
-        state
-            .cursor
-            .set_char_range(Some(CCursorRange::one(CCursor::new(CharIndex(at)))));
-        state.store(ctx, id);
+        let data = edit::encode(&self.text, self.crlf, self.bom);
+        self.status = Some(match std::fs::write(&dest, data) {
+            Ok(()) => Status::Info(tf("Saved a copy to {}.", &[&dest.display().to_string()])),
+            Err(e) => Status::Error(tf("Could not save: {}", &[&e.to_string()])),
+        });
     }
 
     pub fn show(
@@ -259,6 +276,7 @@ impl FileEditor {
         let dirty = self.is_dirty();
         let mut save_clicked = false;
         let mut close_clicked = false;
+        let mut copy_clicked = false;
 
         if self.confirm.is_none() {
             let (save_key, escape) = ctx.input_mut(|i| {
@@ -300,6 +318,14 @@ impl FileEditor {
                     }
                     if saving {
                         ui.spinner();
+                    }
+                    if matches!(self.state, State::Ready)
+                        && ui
+                            .button(t("Save a Copy…"))
+                            .on_hover_text(t("Save the text to a file on this Mac"))
+                            .clicked()
+                    {
+                        copy_clicked = true;
                     }
                 });
             });
@@ -431,6 +457,9 @@ impl FileEditor {
             });
         });
 
+        if copy_clicked {
+            self.save_copy();
+        }
         if save_clicked {
             if dirty {
                 self.save(rt, ctx, sftp.clone(), false);
@@ -482,24 +511,37 @@ impl FileEditor {
                     None => {}
                 }
             }
-            Some(Confirm::Overwrite) => {
+            Some(confirm @ (Confirm::Overwrite | Confirm::Recreate)) => {
                 let mut choice = None;
+                let (heading, message, button) = if confirm == Confirm::Overwrite {
+                    (
+                        t("The file changed on the server"),
+                        tf(
+                            "{} was changed by someone else after you opened it. Saving replaces those changes.",
+                            &[self.name()],
+                        ),
+                        t("Overwrite"),
+                    )
+                } else {
+                    (
+                        t("The file was deleted on the server"),
+                        tf(
+                            "{} was deleted after you opened it. Saving creates it again.",
+                            &[self.name()],
+                        ),
+                        t("Save"),
+                    )
+                };
                 egui::Modal::new(Id::new(("file-editor-overwrite", &self.path))).show(ctx, |ui| {
                     ui.set_width(420.0);
-                    ui.heading(t("The file changed on the server"));
-                    ui.label(tf(
-                        "{} was changed by someone else after you opened it. Saving replaces those changes.",
-                        &[self.name()],
-                    ));
+                    ui.heading(heading);
+                    ui.label(message);
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         if ui.button(RichText::new(t("Cancel")).strong()).clicked() {
                             choice = Some(false);
                         }
-                        if ui
-                            .button(RichText::new(t("Overwrite")).color(style::RED))
-                            .clicked()
-                        {
+                        if ui.button(RichText::new(button).color(style::RED)).clicked() {
                             choice = Some(true);
                         }
                     });

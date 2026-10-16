@@ -8,11 +8,11 @@
 //! would.
 
 use russh_sftp::client::SftpSession;
-use russh_sftp::protocol::{FileAttributes, FileType, OpenFlags};
+use russh_sftp::protocol::{FileAttributes, FileType, OpenFlags, StatusCode};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::entry::{remote_join, remote_name, remote_parent};
-use super::remote::describe;
+use super::remote::{describe, random_suffix, replace_file, same_owner};
 use crate::i18n::{t, tf};
 
 /// Largest file the editor opens (the editor lays out the whole text).
@@ -72,6 +72,8 @@ impl LoadError {
 pub enum SaveError {
     /// The file changed on the server since it was opened (or last saved).
     Changed,
+    /// The file is no longer on the server (saving without a stamp creates it again).
+    Deleted,
     Failed(String),
 }
 
@@ -163,10 +165,21 @@ pub async fn save(
     data: &[u8],
     expected: Option<Stamp>,
 ) -> Result<Stamp, SaveError> {
-    let attrs = sftp
-        .metadata(path)
-        .await
-        .map_err(|e| SaveError::Failed(failed(e)))?;
+    let attrs = match sftp.metadata(path).await {
+        Ok(a) => a,
+        Err(russh_sftp::client::error::Error::Status(st))
+            if st.status_code == StatusCode::NoSuchFile =>
+        {
+            if expected.is_some() {
+                return Err(SaveError::Deleted);
+            }
+            create_new(sftp, path, data)
+                .await
+                .map_err(SaveError::Failed)?;
+            return stamp(sftp, path).await.map_err(SaveError::Failed);
+        }
+        Err(e) => return Err(SaveError::Failed(failed(e))),
+    };
     if expected.is_some_and(|s| s != Stamp::of(&attrs)) {
         return Err(SaveError::Changed);
     }
@@ -187,12 +200,6 @@ pub async fn save(
     stamp(sftp, path).await.map_err(SaveError::Failed)
 }
 
-fn random_suffix() -> String {
-    let mut b = [0u8; 6];
-    let _ = getrandom::fill(&mut b);
-    b.iter().map(|x| format!("{x:02x}")).collect()
-}
-
 /// Writes the new content next to the file and swaps it in. `Ok(false)` when this can't be
 /// done without changing the file's owner or needing rights we don't have (nothing was
 /// changed; the caller writes in place instead).
@@ -204,9 +211,7 @@ async fn replace_via_temp(
 ) -> Result<bool, String> {
     let dir = remote_parent(path);
     let name = remote_name(path).to_string();
-    let suffix = random_suffix();
-    let tmp = remote_join(&dir, &format!(".{name}.peler-edit-{suffix}"));
-    let old = remote_join(&dir, &format!(".{name}.peler-old-{suffix}"));
+    let tmp = remote_join(&dir, &format!(".{name}.peler-edit-{}", random_suffix()));
     let mode = original.permissions.map(|p| p & 0o7777);
     let attrs = FileAttributes {
         permissions: mode,
@@ -224,11 +229,7 @@ async fn replace_via_temp(
     };
     // A new file is ours; if the original belongs to someone else, swapping would change that.
     let created = file.metadata().await.ok();
-    let same_owner = match (created, original.uid, original.gid) {
-        (Some(c), Some(uid), Some(gid)) => c.uid == Some(uid) && c.gid == Some(gid),
-        _ => false,
-    };
-    if !same_owner {
+    if !same_owner(created.as_ref(), original) {
         let _ = file.shutdown().await;
         let _ = sftp.remove_file(tmp).await;
         return Ok(false);
@@ -257,18 +258,32 @@ async fn replace_via_temp(
         let _ = sftp.remove_file(tmp).await;
         return Err(e);
     }
-    if sftp.rename(path, old.clone()).await.is_err() {
-        // e.g. a sticky folder: leave the original alone and write in place.
-        let _ = sftp.remove_file(tmp).await;
-        return Ok(false);
+    match replace_file(sftp, &tmp, path).await {
+        Ok(true) => Ok(true),
+        // e.g. a sticky folder: the original is untouched, it is written in place.
+        Ok(false) => {
+            let _ = sftp.remove_file(tmp).await;
+            Ok(false)
+        }
+        Err(e) => {
+            let _ = sftp.remove_file(tmp).await;
+            Err(e)
+        }
     }
-    if let Err(e) = sftp.rename(tmp.clone(), path).await {
-        let _ = sftp.rename(old, path).await;
-        let _ = sftp.remove_file(tmp).await;
-        return Err(failed(e));
-    }
-    let _ = sftp.remove_file(old).await;
-    Ok(true)
+}
+
+/// Writes a file that doesn't exist (any more); refuses to replace one created meanwhile.
+async fn create_new(sftp: &SftpSession, path: &str, data: &[u8]) -> Result<(), String> {
+    let mut file = sftp
+        .open_with_flags(
+            path,
+            OpenFlags::CREATE | OpenFlags::EXCLUDE | OpenFlags::WRITE,
+        )
+        .await
+        .map_err(failed)?;
+    file.write_all(data).await.map_err(|e| e.to_string())?;
+    file.sync_all().await.map_err(failed)?;
+    file.shutdown().await.map_err(|e| e.to_string())
 }
 
 async fn write_in_place(sftp: &SftpSession, path: &str, data: &[u8]) -> Result<(), String> {

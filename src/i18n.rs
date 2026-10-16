@@ -729,6 +729,25 @@ const ID: &[(&str, &str)] = &[
     ("Could not save: {}", "Tidak bisa menyimpan: {}"),
     ("Discard", "Buang"),
     ("Discard changes?", "Buang perubahan?"),
+    (
+        "Could not save to the Keychain: {}",
+        "Tidak bisa menyimpan ke Keychain: {}",
+    ),
+    ("Save a Copy", "Simpan Salinan"),
+    ("Save a Copy…", "Simpan Salinan…"),
+    (
+        "Save the text to a file on this Mac",
+        "Simpan teks ke file di Mac ini",
+    ),
+    ("Saved a copy to {}.", "Salinan disimpan ke {}."),
+    (
+        "The file was deleted on the server",
+        "File telah dihapus di server",
+    ),
+    (
+        "{} was deleted after you opened it. Saving creates it again.",
+        "{} dihapus setelah Anda membukanya. Menyimpan akan membuatnya lagi.",
+    ),
     ("Keep Editing", "Lanjut Mengedit"),
     ("Ln", "Brs"),
     ("No changes to save.", "Tidak ada perubahan untuk disimpan."),
@@ -878,6 +897,10 @@ const ID: &[(&str, &str)] = &[
         "✓ Private key terenkripsi: isi passphrase-nya di bawah (atau saat konek).",
     ),
     ("✓ {} private key", "✓ Private key {}"),
+    (
+        "Something went wrong and Peler recovered. A report was saved in ~/Library/Logs/Peler.",
+        "Terjadi kesalahan dan Peler berhasil pulih. Laporannya disimpan di ~/Library/Logs/Peler.",
+    ),
 ];
 
 #[cfg(test)]

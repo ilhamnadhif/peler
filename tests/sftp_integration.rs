@@ -307,7 +307,12 @@ fn file_operations_and_transfers() {
         std::fs::read_to_string(back.join("victim.txt")).unwrap(),
         "remote"
     );
-    assert!(!back.join(".victim.txt.peler-part").exists());
+    let leftovers: Vec<_> = std::fs::read_dir(&back)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.contains("peler-part"))
+        .collect();
+    assert!(leftovers.is_empty(), "temporary files left: {leftovers:?}");
 
     // Recursive delete.
     rt.block_on(async {
@@ -333,6 +338,122 @@ fn file_operations_and_transfers() {
     }
     drop(conn);
     let _ = ConnState::Connecting;
+}
+
+/// Replacing files on the server: a symlink stays a link, a folder we can't create files in
+/// gets the file rewritten in place, and an unreadable file inside a folder is skipped.
+#[test]
+fn upload_replaces_files_safely() {
+    use std::os::unix::fs::PermissionsExt;
+    let rt = runtime();
+    let server = TestServer::start();
+    let (_conn, sftp) = connect(&rt, &server);
+    let remote_dir = server.dir.path().join("dest");
+    std::fs::create_dir(&remote_dir).unwrap();
+    let remote_str = remote_dir.to_str().unwrap().to_string();
+    let local = server.dir.path().join("src");
+    std::fs::create_dir(&local).unwrap();
+    let mut transfers = Transfers::default();
+    let leftovers = |dir: &Path| -> Vec<String> {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.contains(".peler-"))
+            .collect()
+    };
+
+    // Through a symlink: the target changes, the link stays.
+    let target = remote_dir.join("real.conf");
+    std::fs::write(&target, "old").unwrap();
+    std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o640)).unwrap();
+    std::os::unix::fs::symlink(&target, remote_dir.join("app.conf")).unwrap();
+    std::fs::write(local.join("app.conf"), "new").unwrap();
+    let up = transfers
+        .upload(
+            rt.handle(),
+            sftp.clone(),
+            local.join("app.conf"),
+            &remote_str,
+            || {},
+        )
+        .unwrap();
+    assert_eq!(wait_transfer(&up, 30), TransferState::Done);
+    assert!(
+        std::fs::symlink_metadata(remote_dir.join("app.conf"))
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "new");
+    assert_eq!(
+        std::fs::metadata(&target).unwrap().permissions().mode() & 0o777,
+        0o640
+    );
+    assert!(
+        leftovers(&remote_dir).is_empty(),
+        "{:?}",
+        leftovers(&remote_dir)
+    );
+
+    // A folder we can't create files in, but the file is writable: written in place.
+    std::fs::write(local.join("real.conf"), "in place").unwrap();
+    std::fs::set_permissions(&remote_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let up = transfers
+        .upload(
+            rt.handle(),
+            sftp.clone(),
+            local.join("real.conf"),
+            &remote_str,
+            || {},
+        )
+        .unwrap();
+    let state = wait_transfer(&up, 30);
+    std::fs::set_permissions(&remote_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    assert_eq!(state, TransferState::Done);
+    assert_eq!(std::fs::read_to_string(&target).unwrap(), "in place");
+
+    // A folder with an unreadable file: the rest arrives, the file is reported as skipped.
+    let tree = local.join("tree");
+    std::fs::create_dir(&tree).unwrap();
+    std::fs::write(tree.join("a.txt"), "a").unwrap();
+    std::fs::write(tree.join("secret.txt"), "s").unwrap();
+    std::fs::write(tree.join("z.txt"), "z").unwrap();
+    std::fs::set_permissions(
+        tree.join("secret.txt"),
+        std::fs::Permissions::from_mode(0o000),
+    )
+    .unwrap();
+    let up = transfers
+        .upload(rt.handle(), sftp.clone(), tree.clone(), &remote_str, || {})
+        .unwrap();
+    let state = wait_transfer(&up, 30);
+    std::fs::set_permissions(
+        tree.join("secret.txt"),
+        std::fs::Permissions::from_mode(0o644),
+    )
+    .unwrap();
+    assert_eq!(state, TransferState::Done);
+    assert_eq!(
+        std::fs::read_to_string(remote_dir.join("tree/a.txt")).unwrap(),
+        "a"
+    );
+    assert_eq!(
+        std::fs::read_to_string(remote_dir.join("tree/z.txt")).unwrap(),
+        "z"
+    );
+    assert!(!remote_dir.join("tree/secret.txt").exists());
+    let skipped = up.skipped.lock().clone();
+    assert!(
+        skipped.len() == 1 && skipped[0].contains("secret.txt"),
+        "{skipped:?}"
+    );
+    let summary = transfers.summary().unwrap();
+    assert_eq!(summary.unplanned, 0);
+    assert!(
+        leftovers(&remote_dir).is_empty(),
+        "{:?}",
+        leftovers(&remote_dir)
+    );
 }
 
 /// The release criterion: a 1 GB file round trip without corruption.

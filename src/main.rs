@@ -32,14 +32,14 @@ fn main() -> eframe::Result {
     let targets = peler::instance::targets(std::env::args().skip(1));
     // A second launch hands its arguments to the running app instead of opening another
     // window on the same bookmarks file.
-    let (lock, listener) = match peler::instance::acquire(&targets) {
+    let (lock, inbox) = match peler::instance::acquire(&targets) {
         peler::instance::Instance::Forwarded => return Ok(()),
-        peler::instance::Instance::Primary { lock, listener } => (lock, listener),
+        peler::instance::Instance::Primary { lock, inbox } => (lock, inbox),
     };
     let result = eframe::run_native(
         "Peler",
         options,
-        Box::new(|cc| Ok(Box::new(peler::app::PelerApp::new(cc, targets, listener)))),
+        Box::new(|cc| Ok(Box::new(peler::app::PelerApp::new(cc, targets, inbox)))),
     );
     drop(lock);
     result

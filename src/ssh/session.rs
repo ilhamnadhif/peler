@@ -44,6 +44,10 @@ const DNS_TIMEOUT: Duration = Duration::from_secs(10);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 /// Authentication time limit, again not counting time spent in prompts.
 const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
+/// How long the server may take to accept keyboard-interactive answers. A second factor
+/// approved on a phone (Duo push and the like) takes a while, so this wait doesn't count
+/// against the authentication time limit.
+const SECOND_FACTOR_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_ATTEMPTS: usize = 3;
 
 /// Everything needed to (re)connect.
@@ -351,6 +355,17 @@ impl client::Handler for SshHandler {
         self.flags.closed.notify_one();
         self.ctx.request_repaint();
         result
+    }
+}
+
+/// russh skips `disconnected` when shutting the socket down fails (as after a connection reset
+/// while the Mac slept), so the end of the transport task is reported here as well; otherwise
+/// the tab would look connected forever.
+impl Drop for SshHandler {
+    fn drop(&mut self) {
+        self.flags.closed.notify_waiters();
+        self.flags.closed.notify_one();
+        self.ctx.request_repaint();
     }
 }
 
@@ -695,7 +710,9 @@ async fn authenticate(
         } else {
             None
         };
+        // A saved passphrase that doesn't open the key is replaced by the one that does.
         let mut save = false;
+        let had_saved = passphrase.is_some();
         let mut attempts = 0;
         let key: PrivateKey = loop {
             match keys::decode_key(&text, passphrase.as_deref()) {
@@ -717,7 +734,7 @@ async fn authenticate(
                     .flatten()
                     .ok_or(ConnError::Cancelled)?;
                     passphrase = Some(answer.value);
-                    save = answer.save;
+                    save = answer.save || (had_saved && spec.save_secrets);
                     attempts += 1;
                 }
                 Err(e) => return Err(ConnError::KeyFile(e.to_string())),
@@ -751,6 +768,8 @@ async fn authenticate(
     };
     let mut attempts = 0;
     let mut retry = false;
+    // A saved password the server rejects is replaced by the one typed after it that works.
+    let replace_saved = stored.is_some() && spec.save_secrets;
     loop {
         let (password, save) = match stored.take() {
             Some(p) => (p, false),
@@ -770,7 +789,7 @@ async fn authenticate(
                 .await
                 .flatten()
                 .ok_or(ConnError::Cancelled)?;
-                (answer.value, answer.save)
+                (answer.value, answer.save || replace_saved)
             }
         };
         let result = handle
@@ -903,10 +922,14 @@ async fn keyboard_interactive(
                     .ok_or(ConnError::Cancelled)?;
                     answers.push(answer.value);
                 }
-                response = handle
-                    .authenticate_keyboard_interactive_respond(answers)
-                    .await
-                    .map_err(other)?;
+                flags.prompting.store(true, Ordering::Relaxed);
+                let reply = tokio::time::timeout(
+                    SECOND_FACTOR_TIMEOUT,
+                    handle.authenticate_keyboard_interactive_respond(answers),
+                )
+                .await;
+                flags.prompting.store(false, Ordering::Relaxed);
+                response = reply.map_err(|_| ConnError::Timeout)?.map_err(other)?;
             }
         }
     }

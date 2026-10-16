@@ -14,7 +14,7 @@ use super::terminal::TermView;
 use crate::bookmarks::Bookmark;
 use crate::settings::Settings;
 use crate::ssh::session::{ConnectSpec, Connection, PaneInput, PaneStart, PaneStatus};
-use crate::ssh::types::{ConnError, ConnState};
+use crate::ssh::types::{ConnError, ConnState, Prompt, SecretAnswer};
 use crate::term::core::{self as tcore, Feeder, GridSize, QueryPalette, SharedTerm};
 use crate::term::scheme::Scheme;
 
@@ -80,6 +80,26 @@ pub struct PromptInput {
     pub armed: bool,
     /// When the current prompt first appeared.
     pub shown_at: Option<std::time::Instant>,
+}
+
+/// Closes `conn` once the cancelled `pending` transfers have removed their partial files
+/// (a few seconds at most).
+fn disconnect_after(
+    rt: &tokio::runtime::Handle,
+    conn: Connection,
+    pending: Vec<Arc<crate::sftp::transfer::Transfer>>,
+) {
+    if pending.is_empty() {
+        conn.disconnect();
+        return;
+    }
+    rt.spawn(async move {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while pending.iter().any(|t| !t.is_finished()) && std::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        conn.disconnect();
+    });
 }
 
 fn spec(bookmark: &Bookmark, env: &Env) -> ConnectSpec {
@@ -259,8 +279,12 @@ impl Tab {
 
     /// Reconnects, keeping each pane's scrollback.
     pub fn reconnect(&mut self, env: &Env) {
-        self.conn.disconnect();
-        self.conn = Connection::start(env.rt, env.ctx.clone(), spec(&self.bookmark, env));
+        let pending = self.cancel_transfers();
+        let old = std::mem::replace(
+            &mut self.conn,
+            Connection::start(env.rt, env.ctx.clone(), spec(&self.bookmark, env)),
+        );
+        disconnect_after(env.rt, old, pending);
         self.sftp = None;
         let bookmark = self.bookmark.clone();
         for (i, pane) in self.panes.iter_mut().enumerate() {
@@ -325,18 +349,7 @@ impl Tab {
     /// their partial files (on the server too) before the connection closes.
     pub fn close(self, rt: &tokio::runtime::Handle) {
         let pending = self.cancel_transfers();
-        if pending.is_empty() {
-            self.conn.disconnect();
-            return;
-        }
-        let conn = self.conn;
-        rt.spawn(async move {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            while pending.iter().any(|t| !t.is_finished()) && std::time::Instant::now() < deadline {
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            }
-            conn.disconnect();
-        });
+        disconnect_after(rt, self.conn, pending);
     }
 
     /// Progress of the SFTP transfers in this tab, while any run.
@@ -350,6 +363,22 @@ impl Tab {
     /// A remote file open in the editor with unsaved changes.
     pub fn unsaved_file(&self) -> Option<String> {
         self.sftp.as_ref().and_then(|p| p.unsaved_file())
+    }
+
+    /// Answers the login prompt on screen, if any: whether to trust the host key, or the secret
+    /// (`None` cancels). The typed input is cleared either way.
+    pub fn answer_prompt(&mut self, trust: bool, secret: Option<SecretAnswer>) {
+        let prompt = self.conn.shared.lock().prompt.take();
+        match prompt {
+            Some(Prompt::HostKey { reply, .. }) => {
+                let _ = reply.send(trust);
+            }
+            Some(Prompt::Secret { reply, .. }) => {
+                let _ = reply.send(secret);
+            }
+            None => {}
+        }
+        self.prompt = PromptInput::default();
     }
 
     /// SFTP transfers that have not finished yet.

@@ -40,6 +40,8 @@ pub struct Editor {
     replace_stored_key: bool,
     /// The last checked key text and what it is.
     key_check: Option<(String, KeyCheck)>,
+    /// The login method when the editor opened (a saved passphrase belongs to that key).
+    original_auth: Auth,
 }
 
 #[allow(clippy::large_enum_variant)] // short-lived, returned once per frame
@@ -99,6 +101,7 @@ impl Editor {
             ),
         };
         Self {
+            original_auth: bookmark.auth.clone(),
             port_text: bookmark.port.to_string(),
             tags_text: bookmark.tags.join(", "),
             draft: bookmark,
@@ -119,6 +122,11 @@ impl Editor {
             replace_stored_key: false,
             key_check: None,
         }
+    }
+
+    /// Shows why saving failed; the editor stays open with everything typed.
+    pub fn set_error(&mut self, error: String) {
+        self.error = Some(error);
     }
 
     /// What the pasted key text is (re-checked only when it changes).
@@ -478,9 +486,12 @@ impl Editor {
                         if self.new_pasted_key() {
                             set.private_key = Some(keys::normalize_key_text(&self.key_text));
                         }
+                        // A saved passphrase belongs to the old key: a different key without a
+                        // typed passphrase asks for it when connecting.
+                        let key_changed = set.private_key.is_some() || self.draft.auth != self.original_auth;
                         if !self.passphrase.is_empty() {
                             set.passphrase = Some(self.passphrase.clone());
-                        } else if self.clear_passphrase {
+                        } else if self.clear_passphrase || key_changed {
                             clear.push(SecretKind::Passphrase);
                         }
                     }

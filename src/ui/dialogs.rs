@@ -176,6 +176,8 @@ pub enum Dialog {
         message: String,
         button: String,
         action: ConfirmAction,
+        /// When it first appeared (an Enter typed just before must not confirm it).
+        shown_at: Option<Instant>,
     },
     GroupName {
         target: GroupTarget,
@@ -201,8 +203,9 @@ pub enum DialogResult {
 }
 
 /// For dialogs holding typed input: only Esc closes them, not a click beside the dialog.
+/// (The key is checked first: `should_close` consumes it.)
 pub fn escape_only<T>(ctx: &egui::Context, modal: &egui::ModalResponse<T>) -> bool {
-    modal.should_close() && ctx.input(|i| i.key_pressed(Key::Escape))
+    ctx.input(|i| i.key_pressed(Key::Escape)) && modal.should_close()
 }
 
 pub fn confirm(title: &str, message: String, button: &str, action: ConfirmAction) -> Dialog {
@@ -211,6 +214,7 @@ pub fn confirm(title: &str, message: String, button: &str, action: ConfirmAction
         message,
         button: button.into(),
         action,
+        shown_at: None,
     }
 }
 
@@ -227,21 +231,40 @@ impl Dialog {
                 message,
                 button,
                 action,
+                shown_at,
             } => {
                 let mut result = DialogResult::Open;
-                let modal = egui::Modal::new(egui::Id::new("confirm")).show(ctx, |ui| {
+                // Enter confirms only when pressed (not auto-repeated, no modifiers) once the
+                // dialog has been up for a moment, and only while it is on top: a key meant for
+                // the terminal must not close a tab or quit.
+                let settled = shown_at.get_or_insert_with(Instant::now).elapsed()
+                    >= Duration::from_millis(300);
+                let id = egui::Id::new("confirm");
+                let on_top = ctx.memory(|m| m.top_modal_layer().is_none_or(|l| l.id == id));
+                let enter = settled
+                    && on_top
+                    && ctx.input(|i| {
+                        i.events.iter().any(|e| {
+                            matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, repeat: false, modifiers, .. } if modifiers.is_none())
+                        })
+                    });
+                let modal = egui::Modal::new(id).show(ctx, |ui| {
                     ui.set_width(380.0);
                     ui.heading(title.as_str());
                     ui.add_space(4.0);
                     ui.label(message.as_str());
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
-                        if ui.button(RichText::new(button.as_str()).strong()).clicked()
-                            || ui.input(|i| i.key_pressed(Key::Enter))
-                        {
+                        let ok = ui.button(RichText::new(button.as_str()).strong());
+                        #[cfg(debug_assertions)]
+                        crate::devtest::record("confirm-ok", ok.rect);
+                        if ok.clicked() || enter {
                             result = DialogResult::Confirmed(action.clone());
                         }
-                        if ui.button(t("Cancel")).clicked() {
+                        let cancel = ui.button(t("Cancel"));
+                        #[cfg(debug_assertions)]
+                        crate::devtest::record("confirm-cancel", cancel.rect);
+                        if cancel.clicked() {
                             result = DialogResult::Close;
                         }
                     });

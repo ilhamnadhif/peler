@@ -100,6 +100,8 @@ pub struct PelerApp {
     editor: Option<Editor>,
     palette: Option<Palette>,
     dialog: Option<Dialog>,
+    /// The dialog that was open when ⌘Q asked for confirmation; back if the user cancels.
+    dialog_below: Option<Dialog>,
     toasts: Toasts,
     menu: Option<AppMenu>,
     menu_rx: Option<mpsc::Receiver<MenuEvent>>,
@@ -110,6 +112,8 @@ pub struct PelerApp {
     first_frame: bool,
     startup: Vec<String>,
     updater: crate::ui::update_ui::Updater,
+    /// When a panic in a frame was last caught (to show one notice, not one per frame).
+    last_recovered_panic: Option<Instant>,
     /// The tab that was active last frame (to notice tab switches).
     last_active_tab: Option<u64>,
     modal_was_open: bool,
@@ -171,7 +175,7 @@ impl PelerApp {
     pub fn new(
         cc: &eframe::CreationContext<'_>,
         targets: Vec<String>,
-        listener: Option<std::os::unix::net::UnixListener>,
+        inbox: Option<crate::instance::Inbox>,
     ) -> Self {
         let ctx = &cc.egui_ctx;
         let mut toasts = Toasts::default();
@@ -249,6 +253,7 @@ impl PelerApp {
             editor: None,
             palette: None,
             dialog: None,
+            dialog_below: None,
             toasts,
             menu: Some(menu),
             menu_rx: Some(menu_rx),
@@ -258,8 +263,9 @@ impl PelerApp {
             title: String::new(),
             first_frame: true,
             startup: targets,
-            instance_rx: listener.map(|l| crate::instance::serve(l, ctx.clone())),
+            instance_rx: inbox.map(|i| i.attach(ctx)),
             updater: Default::default(),
+            last_recovered_panic: None,
             last_active_tab: None,
             modal_was_open: false,
             option_as_alt: None,
@@ -440,6 +446,10 @@ impl PelerApp {
                 );
             }
             "log" => eprintln!("DEVTEST LOG: {arg}"),
+            // Checks that a panic while drawing is contained.
+            "panic" => panic!("devtest: deliberate panic"),
+            // Focus on a widget that is never drawn (what crashed the app with VoiceOver on).
+            "focus-ghost" => ctx.memory_mut(|m| m.request_focus(egui::Id::new("devtest-ghost"))),
             "debug-hits" => ctx.all_styles_mut(|s| {
                 s.debug.show_widget_hits = true;
                 s.debug.show_interactive_widgets = true;
@@ -899,13 +909,18 @@ impl PelerApp {
                         if self.palette.is_some() {
                             self.palette = None;
                         } else if self.dialog.is_some() {
-                            self.dialog = None;
+                            self.dialog = self.dialog_below.take();
                         } else if self.editor.is_some() {
                             self.editor = None;
-                        } else if let Some(panel) =
-                            self.tabs.get_mut(self.active).and_then(|t| t.sftp.as_mut())
-                        {
-                            panel.close_dialog();
+                        } else if self.updater.dialog_open {
+                            self.updater.dialog_open = false;
+                        } else if let Some(tab) = self.tabs.get_mut(self.active) {
+                            if let Some(panel) = tab.sftp.as_mut().filter(|p| p.dialog_open()) {
+                                panel.close_dialog();
+                            } else {
+                                // A login prompt: ⌘W cancels it, as Esc does.
+                                tab.answer_prompt(false, None);
+                            }
                         }
                         continue;
                     }
@@ -1056,14 +1071,23 @@ impl PelerApp {
             }
             Action::Reconnect => {
                 if let Some(tab) = self.tabs.get(self.active) {
-                    if tab.is_active() || tab.running_transfers() > 0 {
+                    let transfers = tab.running_transfers();
+                    if tab.is_active() || transfers > 0 {
                         // Running programs would be cut off: ask first.
+                        let mut message = tf(
+                            "The running sessions on {} will be closed and opened again.",
+                            &[&tab.bookmark.address()],
+                        );
+                        if transfers > 0 {
+                            message.push('\n');
+                            message.push_str(&tf(
+                                "{} file transfer(s) are still running and will be cancelled.",
+                                &[&transfers.to_string()],
+                            ));
+                        }
                         self.dialog = Some(dialogs::confirm(
                             t("Reconnect this tab?"),
-                            tf(
-                                "The running sessions on {} will be closed and opened again.",
-                                &[&tab.bookmark.address()],
-                            ),
+                            message,
                             t("Reconnect"),
                             ConfirmAction::Reconnect(tab.id),
                         ));
@@ -1099,9 +1123,8 @@ impl PelerApp {
             Action::NextPane | Action::PrevPane => {
                 if let Some(tab) = self.tabs.get_mut(self.active) {
                     tab.focused = tab.layout.neighbor(tab.focused, action == Action::NextPane);
-                    if let Some(id) = tab.focused_pane().and_then(|p| p.view.id) {
-                        ctx.memory_mut(|m| m.request_focus(id));
-                    }
+                    // `central` moves the keyboard there when it draws the pane.
+                    ctx.request_repaint();
                 }
             }
             Action::ToggleSidebar => self.settings.sidebar_visible = !self.settings.sidebar_visible,
@@ -1150,9 +1173,8 @@ impl PelerApp {
                         bytes.push(b'\r');
                     }
                     p.send(bytes);
-                    if let Some(id) = p.view.id {
-                        ctx.memory_mut(|m| m.request_focus(id));
-                    }
+                    self.focus_target = None;
+                    ctx.request_repaint();
                 }
             }
             Action::Import => {
@@ -1194,7 +1216,19 @@ impl PelerApp {
             Action::CheckForUpdates => self.updater.check_now(ctx),
             Action::Shortcuts => self.dialog = Some(Dialog::Shortcuts),
             Action::Quit => {
+                if matches!(
+                    self.dialog,
+                    Some(Dialog::Confirm {
+                        action: ConfirmAction::Quit,
+                        ..
+                    })
+                ) {
+                    return;
+                }
                 if let Some(message) = self.quit_warning() {
+                    if self.dialog.is_some() {
+                        self.dialog_below = self.dialog.take();
+                    }
                     self.dialog = Some(dialogs::confirm(
                         t("Quit Peler?"),
                         message,
@@ -2077,7 +2111,10 @@ impl PelerApp {
         };
         let mut answer: Option<Option<SecretAnswer>> = None;
         let mut hostkey_answer: Option<bool> = None;
-        let modal = egui::Modal::new(egui::Id::new(("prompt", tab.id))).show(ctx, |ui| {
+        // A palette or dialog opened over the prompt gets the keys (Esc, typing) until it closes.
+        let modal_id = egui::Id::new(("prompt", tab.id));
+        let on_top = ctx.memory(|m| m.top_modal_layer().is_none_or(|layer| layer.id == modal_id));
+        let modal = egui::Modal::new(modal_id).show(ctx, |ui| {
             ui.set_width(440.0);
             match &view {
                 PromptView::HostKey { host, port, algorithm, fingerprint, changed, known } => {
@@ -2151,21 +2188,25 @@ impl PelerApp {
                         ui.colored_label(style::RED, if *kind == SecretPromptKind::Passphrase { t("Wrong passphrase, try again.") } else { t("Wrong password, try again.") });
                     }
                     let r = ui.add(egui::TextEdit::singleline(&mut tab.prompt.text).password(!echo).desired_width(f32::INFINITY));
-                    if !tab.prompt.focus {
+                    if *can_save && ui.checkbox(&mut tab.prompt.save, t("Save in Keychain")).changed() {
+                        // Back to the field, so Enter submits instead of toggling the box.
                         r.request_focus();
-                        tab.prompt.focus = true;
-                    }
-                    if *can_save {
-                        ui.checkbox(&mut tab.prompt.save, t("Save in Keychain"));
                     }
                     // Enter submits only when pressed (not auto-repeated) after the prompt has
                     // been up for a moment: an Enter held or typed into the terminal just before
                     // the prompt appeared must not send an empty or half-typed secret.
                     let settled = tab.prompt.shown_at.is_some_and(|t| t.elapsed() >= Duration::from_millis(300));
                     let enter = ui.input(|i| {
-                        i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, repeat: false, .. }))
+                        i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, repeat: false, modifiers, .. } if modifiers.is_none()))
                     });
-                    let submit = settled && r.lost_focus() && enter;
+                    let nothing_focused = ui.memory(|m| m.focused().is_none());
+                    let submit = settled && enter && (r.lost_focus() || nothing_focused);
+                    // The field keeps the keyboard while the prompt is on top: after an early
+                    // Enter (which makes it give up focus) or a click beside it.
+                    if on_top && !submit && (!tab.prompt.focus || nothing_focused || r.lost_focus()) {
+                        r.request_focus();
+                        tab.prompt.focus = true;
+                    }
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
                         if ui.button(RichText::new(t("Connect")).strong()).clicked() || submit {
@@ -2179,8 +2220,8 @@ impl PelerApp {
             }
         });
         // Only Esc dismisses (a stray click beside the dialog must not cancel the login).
-        let escape = ctx.input(|i| i.key_pressed(Key::Escape));
         let _ = modal;
+        let escape = on_top && ctx.input(|i| i.key_pressed(Key::Escape));
         if escape && tab.prompt.armed && answer.is_none() && hostkey_answer.is_none() {
             match view {
                 PromptView::HostKey { .. } => hostkey_answer = Some(false),
@@ -2188,24 +2229,15 @@ impl PelerApp {
             }
         }
         if answer.is_some() || hostkey_answer.is_some() {
-            let prompt = tab.conn.shared.lock().prompt.take();
-            match prompt {
-                Some(Prompt::HostKey { reply, .. }) => {
-                    let _ = reply.send(hostkey_answer.unwrap_or(false));
-                }
-                Some(Prompt::Secret { reply, .. }) => {
-                    let _ = reply.send(answer.flatten());
-                }
-                None => {}
-            }
-            tab.prompt.text.clear();
-            tab.prompt.save = false;
+            tab.answer_prompt(hostkey_answer.unwrap_or(false), answer.flatten());
+            self.focus_target = None;
+            ctx.request_repaint();
+        } else if !on_top {
             tab.prompt.focus = false;
             tab.prompt.armed = false;
             tab.prompt.shown_at = None;
-            if let Some(id) = tab.focused_pane().and_then(|p| p.view.id) {
-                ctx.memory_mut(|m| m.request_focus(id));
-            }
+            // Notice when the dialog above closes.
+            ctx.request_repaint_after(Duration::from_millis(150));
         } else {
             tab.prompt.armed = true;
             if tab.prompt.shown_at.is_none() {
@@ -2227,37 +2259,53 @@ impl PelerApp {
                     connect,
                 } => {
                     let id = bookmark.id;
-                    let mut errors = Vec::new();
+                    // Nothing is changed if the Keychain refuses the new secrets: switching the
+                    // login method anyway would leave a connection that can't log in.
                     if let Err(e) = secrets::store_set(id, &set) {
-                        errors.push(format!("{e:#}"));
-                    }
-                    for kind in clear {
-                        let _ = secrets::set(id, kind, None);
-                    }
-                    // Secrets the chosen login method doesn't use are removed, so switching a
-                    // bookmark to another method leaves nothing stale in the Keychain.
-                    if !matches!(bookmark.auth, Auth::Password) {
-                        let _ = secrets::set(id, SecretKind::Password, None);
-                    }
-                    if !bookmark.auth.uses_key() {
-                        let _ = secrets::set(id, SecretKind::Passphrase, None);
-                    }
-                    if !matches!(bookmark.auth, Auth::KeychainKey) {
-                        let _ = secrets::set(id, SecretKind::PrivateKey, None);
-                    }
-                    self.store.upsert_bookmark(bookmark.clone());
-                    self.save_store();
-                    self.sidebar.reveal(&self.store, id);
-                    self.editor = None;
-                    for e in errors {
-                        self.toasts.error(e);
-                    }
-                    if connect {
-                        self.open_tab(ctx, bookmark);
+                        let message = format!("{e:#}");
+                        editor.set_error(tf("Could not save to the Keychain: {}", &[&message]));
+                    } else {
+                        self.save_bookmark(ctx, bookmark, clear, connect);
                     }
                 }
             }
         }
+        self.overlay_dialogs(ctx);
+    }
+
+    /// Saves an edited connection whose new secrets are already in the Keychain.
+    fn save_bookmark(
+        &mut self,
+        ctx: &egui::Context,
+        bookmark: Bookmark,
+        clear: Vec<SecretKind>,
+        connect: bool,
+    ) {
+        let id = bookmark.id;
+        for kind in clear {
+            let _ = secrets::set(id, kind, None);
+        }
+        // Secrets the chosen login method doesn't use are removed, so switching a
+        // bookmark to another method leaves nothing stale in the Keychain.
+        if !matches!(bookmark.auth, Auth::Password) {
+            let _ = secrets::set(id, SecretKind::Password, None);
+        }
+        if !bookmark.auth.uses_key() {
+            let _ = secrets::set(id, SecretKind::Passphrase, None);
+        }
+        if !matches!(bookmark.auth, Auth::KeychainKey) {
+            let _ = secrets::set(id, SecretKind::PrivateKey, None);
+        }
+        self.store.upsert_bookmark(bookmark.clone());
+        self.save_store();
+        self.sidebar.reveal(&self.store, id);
+        self.editor = None;
+        if connect {
+            self.open_tab(ctx, bookmark);
+        }
+    }
+
+    fn overlay_dialogs(&mut self, ctx: &egui::Context) {
         if let Some(palette) = &mut self.palette {
             match palette.show(ctx, &self.store) {
                 PaletteResult::Open => {}
@@ -2277,9 +2325,10 @@ impl PelerApp {
         if let Some(dialog) = &mut self.dialog {
             match dialog.show(ctx, &self.store, &mut self.settings) {
                 DialogResult::Open => {}
-                DialogResult::Close => self.dialog = None,
+                DialogResult::Close => self.dialog = self.dialog_below.take(),
                 DialogResult::Confirmed(action) => {
                     self.dialog = None;
+                    self.dialog_below = None;
                     match action {
                         ConfirmAction::DeleteBookmark(id) => {
                             self.store.remove_bookmark(id);
@@ -2391,17 +2440,21 @@ impl PelerApp {
                         pane.send(bytes);
                     }
                 }
+                // Its login prompt starts over (focus, settle delay) when the tab is back.
+                old.prompt.focus = false;
+                old.prompt.armed = false;
+                old.prompt.shown_at = None;
             }
             self.last_active_tab = active_id;
         }
-        // A dialog just closed: the terminal gets the keyboard back before the next key.
+        // A dialog just closed: the terminal gets the keyboard back. Focus is requested where the
+        // pane is drawn (`central`, next frame), never here: the active tab may have changed this
+        // frame (the dialog closed it), and focusing a widget that was not drawn makes the
+        // accessibility tree invalid, which aborts the app when an accessibility client
+        // (VoiceOver, window managers, …) is attached.
         let modal = self.modal_open();
-        if self.modal_was_open
-            && !modal
-            && let Some(tab) = self.tabs.get(self.active)
-        {
-            ctx.memory_mut(|m| m.request_focus(terminal::pane_widget_id(tab.focused)));
-            self.focus_target = Some((tab.id, tab.focused));
+        if self.modal_was_open && !modal {
+            self.focus_target = None;
             ctx.request_repaint();
         }
         self.modal_was_open = modal;
@@ -2483,6 +2536,58 @@ impl PelerApp {
 
 impl eframe::App for PelerApp {
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
+        // A bug that panics while drawing must not take the whole app (and every open session)
+        // down: the panic hook has already written a report; the frame is skipped and the app
+        // carries on.
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.frame_ui(ui, frame)));
+        if result.is_err() {
+            let now = Instant::now();
+            if self
+                .last_recovered_panic
+                .is_none_or(|t| now.duration_since(t) > Duration::from_secs(10))
+            {
+                self.toasts.error(t(
+                    "Something went wrong and Peler recovered. A report was saved in ~/Library/Logs/Peler.",
+                ));
+            }
+            self.last_recovered_panic = Some(now);
+            ui.ctx().request_repaint();
+        }
+        self.guard_accessibility_focus(ui.ctx());
+        self.first_frame = false;
+    }
+
+    fn on_exit(&mut self) {
+        self.exit();
+    }
+}
+
+impl PelerApp {
+    /// egui hands the focused widget to accessibility clients without checking that it was drawn
+    /// this frame, and a focus outside the tree aborts the app (accesskit panics) whenever
+    /// VoiceOver, a window manager or a writing assistant is attached. Such focus is dropped
+    /// before the frame ends; a terminal pane gets it back when it is drawn next frame.
+    fn guard_accessibility_focus(&mut self, ctx: &egui::Context) {
+        let Some(id) = ctx.memory(|m| m.focused()) else {
+            return;
+        };
+        let missing = ctx.viewport(|vp| {
+            vp.this_pass
+                .accesskit_state
+                .as_ref()
+                .is_some_and(|state| !state.nodes.contains_key(&id))
+        });
+        if missing {
+            #[cfg(debug_assertions)]
+            eprintln!("DEVTEST LOG: dropped focus on a widget that was not drawn ({id:?})");
+            ctx.memory_mut(|m| m.surrender_focus(id));
+            self.focus_target = None;
+            ctx.request_repaint();
+        }
+    }
+
+    fn frame_ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         self.handle_menu_events();
         self.apply_settings_changes(&ctx);
@@ -2506,7 +2611,6 @@ impl eframe::App for PelerApp {
         }
         #[cfg(debug_assertions)]
         self.run_dev_script(&ctx);
-        self.first_frame = false;
 
         let dark = ui.visuals().dark_mode;
         // Panels are laid out with the root Ui's item spacing between them; keep them flush and
@@ -2591,7 +2695,7 @@ impl eframe::App for PelerApp {
         self.update_title(&ctx);
     }
 
-    fn on_exit(&mut self) {
+    fn exit(&mut self) {
         // Transfers cut off by quitting remove their partial files first (a few seconds at
         // most), while the connections are still open.
         let pending: Vec<_> = self.tabs.iter().flat_map(Tab::cancel_transfers).collect();

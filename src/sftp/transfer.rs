@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
-use russh_sftp::protocol::FileType;
+use russh_sftp::protocol::{FileType, OpenFlags};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Semaphore;
 
@@ -50,10 +50,14 @@ pub struct Transfer {
     pub done: AtomicU64,
     pub files_total: AtomicU64,
     pub files_done: AtomicU64,
+    /// The totals are known (the folder was walked).
+    planned: AtomicBool,
     pub state: Mutex<TransferState>,
     /// Entries inside a folder that were skipped, with the reason.
     pub skipped: Mutex<Vec<String>>,
     cancel: AtomicBool,
+    /// Makes temporary names unique, also against other apps or Peler on another Mac.
+    token: String,
     started: Mutex<Option<Instant>>,
     finished: Mutex<Option<Instant>>,
 }
@@ -72,9 +76,11 @@ impl Transfer {
             done: AtomicU64::new(0),
             files_total: AtomicU64::new(0),
             files_done: AtomicU64::new(0),
+            planned: AtomicBool::new(false),
             state: Mutex::new(TransferState::Queued),
             skipped: Mutex::new(Vec::new()),
             cancel: AtomicBool::new(false),
+            token: remote::random_suffix(),
             started: Mutex::new(None),
             finished: Mutex::new(None),
         }
@@ -131,6 +137,13 @@ impl Transfer {
         self.skipped.lock().push(what);
     }
 
+    /// Skips a file already counted in the totals.
+    fn skip_file(&self, what: String, size: u64) {
+        self.skip(what);
+        self.total.fetch_sub(size, Ordering::Relaxed);
+        self.files_total.fetch_sub(1, Ordering::Relaxed);
+    }
+
     fn finish(&self, result: Result<(), String>) {
         *self.finished.lock() = Some(Instant::now());
         *self.state.lock() = match result {
@@ -142,7 +155,7 @@ impl Transfer {
 
     /// Temporary name for a file being written by this transfer.
     fn partial_name(&self, name: &str) -> String {
-        format!(".{name}.peler-part-{}", self.id)
+        format!(".{name}.peler-part-{}", self.token)
     }
 }
 
@@ -161,8 +174,11 @@ pub struct Summary {
     pub files_total: u64,
     pub bytes_done: u64,
     pub bytes_total: u64,
+    /// Unfinished transfers whose size isn't known yet (waiting, or walking a folder).
+    pub unplanned: usize,
     /// Bytes per second over the whole batch so far.
     pub speed: f64,
+    progress: f32,
 }
 
 impl Summary {
@@ -171,15 +187,12 @@ impl Summary {
     }
 
     pub fn fraction(&self) -> f32 {
-        if self.bytes_total == 0 {
-            return if self.running() { 0.0 } else { 1.0 };
-        }
-        (self.bytes_done as f64 / self.bytes_total as f64).min(1.0) as f32
+        self.progress
     }
 
     /// Estimated time left, once there is enough to go on.
     pub fn eta(&self) -> Option<Duration> {
-        if !self.running() || self.speed < 1.0 || self.bytes_done == 0 {
+        if !self.running() || self.unplanned > 0 || self.speed < 1.0 || self.bytes_done == 0 {
             return None;
         }
         let left = self.bytes_total.saturating_sub(self.bytes_done) as f64;
@@ -195,6 +208,9 @@ pub struct Transfers {
     /// First transfer id of the current batch, and when the batch started.
     batch_first: u64,
     batch_started: Option<Instant>,
+    /// Highest progress shown for the batch (f32 bits): sizes learned later never move the
+    /// bar back.
+    batch_peak: std::sync::atomic::AtomicU32,
 }
 
 impl Default for Transfers {
@@ -205,6 +221,7 @@ impl Default for Transfers {
             next_id: 1,
             batch_first: 1,
             batch_started: None,
+            batch_peak: std::sync::atomic::AtomicU32::new(0),
         }
     }
 }
@@ -224,7 +241,16 @@ impl Transfers {
                 Direction::Download => s.downloads += 1,
             }
             let state = t.state();
-            let files = t.files_total.load(Ordering::Relaxed).max(1);
+            // A transfer not walked yet counts as one file until its size is known.
+            let planned = t.planned.load(Ordering::Relaxed);
+            let files = if planned {
+                t.files_total.load(Ordering::Relaxed)
+            } else {
+                1
+            };
+            if !planned && !t.is_finished() {
+                s.unplanned += 1;
+            }
             s.files_total += files;
             match state {
                 TransferState::Done => {
@@ -255,6 +281,31 @@ impl Transfers {
             last_finish.unwrap_or_else(Instant::now)
         };
         s.speed = s.bytes_done as f64 / end.duration_since(started).as_secs_f64().max(0.001);
+        s.progress = if !s.running() {
+            if s.bytes_total == 0 {
+                1.0
+            } else {
+                (s.bytes_done as f64 / s.bytes_total as f64).min(1.0) as f32
+            }
+        } else {
+            // Transfers of unknown size are guessed at the average size of the known ones.
+            let known = (s.active + s.done + s.failed)
+                .saturating_sub(s.unplanned)
+                .max(1);
+            let guess = s.bytes_total as f64 / known as f64 * s.unplanned as f64;
+            let total = s.bytes_total as f64 + guess;
+            if total <= 0.0 {
+                0.0
+            } else {
+                (s.bytes_done as f64 / total).min(1.0) as f32
+            }
+        };
+        let peak = f32::from_bits(self.batch_peak.load(Ordering::Relaxed));
+        if s.running() {
+            s.progress = s.progress.max(peak);
+            self.batch_peak
+                .store(s.progress.to_bits(), Ordering::Relaxed);
+        }
         Some(s)
     }
 
@@ -282,7 +333,11 @@ impl Transfers {
                 && t.direction == direction
                 && match direction {
                     Direction::Upload => t.remote == remote,
-                    Direction::Download => t.local == local,
+                    // Mac disks usually ignore case: "A.txt" and "a.txt" are one file.
+                    Direction::Download => {
+                        t.local.to_string_lossy().to_lowercase()
+                            == local.to_string_lossy().to_lowercase()
+                    }
                 }
         })
     }
@@ -300,6 +355,7 @@ impl Transfers {
         if !self.any_running() {
             self.batch_first = t.id;
             self.batch_started = Some(Instant::now());
+            self.batch_peak.store(0, Ordering::Relaxed);
         }
         self.items.push(t.clone());
         let limiter = self.limiter.clone();
@@ -426,14 +482,28 @@ async fn run_upload(t: &Arc<Transfer>, sftp: &Sftp) -> Result<(), String> {
         .store(plan.files.iter().map(|f| f.2).sum(), Ordering::Relaxed);
     t.files_total
         .store(plan.files.len() as u64, Ordering::Relaxed);
+    t.planned.store(true, Ordering::Relaxed);
     for dir in &plan.dirs {
         if t.cancelled() {
             return Err(CANCELLED.into());
         }
         remote::ensure_dir(sftp, dir).await?;
     }
+    let folder = !plan.dirs.is_empty();
     for (local, remote_path, size) in &plan.files {
-        upload_file(t, sftp, local, remote_path, *size).await?;
+        if t.cancelled() {
+            return Err(CANCELLED.into());
+        }
+        // In a folder, a file we can't read is skipped, like an unreadable subfolder.
+        let src = match tokio::fs::File::open(local).await {
+            Ok(f) => f,
+            Err(e) if folder => {
+                t.skip_file(format!("{}: {e}", local.display()), *size);
+                continue;
+            }
+            Err(e) => return Err(format!("{}: {e}", local.display())),
+        };
+        upload_file(t, sftp, src, local, remote_path, *size).await?;
         t.files_done.fetch_add(1, Ordering::Relaxed);
     }
     Ok(())
@@ -442,62 +512,46 @@ async fn run_upload(t: &Arc<Transfer>, sftp: &Sftp) -> Result<(), String> {
 async fn upload_file(
     t: &Transfer,
     sftp: &Sftp,
+    mut src: tokio::fs::File,
     local: &Path,
     remote_path: &str,
     size: u64,
 ) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
-    if t.cancelled() {
-        return Err(CANCELLED.into());
-    }
-    let mut src = tokio::fs::File::open(local)
-        .await
-        .map_err(|e| format!("{}: {e}", local.display()))?;
     let local_mode = src
         .metadata()
         .await
         .map(|m| m.permissions().mode() & 0o777)
         .ok();
-    let partial = remote_join(
-        &remote_parent(remote_path),
-        &t.partial_name(remote_name(remote_path)),
-    );
-    let mut dst = sftp
-        .create(partial.clone())
-        .await
-        .map_err(|e| format!("{remote_path}: {}", describe(&e)))?;
-    let mut buf = vec![0u8; CHUNK];
-    let result: Result<(), String> = async {
-        loop {
-            if t.cancelled() {
-                return Err(CANCELLED.to_string());
+    // Through a symlink, the file it points to is replaced and the link stays.
+    let dest = remote::link_target(sftp, remote_path).await;
+    let existing = sftp.metadata(dest.as_str()).await.ok();
+    let partial = remote_join(&remote_parent(&dest), &t.partial_name(remote_name(&dest)));
+    let created = sftp.create(partial.clone()).await;
+    let mut dst = match (created, &existing) {
+        (Ok(file), Some(old)) => {
+            // A file owned by someone else (writable through its group) keeps its owner and
+            // group: it is rewritten in place, as scp would.
+            let ours = file.metadata().await.ok();
+            if remote::same_owner(ours.as_ref(), old) {
+                file
+            } else {
+                drop(file);
+                let _ = sftp.remove_file(partial).await;
+                return upload_in_place(t, sftp, &mut src, local, remote_path, &dest, size).await;
             }
-            let n = src
-                .read(&mut buf)
-                .await
-                .map_err(|e| format!("{}: {e}", local.display()))?;
-            if n == 0 {
-                break;
-            }
-            dst.write_all(&buf[..n])
-                .await
-                .map_err(|e| format!("{remote_path}: {e}"))?;
-            t.done.fetch_add(n as u64, Ordering::Relaxed);
         }
-        Ok(())
-    }
-    .await;
+        (Ok(file), None) => file,
+        // A folder we can't create files in, but the file itself is writable.
+        (Err(_), Some(_)) => {
+            return upload_in_place(t, sftp, &mut src, local, remote_path, &dest, size).await;
+        }
+        (Err(e), None) => return Err(format!("{remote_path}: {}", describe(&e))),
+    };
+    let result = send_file(t, &mut src, &mut dst, local, remote_path).await;
     let closed = dst.close().await.map_err(|e| format!("{remote_path}: {e}"));
-    let result = result.and(closed);
-    let result = match result {
-        Ok(()) => match sftp.metadata(partial.clone()).await {
-            Ok(m) if m.size == Some(size) => Ok(()),
-            Ok(m) => Err(format!(
-                "{remote_path}: size check failed ({} of {size} bytes)",
-                m.size.unwrap_or(0)
-            )),
-            Err(e) => Err(format!("{remote_path}: {}", describe(&e))),
-        },
+    let result = match result.and(closed) {
+        Ok(()) => check_size(sftp, &partial, remote_path, size).await,
         Err(e) => Err(e),
     };
     if let Err(e) = result {
@@ -505,7 +559,6 @@ async fn upload_file(
         return Err(e);
     }
     // Replacing a file keeps its permissions; a new file gets the local file's.
-    let existing = sftp.metadata(remote_path).await.ok();
     let mode = existing
         .as_ref()
         .and_then(|m| m.permissions)
@@ -514,18 +567,82 @@ async fn upload_file(
     if let Some(mode) = mode {
         let _ = remote::chmod(sftp, &partial, mode).await;
     }
-    if existing.is_some() {
-        // SFTP v3 rename refuses to replace: remove the old file at the last moment.
-        if let Err(e) = sftp.remove_file(remote_path).await {
-            let _ = sftp.remove_file(partial).await;
-            return Err(format!("{remote_path}: {}", describe(&e)));
+    let placed = if existing.is_some() {
+        // The original is only deleted once the new file is in its place.
+        match remote::replace_file(sftp, &partial, &dest).await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(format!(
+                "{remote_path}: the existing file can't be replaced"
+            )),
+            Err(e) => Err(format!("{remote_path}: {e}")),
         }
-    }
-    if let Err(e) = remote::rename(sftp, &partial, remote_path).await {
+    } else {
+        remote::rename(sftp, &partial, &dest)
+            .await
+            .map_err(|e| format!("{remote_path}: {e}"))
+    };
+    if placed.is_err() {
         let _ = sftp.remove_file(partial).await;
-        return Err(format!("{remote_path}: {e}"));
     }
-    Ok(())
+    placed
+}
+
+/// Overwrites `dest` directly (when a temporary file next to it can't be swapped in).
+async fn upload_in_place(
+    t: &Transfer,
+    sftp: &Sftp,
+    src: &mut tokio::fs::File,
+    local: &Path,
+    remote_path: &str,
+    dest: &str,
+    size: u64,
+) -> Result<(), String> {
+    let mut dst = sftp
+        .open_with_flags(dest, OpenFlags::WRITE | OpenFlags::TRUNCATE)
+        .await
+        .map_err(|e| format!("{remote_path}: {}", describe(&e)))?;
+    let result = send_file(t, src, &mut dst, local, remote_path).await;
+    let closed = dst.close().await.map_err(|e| format!("{remote_path}: {e}"));
+    result.and(closed)?;
+    check_size(sftp, dest, remote_path, size).await
+}
+
+async fn send_file(
+    t: &Transfer,
+    src: &mut tokio::fs::File,
+    dst: &mut russh_sftp::client::fs::File,
+    local: &Path,
+    remote_path: &str,
+) -> Result<(), String> {
+    let mut buf = vec![0u8; CHUNK];
+    loop {
+        if t.cancelled() {
+            return Err(CANCELLED.to_string());
+        }
+        let n = src
+            .read(&mut buf)
+            .await
+            .map_err(|e| format!("{}: {e}", local.display()))?;
+        if n == 0 {
+            return Ok(());
+        }
+        dst.write_all(&buf[..n])
+            .await
+            .map_err(|e| format!("{remote_path}: {e}"))?;
+        t.done.fetch_add(n as u64, Ordering::Relaxed);
+    }
+}
+
+/// The server holds all `size` bytes at `path`.
+async fn check_size(sftp: &Sftp, path: &str, remote_path: &str, size: u64) -> Result<(), String> {
+    match sftp.metadata(path).await {
+        Ok(m) if m.size == Some(size) => Ok(()),
+        Ok(m) => Err(format!(
+            "{remote_path}: size check failed ({} of {size} bytes)",
+            m.size.unwrap_or(0)
+        )),
+        Err(e) => Err(format!("{remote_path}: {}", describe(&e))),
+    }
 }
 
 // ----- download -------------------------------------------------------------------------------
@@ -594,13 +711,27 @@ async fn run_download(t: &Transfer, sftp: &Sftp) -> Result<(), String> {
     t.total
         .store(files.iter().map(|f| f.2).sum(), Ordering::Relaxed);
     t.files_total.store(files.len() as u64, Ordering::Relaxed);
+    t.planned.store(true, Ordering::Relaxed);
     for dir in &dirs {
         tokio::fs::create_dir_all(dir)
             .await
             .map_err(|e| format!("{}: {e}", dir.display()))?;
     }
+    let folder = !dirs.is_empty();
     for (remote_path, local, size, mode) in &files {
-        download_file(t, sftp, remote_path, local, *size, *mode).await?;
+        if t.cancelled() {
+            return Err(CANCELLED.into());
+        }
+        // In a folder, a file we can't read is skipped, like an unreadable subfolder.
+        let src = match sftp.open(remote_path).await {
+            Ok(f) => f,
+            Err(e) if folder => {
+                t.skip_file(format!("{remote_path}: {}", describe(&e)), *size);
+                continue;
+            }
+            Err(e) => return Err(format!("{remote_path}: {}", describe(&e))),
+        };
+        download_file(t, src, remote_path, local, *size, *mode).await?;
         t.files_done.fetch_add(1, Ordering::Relaxed);
     }
     Ok(())
@@ -608,20 +739,13 @@ async fn run_download(t: &Transfer, sftp: &Sftp) -> Result<(), String> {
 
 async fn download_file(
     t: &Transfer,
-    sftp: &Sftp,
+    mut src: russh_sftp::client::fs::File,
     remote_path: &str,
     local: &Path,
     size: u64,
     mode: Option<u32>,
 ) -> Result<(), String> {
     use std::os::unix::fs::PermissionsExt;
-    if t.cancelled() {
-        return Err(CANCELLED.into());
-    }
-    let mut src = sftp
-        .open(remote_path)
-        .await
-        .map_err(|e| format!("{remote_path}: {}", describe(&e)))?;
     let file_name = local
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())

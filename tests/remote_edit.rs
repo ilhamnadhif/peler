@@ -114,6 +114,17 @@ fn load_edit_save() {
     saved.unwrap();
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "in place\n");
 
+    // Deleted on the server meanwhile: reported, and saving again creates it.
+    let stamp = rt.block_on(edit::stamp(&sftp, &path)).unwrap();
+    std::fs::remove_file(&file).unwrap();
+    assert_eq!(
+        rt.block_on(edit::save(&sftp, &path, b"back\n", Some(stamp))),
+        Err(SaveError::Deleted)
+    );
+    rt.block_on(edit::save(&sftp, &path, b"back\n", None))
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "back\n");
+
     // Binary and oversized files are not opened.
     let bin = dir.join("tool.bin");
     std::fs::write(&bin, b"\x7fELF\0\0\x01").unwrap();

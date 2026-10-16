@@ -6,10 +6,11 @@ use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
 use eframe::egui;
+use parking_lot::Mutex;
 
 use crate::paths;
 
@@ -17,11 +18,11 @@ use crate::paths;
 const MAX_MESSAGE: u64 = 64 * 1024;
 
 pub enum Instance {
-    /// This process runs the app. `lock` is held for the process lifetime; `listener` receives
+    /// This process runs the app. `lock` is held for the process lifetime; `inbox` receives
     /// the arguments of later launches.
     Primary {
         lock: Option<File>,
-        listener: Option<UnixListener>,
+        inbox: Option<Inbox>,
     },
     /// Another instance is running and took over the arguments.
     Forwarded,
@@ -56,7 +57,7 @@ pub fn acquire(args: &[String]) -> Instance {
         Err(_) => {
             return Instance::Primary {
                 lock: None,
-                listener: None,
+                inbox: None,
             };
         }
     };
@@ -66,7 +67,7 @@ pub fn acquire(args: &[String]) -> Instance {
             let _ = std::fs::remove_file(&path);
             Instance::Primary {
                 lock: Some(lock),
-                listener: UnixListener::bind(&path).ok(),
+                inbox: UnixListener::bind(&path).ok().map(serve),
             }
         }
         Err(TryLockError::WouldBlock) if forward(args) => Instance::Forwarded,
@@ -74,7 +75,7 @@ pub fn acquire(args: &[String]) -> Instance {
         // than a launch that does nothing.
         Err(_) => Instance::Primary {
             lock: None,
-            listener: None,
+            inbox: None,
         },
     }
 }
@@ -109,10 +110,28 @@ fn forward(args: &[String]) -> bool {
     false
 }
 
-/// Serves later launches: their arguments arrive on the returned channel, and the window is
-/// brought to the front.
-pub fn serve(listener: UnixListener, ctx: egui::Context) -> mpsc::Receiver<Vec<String>> {
+/// Arguments of later launches. They are answered from the start, while the window is still
+/// being set up (a launch that waits too long for an answer would open a second instance);
+/// the app picks them up once it runs.
+pub struct Inbox {
+    rx: mpsc::Receiver<Vec<String>>,
+    ctx: Arc<Mutex<Option<egui::Context>>>,
+}
+
+impl Inbox {
+    /// From now on each later launch brings the window to the front. Returns where their
+    /// arguments arrive (including any that came before).
+    pub fn attach(self, ctx: &egui::Context) -> mpsc::Receiver<Vec<String>> {
+        *self.ctx.lock() = Some(ctx.clone());
+        ctx.request_repaint();
+        self.rx
+    }
+}
+
+fn serve(listener: UnixListener) -> Inbox {
     let (tx, rx) = mpsc::channel();
+    let slot: Arc<Mutex<Option<egui::Context>>> = Arc::default();
+    let ctx = slot.clone();
     std::thread::Builder::new()
         .name("peler-instance".into())
         .spawn(move || {
@@ -136,12 +155,14 @@ pub fn serve(listener: UnixListener, ctx: egui::Context) -> mpsc::Receiver<Vec<S
                 if tx.send(args).is_err() {
                     return;
                 }
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                ctx.request_repaint();
+                if let Some(ctx) = &*ctx.lock() {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    ctx.request_repaint();
+                }
             }
         })
         .ok();
-    rx
+    Inbox { rx, ctx: slot }
 }
 
 /// The bookmark names and addresses among the process arguments. Options are skipped,

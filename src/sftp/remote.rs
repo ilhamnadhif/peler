@@ -6,7 +6,7 @@ use russh_sftp::client::SftpSession;
 use russh_sftp::client::error::Error as SftpError;
 use russh_sftp::protocol::{FileAttributes, FileType, StatusCode};
 
-use super::entry::{FileEntry, remote_join};
+use super::entry::{FileEntry, remote_join, remote_name, remote_parent};
 
 pub type Sftp = Arc<SftpSession>;
 
@@ -125,6 +125,65 @@ pub async fn ensure_dir(sftp: &SftpSession, path: &str) -> Result<(), String> {
 
 pub async fn rename(sftp: &SftpSession, from: &str, to: &str) -> Result<(), String> {
     sftp.rename(from, to).await.map_err(|e| describe(&e))
+}
+
+/// A short random string for temporary names next to a user's files.
+pub fn random_suffix() -> String {
+    let mut b = [0u8; 6];
+    let _ = getrandom::fill(&mut b);
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// Puts the finished file `tmp` in the place of the file at `path`. SFTP renames don't replace
+/// files, so the original is moved aside first and deleted only once the new file is in place;
+/// if that fails, the original is put back. `Ok(false)` when the original can't be moved
+/// (nothing was changed).
+pub async fn replace_file(sftp: &SftpSession, tmp: &str, path: &str) -> Result<bool, String> {
+    let aside = remote_join(
+        &remote_parent(path),
+        &format!(".{}.peler-old-{}", remote_name(path), random_suffix()),
+    );
+    if sftp.rename(path, aside.clone()).await.is_err() {
+        return Ok(false);
+    }
+    if let Err(e) = sftp.rename(tmp, path).await {
+        if sftp.rename(aside.as_str(), path).await.is_err() {
+            return Err(format!(
+                "{}; the original file was kept as {aside}",
+                describe(&e)
+            ));
+        }
+        return Err(describe(&e));
+    }
+    let _ = sftp.remove_file(aside).await;
+    Ok(true)
+}
+
+/// The file a symlink at `path` points to (replacing that keeps the link); `path` itself
+/// otherwise.
+pub async fn link_target(sftp: &SftpSession, path: &str) -> String {
+    let is_link = sftp
+        .symlink_metadata(path)
+        .await
+        .is_ok_and(|m| m.file_type() == FileType::Symlink);
+    let to_file = is_link
+        && sftp
+            .metadata(path)
+            .await
+            .is_ok_and(|m| m.file_type() == FileType::File);
+    if to_file && let Ok(real) = canonicalize(sftp, path).await {
+        return real;
+    }
+    path.to_string()
+}
+
+/// Whether a file we just created has the same owner and group as `original` (replacing
+/// `original` with it would otherwise change who owns the file).
+pub fn same_owner(created: Option<&FileAttributes>, original: &FileAttributes) -> bool {
+    match (created, original.uid, original.gid) {
+        (Some(c), Some(uid), Some(gid)) => c.uid == Some(uid) && c.gid == Some(gid),
+        _ => false,
+    }
 }
 
 pub async fn chmod(sftp: &SftpSession, path: &str, mode: u32) -> Result<(), String> {
