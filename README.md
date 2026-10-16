@@ -1,183 +1,265 @@
-# Peler — Klien SSH/SFTP ringan untuk macOS
+# Peler
 
-Aplikasi desktop SSH dan SFTP yang ditulis 100% dalam Rust (termasuk UI), sebagai pengganti
-Electerm yang jauh lebih ringan. Satu binary native, tanpa Chromium dan Node.js.
+**A lightweight SSH & SFTP client for macOS, written entirely in Rust.**
 
-| Target PRD | Hasil terukur | Status |
-| --- | --- | --- |
-| Memori, 1 sesi SSH | **68 MB** (phys_footprint, seperti Activity Monitor) | ✅ < 100 MB |
-| Memori, 5 tab SSH | **78 MB** (pemakaian biasa); **±213 MB** bila kelima tab penuh scrollback 10.000 baris | ⚠️ < 200 MB, kecuali kasus terburuk |
-| Waktu start dingin | **~0,1 detik** sampai frame pertama (0,5 detik pada start pertama setelah build) | ✅ < 1 detik |
-| Ukuran `.app` universal (Apple Silicon + Intel) | **28,4 MB** (DMG 14,8 MB) | ✅ < 30 MB |
-| CPU saat diam | **0,0%** (hanya menggambar saat ada perubahan) | ✅ |
-| Transfer SFTP 1 GB tanpa korupsi | sha256 identik (upload ~640 MB/s, download ~650–700 MB/s, ke sshd lokal) | ✅ |
+Peler is a native replacement for Electron-based SSH clients such as Electerm: one small universal
+binary (Apple Silicon + Intel), no Chromium, no Node.js. It starts in about 0.1 s, idles at 0 % CPU
+and uses around 70 MB of memory with a session open.
 
-Pengukuran dilakukan di MacBook Apple Silicon, macOS 14.6, jendela 1180×760. Satu baris scrollback
-memakan 24 byte per kolom; scrollback 10.000 baris yang penuh pada lebar ±120 kolom ≈ 30 MB per
-tab. Jika sering membuka banyak tab dengan output panjang, kecilkan **Riwayat gulir** di Pengaturan
-(mis. 5.000 baris).
+[Bahasa Indonesia](README.id.md)
 
-## Fitur
+![Peler: bookmarks, tabs and split panes over one SSH connection](docs/screenshots/terminal.png)
 
-**Bookmark**
-- Buat, edit, duplikat, hapus; grup bertingkat; urutkan dengan drag-and-drop di sidebar.
-- Field: nama, host, port, username, autentikasi (password atau private key + passphrase), grup,
-  tag, catatan, folder awal, perintah yang dijalankan saat konek, opsi algoritma lama.
-- Pencarian fuzzy (nama, host, user, tag, grup); Enter langsung konek. `⌘K` membuka palet pencarian;
-  mengetik alamat (`user@host:port`, IPv6 sebagai `[::1]:22`) di palet langsung konek tanpa bookmark.
-- Password dan passphrase disimpan di **macOS Keychain**, tidak pernah di file bookmark.
+## Highlights
 
-**Terminal SSH**
-- Emulasi xterm-256color (alacritty_terminal): warna 24-bit, scrollback (default 10.000 baris),
-  seleksi (klik ganda = kata, klik tiga kali = baris, Option+drag = blok), copy/paste,
-  bracketed paste, resize yang benar, mouse reporting (vim, htop, tmux), layar alternatif.
-- Karakter lebar (CJK) dan garis kotak/blok digambar presisi; font cadangan CJK di-mmap
-  sehingga hampir tidak memakan RAM.
-- IME (input Mandarin/Jepang) dengan jendela kandidat di posisi kursor.
-- Autentikasi password, keyboard-interactive (termasuk kode OTP), dan private key
-  RSA/ECDSA/Ed25519 (terenkripsi maupun tidak).
-- Verifikasi host key dengan file `known_hosts` milik aplikasi (juga membaca `~/.ssh/known_hosts`,
-  termasuk entri ter-hash, wildcard, dan `@revoked`). Host baru harus dikonfirmasi dengan klik
-  (Enter tidak bisa menerima key). Jika key berubah, atau server tiba-tiba menyodorkan jenis key lain,
-  muncul peringatan merah beserta key lama. Key yang di-`@revoked` langsung ditolak.
-- Keepalive (default 30 detik). Enter di pane yang sesinya selesai membuka shell baru di pane itu saja
-  (pane lain tetap jalan). `⌘R` menyambung ulang seluruh tab tanpa kehilangan scrollback, dan meminta
-  konfirmasi bila masih ada sesi atau transfer berjalan.
-- Banyak tab dan split pane (`⌘D` kanan, `⇧⌘D` bawah) — semua pane memakai satu koneksi SSH.
-- Quick commands (tombol ⚡ di toolbar).
-- Option sebagai Meta (opsional, untuk Emacs/readline) mengikuti layout keyboard apa pun, dan hanya
-  aktif selama terminal yang memegang keyboard. Di dialog, Option tetap mengetik karakter biasa.
-- Tema warna terminal (Peler Dark/Light, Solarized, Dracula, Nord, Gruvbox, Tomorrow Night,
-  GitHub Light) dan pilihan font (Menlo, SF Mono, Monaco, Courier New, Andale Mono, Hack,
-  atau file font sendiri).
+- **Bookmarks** in nested groups, with drag and drop, fuzzy search and `⌘K` quick connect.
+  Passwords and passphrases live in the **macOS Keychain**, never in a file.
+- **A real terminal** (alacritty_terminal): 24-bit colour, mouse reporting for vim/htop/tmux, IME,
+  CJK, and box drawing drawn pixel-exact.
+- **Tabs and split panes** that share one SSH connection.
+- **Dual-pane SFTP**: transfer many files at once in the background, with progress, speed and time
+  left. Folders transfer recursively, and permissions are kept.
+- **Built-in editor for remote files**: change a YAML config on the server and press `⌘S`.
+- **Import** from Electerm and `~/.ssh/config`. **Export** to versioned JSON, with optional encrypted
+  credentials.
+- **Careful with your servers**: strict host-key checking (hashed `known_hosts`, `@revoked`), safe
+  saves, and transfers that never leave half-written files behind.
+- English and Indonesian UI, light and dark themes, no telemetry.
 
-**SFTP** (`⇧⌘F`)
-- Panel dua sisi lokal/remote memakai koneksi SSH yang sama.
-- List, unggah, unduh, hapus (rekursif), ganti nama, buat folder, ubah permission (chmod).
-- Transfer di latar belakang dengan progres, kecepatan, bisa dibatalkan (file setengah jadi dihapus),
-  folder ditransfer rekursif, permission dan bit executable dipertahankan, ukuran diverifikasi.
-- **Banyak file sekaligus:** pilih dengan ⌘-klik, ⇧-klik, atau `⌘A` (saat kursor di atas daftar), lalu
-  pakai tombol **Upload (n)** / **Download (n)** di bawah daftar. Tombol **Upload…** membuka pemilih
-  file macOS (banyak file atau folder). Footer menampilkan jumlah dan total ukuran yang dipilih.
-- **Progres terlihat di mana saja:** daftar transfer menampilkan ringkasan gabungan (jumlah file,
-  persen, kecepatan, perkiraan sisa waktu) dan tombol *Cancel all*. Saat panel SFTP disembunyikan,
-  progres tetap terlihat di tab (cincin progres) dan tombol **SFTP ⬆ 45%**. Notifikasi muncul saat
-  semua selesai atau ada yang gagal.
-- Menutup tab atau quit saat transfer berjalan meminta konfirmasi. Transfer dibatalkan dengan rapi:
-  file sementara dihapus, termasuk yang di server.
-- Drag-and-drop antar panel, dan drag file dari Finder ke jendela untuk mengunggah ke folder
-  remote yang sedang dibuka. Konfirmasi sebelum menimpa file yang sudah ada.
-- **Editor teks bawaan** untuk file remote (config YAML, `.env`, skrip): klik dua kali file remote,
-  atau klik kanan → **Edit**. Fiturnya:
-  - Nomor baris dan posisi kursor; `⌘S` menyimpan.
-  - Tab menyisipkan spasi (YAML tidak boleh tab), Enter mempertahankan indentasi.
-  - Line ending CRLF/LF, BOM, dan permission file tetap seperti aslinya.
-  - Penyimpanan aman: isi baru ditulis ke file sementara lalu ditukar, jadi file lama tidak pernah
-    setengah tertulis. Symlink dan file milik user lain ditulis langsung (in place).
-  - Peringatan bila file diubah orang lain sejak dibuka, dan konfirmasi sebelum membuang perubahan
-    yang belum disimpan (juga saat tab ditutup atau aplikasi di-quit).
-  - File biner atau di atas 2 MB tidak dibuka di editor; tersedia tombol Download.
+## Install
 
-**Export / import**
-- Export ke satu file JSON berversi (`schema_version`, `exported_at`, `groups[]`, `bookmarks[]`):
-  semua bookmark, satu grup, atau bookmark terpilih.
-- Kredensial default **tidak** diekspor. Opsional: diekspor terenkripsi dengan passphrase
-  (Argon2id 64 MiB + XChaCha20-Poly1305). Private key file hanya diekspor path-nya. Setiap
-  kredensial terikat ke host, port, dan user-nya. Jika daftar bookmark di file (yang tidak
-  terenkripsi) diubah agar menunjuk ke server lain, kredensial itu tidak ikut di-import.
-- Import menampilkan pratinjau (ditambah/diperbarui/dilewati) dengan pilihan per bookmark untuk
-  konflik: lewati, timpa, atau simpan keduanya. Pencocokan lewat ID, lalu host+port+user.
-  Import ulang file yang sama tidak menduplikasi apa pun. Jika menimpa mengubah alamat, alamat lama
-  dan baru ditampilkan, lalu kredensial milik alamat lama dihapus.
-- Perintah startup dari file import (yang otomatis jalan di server saat konek) hanya ikut bila dicentang.
-- Import dari **Electerm** (format export bookmark versi 5.6.10, file "export all data", atau array
-  bookmark). Grup bersarang, password, passphrase, dan key yang ditempel di Electerm dipindahkan ke
-  Keychain. Bookmark non-SSH (telnet, RDP, VNC, dsb.) dilewati dengan pemberitahuan.
-- Import dari `~/.ssh/config` (Host, HostName, Port, User, IdentityFile, `Host *`, pola `!`, Include).
-- File dengan skema lebih baru atau rusak ditolak dengan pesan jelas. File di atas 10 MB ditolak
-  sebelum dibaca.
+Requires macOS 12 Monterey or later, on Apple Silicon or Intel.
 
-**Lainnya**
-- Menu bar macOS native, mengikuti mode terang/gelap macOS, antarmuka **Inggris dan Indonesia**
-  (otomatis mengikuti bahasa sistem, bisa diganti di Pengaturan).
-- Tanpa telemetri; tidak ada koneksi keluar selain ke server yang Anda tuju.
-- Buka koneksi dari Terminal: `open -a Peler --args "nama bookmark"` atau `user@host:port`. Aplikasi
-  hanya berjalan satu instance. Menjalankan binary-nya lagi (mis.
-  `/Applications/Peler.app/Contents/MacOS/peler web-1`) membuka tab di jendela yang sudah terbuka,
-  sehingga dua proses tidak pernah menulis file bookmark yang sama.
-- Ukuran dan posisi jendela diingat. Jika terjadi crash, laporannya ditulis ke `~/Library/Logs/Peler/`.
-
-## Pintasan keyboard
-
-| Aksi | Pintasan |
-| --- | --- |
-| Cari bookmark dan konek | `⌘K` |
-| Bookmark baru | `⌘N` |
-| Tab baru (server yang sama) | `⌘T` |
-| Tutup pane / tab | `⌘W` |
-| Pindah tab | `⌘1`–`⌘9`, `⇧⌘[` / `⇧⌘]` |
-| Konek ulang | `⌘R` |
-| Split kanan / bawah | `⌘D` / `⇧⌘D` |
-| Pane sebelumnya / berikutnya | `⌘[` / `⌘]` |
-| Sidebar | `⌘B` |
-| Panel SFTP | `⇧⌘F` |
-| Ukuran teks | `⌘=` / `⌘-` / `⌘0` |
-| Hapus scrollback | `⌥⌘K` |
-| Gulir riwayat | `⇧PageUp` / `⇧PageDown` / `⇧Home` / `⇧End` |
-| Export bookmark | `⇧⌘E` (import ada di menu File) |
-| Pengaturan | `⌘,` |
-| Simpan (editor file remote) | `⌘S` |
-
-## Instalasi
-
-**Dari DMG:** buka `dist/Peler-1.0.0.dmg`, seret **Peler** ke Applications.
-
-Build saat ini ditandatangani *ad-hoc* (tanpa Apple Developer ID). Di Mac yang membangunnya, aplikasi
-langsung jalan. Di Mac lain, macOS Gatekeeper akan memblokirnya: klik kanan → **Open** sekali, atau
-jalankan `xattr -dr com.apple.quarantine /Applications/Peler.app`. Untuk distribusi publik, lihat
-bagian *Code signing dan notarisasi* di bawah.
-
-## Build dari source
-
-Prasyarat: Rust stable (rustup) dan Xcode Command Line Tools.
+### One-line installer (recommended)
 
 ```sh
-cargo run --release                     # jalankan langsung
-cargo run --release -- "nama bookmark"  # langsung konek
-scripts/package.sh                      # .app universal + DMG + Homebrew cask di dist/
-PELER_ARCHS=aarch64 scripts/package.sh  # hanya Apple Silicon (lebih cepat)
+curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/peler/master/scripts/install.sh | bash
 ```
 
-### Code signing dan notarisasi
+The script downloads the latest release, installs `Peler.app` into `/Applications`, and opens it.
+Run it again to update. To install a specific version, pass it as an argument:
+`… | bash -s -- v1.0.0`.
 
-Dibutuhkan akun Apple Developer (berbayar):
+### Installer package or disk image
+
+Download one of these from the [latest release](https://github.com/ilhamnadhif/peler/releases/latest):
+
+- **`Peler-<version>.pkg`**: a regular macOS installer that puts Peler in `/Applications`.
+- **`Peler-<version>.dmg`**: open it and drag **Peler** onto **Applications**.
+
+> **First launch.** Release builds are not yet signed with an Apple Developer ID, so Gatekeeper
+> blocks files downloaded with a browser. Right-click the `.pkg` (or `Peler.app`) → **Open** →
+> **Open** once. Or clear the quarantine flag:
+> `xattr -dr com.apple.quarantine /Applications/Peler.app`.
+> The one-line installer avoids this step.
+
+### Homebrew
+
+Each release includes a cask file, `peler.rb`:
 
 ```sh
-# sekali saja: simpan kredensial notarytool di Keychain
-xcrun notarytool store-credentials peler-notary --apple-id <email> --team-id <TEAMID>
+curl -fsSLO https://github.com/ilhamnadhif/peler/releases/latest/download/peler.rb
+brew install --cask ./peler.rb
+```
 
-PELER_SIGN_IDENTITY="Developer ID Application: Nama Anda (TEAMID)" \
+### Uninstall
+
+```sh
+rm -rf /Applications/Peler.app
+rm -rf ~/Library/Application\ Support/peler      # bookmarks, settings, known hosts
+```
+
+Saved passwords are Keychain items with the service name `peler`; remove them in Keychain Access.
+
+## Features
+
+### Bookmarks
+
+- Name, host, port, user, password or private-key authentication (key file, or a key stored in the
+  Keychain), group, tags, notes, remote and local start folders, startup commands, and legacy
+  algorithms per server.
+- Nested groups; drag and drop to reorder or regroup.
+- Fuzzy search over name, host, user, tags and group. Press Enter to connect.
+- `⌘K` opens a command palette. Typing `user@host:port` there (IPv6 as `[::1]:22`) connects without
+  a bookmark.
+- Open from the command line: `open -a Peler --args web-01` or `--args deploy@10.0.0.5:2222`.
+  Peler runs as a single instance: launching it again opens the tab in the window that is already
+  open.
+
+### Terminal
+
+- xterm-256color emulation, 24-bit colour, scrollback (10,000 lines by default), alternate screen,
+  bracketed paste, mouse reporting, focus events, and DEC 2026 synchronized output.
+- Selection: double-click selects a word, triple-click a line, Option-drag a block. Copy on select is
+  optional.
+- Box drawing and block characters are drawn as shapes, so lines join seamlessly. CJK fallback fonts
+  are memory-mapped.
+- IME composition, with the candidate window at the cursor.
+- Password, keyboard-interactive (one-time codes) and Ed25519 / ECDSA / RSA key authentication,
+  including encrypted keys.
+- Tabs and split panes (`⌘D`, `⇧⌘D`) over one connection. A split opens in the current remote
+  folder when the shell reports it.
+- Enter in an ended pane starts a new shell there; `⌘R` reconnects the whole tab and keeps its
+  scrollback.
+- Option as Meta (optional) for readline and Emacs. It works with any keyboard layout, and only
+  while a terminal has focus.
+- Quick commands (⚡), nine colour schemes, and a choice of fonts (or your own font file).
+
+### SFTP (`⇧⌘F`)
+
+![SFTP panel uploading several files](docs/screenshots/sftp.png)
+
+- Local and remote lists side by side, over the same SSH connection.
+- **Upload, download, rename, delete (recursive), new folder, chmod.**
+- **Many files at once**: select with ⌘-click, ⇧-click or `⌘A` over a list, then use
+  **Upload (n)** / **Download (n)** under the lists. **Upload…** opens the macOS file picker, and you
+  can also drag between the lists or drop files from Finder.
+- **Transfers you can follow**: the transfer list (resizable and collapsible) shows the whole batch:
+  files done, percent, size, speed and time left. Each row shows its own progress. While the panel
+  is hidden, the tab shows a progress ring and the toolbar shows **SFTP ⬆ 45%**. A notification tells
+  you when everything has finished or something failed.
+- Files are written under a temporary name and renamed into place when complete. Cancelling, closing
+  the tab or quitting removes partial files, on the server too. Sizes are verified, and permissions
+  and the executable bit are kept.
+- You are asked before an existing file is overwritten.
+
+### Remote file editor
+
+![Editing a YAML config on the server](docs/screenshots/editor.png)
+
+Double-click a remote file (or right-click → **Edit**) to edit it in place:
+
+- Line numbers, cursor position, `⌘S` to save, `Esc` to close.
+- Tab inserts spaces (YAML does not allow tabs), and Enter keeps the indentation.
+- CRLF/LF line endings, a UTF-8 BOM and file permissions are preserved.
+- **Safe saves**: the new content is written next to the file and swapped in, so a dropped
+  connection never leaves a half-written config. Symlinks and files owned by other users are
+  written in place.
+- Warns if someone changed the file since you opened it. Asks before discarding unsaved changes,
+  including on closing the tab or quitting.
+- Binary files and files over 2 MB are not opened; you can download them instead.
+
+### Import and export
+
+- **Export** all bookmarks, a group, or a selection to versioned JSON (`schema_version`,
+  `exported_at`, `groups`, `bookmarks`).
+- Credentials are **not** exported unless you ask. If you do, they are encrypted with a passphrase
+  (Argon2id 64 MiB + XChaCha20-Poly1305) and bound to their host, port and user. If someone edits the
+  bookmark list in the file to point elsewhere, the credentials are not imported.
+- **Import** shows a preview of what will be added, updated or skipped. Each conflict can be
+  skipped, overwritten or kept as both. Importing the same file twice changes nothing. Startup
+  commands from a file are imported only if you opt in.
+- **Electerm** exports (bookmarks with nested groups, passwords and pasted keys) and
+  **`~/.ssh/config`** (`Host`, `HostName`, `Port`, `User`, `IdentityFile`, `Host *`, negation,
+  `Include`).
+
+## Keyboard shortcuts
+
+| Action | Shortcut |
+| --- | --- |
+| Quick connect / search bookmarks | `⌘K` |
+| New bookmark | `⌘N` |
+| New tab (same server) | `⌘T` |
+| Close pane / tab | `⌘W` |
+| Switch tab | `⌘1`–`⌘9`, `⇧⌘[` / `⇧⌘]` |
+| Reconnect | `⌘R` |
+| Split right / down | `⌘D` / `⇧⌘D` |
+| Previous / next pane | `⌘[` / `⌘]` |
+| Sidebar | `⌘B` |
+| SFTP panel | `⇧⌘F` |
+| Text size | `⌘=` / `⌘-` / `⌘0` |
+| Clear scrollback | `⌥⌘K` |
+| Scroll history | `⇧PageUp` / `⇧PageDown` / `⇧Home` / `⇧End` |
+| Export bookmarks | `⇧⌘E` |
+| Settings | `⌘,` |
+| Save (remote file editor) | `⌘S` |
+
+## Performance
+
+Measured on an Apple Silicon MacBook running macOS 14.6, with the release build:
+
+| | Result |
+| --- | --- |
+| Memory, 1 SSH session | 68 MB (physical footprint, as in Activity Monitor) |
+| Memory, 5 SSH tabs | 78 MB |
+| Cold start to first frame | ~0.1 s |
+| Universal `.app` (arm64 + x86_64) | 28 MB (DMG 15 MB) |
+| CPU when idle | 0.0 % |
+| SFTP, 1 GiB to a local sshd | ~640 MB/s up, ~650–700 MB/s down, sha256 verified |
+
+Scrollback costs about 24 bytes per cell. Five tabs, each with a full 10,000-line, 120-column
+history, add up to about 210 MB. Lower **Scrollback** in Settings if you keep many busy tabs open.
+
+## Security and data
+
+| What | Where |
+| --- | --- |
+| Bookmarks | `~/Library/Application Support/peler/bookmarks.json` (mode 0600) |
+| Settings (including window size and position) | `~/Library/Application Support/peler/settings.json` |
+| Trusted host keys | `~/Library/Application Support/peler/known_hosts` |
+| Passwords, passphrases, imported keys | macOS Keychain, service `peler` |
+| Crash reports | `~/Library/Logs/Peler/panic-*.log` |
+
+- **Host keys**: Peler checks the app's own `known_hosts` and, read-only, `~/.ssh/known_hosts`,
+  including hashed entries, wildcards, negation and `@revoked`.
+  - A new host must be trusted with a click; Enter never accepts a key.
+  - A changed key, or a key of a different type than the one on record, triggers a red warning that
+    shows the old fingerprints.
+  - Revoked keys are refused.
+- **Algorithms**: AES-256-GCM is preferred (hardware AES, via *ring*), then ChaCha20-Poly1305.
+  SHA-1 signatures, CBC ciphers and SHA-1 key exchange are only enabled when **Legacy algorithms**
+  is ticked for a bookmark.
+- **Files** are written atomically (unique temp file, `fsync`, rename). An unreadable bookmarks or
+  settings file is set aside as `*.corrupt-<time>.json`, never overwritten. A bookmarks file from a
+  newer version is never touched.
+- **Secrets** are only offered for saving for stored bookmarks. Switching a bookmark's login method
+  removes secrets it no longer uses. Nothing secret is logged, and there is no telemetry.
+
+## Building from source
+
+Requires the Rust stable toolchain (via [rustup](https://rustup.rs)) and the Xcode Command Line
+Tools.
+
+```sh
+git clone https://github.com/ilhamnadhif/peler.git && cd peler
+cargo run --release                       # build and run
+cargo run --release -- web-01             # open a bookmark (or user@host[:port])
+scripts/package.sh                        # universal Peler.app, .dmg, .pkg and Homebrew cask in dist/
+PELER_ARCHS=aarch64 scripts/package.sh    # Apple Silicon only (faster)
+```
+
+### Signing and notarization
+
+With an Apple Developer account:
+
+```sh
+xcrun notarytool store-credentials peler-notary --apple-id <email> --team-id <TEAMID>   # once
+
+PELER_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+PELER_INSTALLER_IDENTITY="Developer ID Installer: Your Name (TEAMID)" \
 PELER_NOTARY_PROFILE=peler-notary scripts/package.sh
 ```
 
-Skrip menandatangani dengan hardened runtime, membuat DMG, mengirim ke notarisasi Apple, lalu
-men-*staple* tiket. File cask Homebrew (`dist/homebrew/peler.rb`) berisi sha256 DMG; ganti `url`
-dengan lokasi unggahan DMG Anda.
+The script signs with the hardened runtime, then notarizes and staples both the DMG and the package.
 
-## Pengujian
+## Testing
 
 ```sh
-cargo test                                  # unit + integrasi (otomatis menyalakan sshd lokal)
-cargo test --release --test sftp_integration -- --ignored   # uji transfer 1 GB + sha256
-cargo audit                                 # audit keamanan dependensi
+cargo test                                                   # unit + integration tests
+cargo test --release --test sftp_integration -- --ignored    # 1 GiB round trip with sha256
+cargo audit                                                  # dependency advisories
 ```
 
-Tes integrasi menjalankan OpenSSH `sshd` milik macOS tanpa root di port acak (key auth, host key
-baru/berubah/revoked, shell, resize, beberapa pane, SFTP) dan server SSH in-process untuk alur
-password dan keyboard-interactive.
+The integration tests start macOS's own OpenSSH `sshd` unprivileged on a random port. They cover:
 
-Build debug juga punya *driver* end-to-end yang mengirim event keyboard dan mouse sungguhan ke
-jendela, lewat jalur yang sama dengan input pengguna (menu, winit, egui):
+- key authentication, and host keys that are new, changed or revoked;
+- shells, resizing and several panes;
+- SFTP transfers and the remote editor.
+
+An in-process SSH server covers the password and keyboard-interactive flows.
+
+Debug builds include an end-to-end driver. It sends real keyboard and mouse events to the window,
+through the same path as user input (menu, winit, egui):
 
 ```sh
 PELER_DATA_DIR=/tmp/peler-e2e PELER_SECRETS=memory \
@@ -185,81 +267,44 @@ PELER_DEV_SCRIPT='sleep 1500;; connect local dev;; sleep 2500;; keys echo hi\r;;
   target/debug/peler
 ```
 
-Hasil dicetak sebagai baris `DEVTEST PASS/FAIL`. `PELER_DATA_DIR` dan `PELER_SECRETS` hanya
-berlaku di build debug; build rilis selalu memakai lokasi data dan Keychain yang asli.
+Results are printed as `DEVTEST PASS/FAIL` lines. `PELER_DATA_DIR` and `PELER_SECRETS` only work in
+debug builds. `scripts/dev-sshd.sh` starts a local sshd to try the app against.
 
-Untuk mencoba aplikasi secara manual ke server lokal:
-
-```sh
-scripts/dev-sshd.sh /tmp/peler-sshd 2299     # menampilkan path key yang dipakai
-```
-
-## Data dan keamanan
-
-| Apa | Lokasi |
-| --- | --- |
-| Bookmark | `~/Library/Application Support/peler/bookmarks.json` (permission 0600) |
-| Pengaturan (termasuk ukuran/posisi jendela) | `~/Library/Application Support/peler/settings.json` (0600) |
-| Host key tepercaya | `~/Library/Application Support/peler/known_hosts` (0600) |
-| Password, passphrase, key hasil import | macOS Keychain, service `peler` |
-| Laporan crash | `~/Library/Logs/Peler/panic-*.log` |
-
-- File ditulis atomik (tulis ke file sementara yang unik, `fsync`, `rename`). File bookmark atau
-  pengaturan yang rusak tidak ditimpa, melainkan disimpan sebagai cadangan `*.corrupt-<waktu>.json`.
-  File bookmark dari versi yang lebih baru tidak pernah ditimpa: perubahan bookmark tidak disimpan
-  sampai aplikasi diperbarui.
-- Password hanya ditawarkan untuk disimpan di Keychain bila bookmark-nya memang tersimpan (alamat
-  yang diketik langsung tidak meninggalkan apa pun). Mengganti metode login menghapus rahasia yang
-  tidak lagi dipakai.
-- Tidak ada log yang berisi password. Tidak ada telemetri.
-- Cipher yang diutamakan AES-256-GCM (memakai instruksi AES CPU, lewat *ring*), lalu ChaCha20-Poly1305.
-  Algoritma lama (signature ssh-rsa/SHA-1 untuk host key dan login, CBC, kex SHA-1) hanya aktif
-  bila dicentang per bookmark.
-- Batas waktu DNS 10 detik. Bila host punya beberapa alamat (IPv6 + IPv4), tiap alamat dicoba
-  dengan batas waktu sendiri. Menutup tab di tengah handshake langsung memutus socket-nya.
-
-## Keputusan atas pertanyaan terbuka di PRD
-
-| Pertanyaan | Keputusan |
-| --- | --- |
-| Framework UI | **egui 0.36** dengan renderer wgpu/Metal. Spike terminal (Gate 1) lolos: vim, warna 24-bit, CJK, IME, mouse. Renderer OpenGL dicoba dulu tetapi memakai 5 buffer jendela (~107 MB); wgpu/Metal hanya 3 (~63 MB). |
-| Target chip | **Universal binary** (Apple Silicon + Intel), tetap di bawah 30 MB. |
-| Lisensi | **Belum ditentukan** — silakan pilih (MIT/Apache-2.0/tertutup). Tidak ada kode Electerm yang dipakai; importer ditulis dari dokumentasi format export-nya. |
-| Skema Electerm | Diverifikasi terhadap kode sumber Electerm 5.6.10 (`bookmark-toolbar.jsx` → `handleDownload`). Contoh file ada di `tests/fixtures/electerm-sample.json`. |
-| Distribusi | **DMG + Homebrew cask**, tanpa Mac App Store (sandbox App Store akan membatasi akses file dan jaringan). |
-
-## Keterbatasan yang diketahui
-
-- **Perlu dicoba tangan:** driver E2E mengirim event keyboard/mouse sungguhan, tetapi tidak bisa
-  menyimulasikan komposisi IME (Mandarin/Jepang), drag-and-drop bookmark di sidebar, atau file yang
-  di-drag dari Finder. Komposisi IME memakai jalur resmi egui/winit.
-- File yang di-drag dari Finder selalu diunggah ke folder remote yang sedang dibuka. macOS tidak
-  memberi tahu posisi drop, jadi tujuannya tidak bisa dipilih per folder.
-- Dukungan VoiceOver masih terbatas (sesuai PRD).
-- Font tanpa varian tebal (mis. Hack, Monaco) ditebalkan secara sintetis; Menlo (default) memakai
-  varian tebal/miring asli.
-- Build ad-hoc: setiap kali aplikasi dibangun ulang, macOS bisa meminta izin sekali untuk membuka
-  item Keychain lama. Build dengan Developer ID tidak mengalami ini.
-- `cargo audit` melaporkan RUSTSEC-2023-0071 (side-channel waktu pada crate `rsa`, dipakai russh untuk
-  key RSA). Belum ada versi perbaikan; risikonya rendah untuk klien yang hanya menandatangani dengan
-  key milik pengguna secara lokal. Gunakan key Ed25519 bila memungkinkan. Peringatan lain dari
-  `cargo audit` (glib, ttf-parser, proc-macro-error) hanya berasal dari dependensi Linux atau
-  build-time, dan tidak ikut ke build macOS.
-- Fitur pasca-v1.0 di PRD (port forwarding, jump host/ProxyJump, ssh-agent, Linux/Windows) belum ada.
-
-## Struktur kode
+## Project layout
 
 ```
 src/
-  app.rs                aplikasi: layout, tab, aksi, dialog
-  bookmarks/            model, store, pencarian fuzzy, import/export, Electerm, ~/.ssh/config
-  ssh/                  koneksi russh, autentikasi, host key, shell channel
-  sftp/                 operasi remote, transfer latar belakang, muat/simpan editor
-  term/                 inti terminal (alacritty_terminal), encoding keyboard/mouse, skema warna
-  ui/                   widget terminal, sidebar, editor bookmark, editor file remote, dialog,
-                        panel SFTP, menu, font, ikon
-  crypto.rs secrets.rs  enkripsi export, Keychain
-  i18n.rs               teks Inggris/Indonesia (tes memastikan semua teks UI terjemahkan)
-tests/                  tes integrasi (sshd lokal, server in-process, 1 GB SFTP)
-scripts/                package.sh (build/sign/DMG/notarize), dev-sshd.sh
+  app.rs              application: layout, tabs, actions, dialogs
+  bookmarks/          model, store, fuzzy search, import/export, Electerm, ~/.ssh/config
+  ssh/                russh connection, authentication, known_hosts, shells
+  sftp/               remote operations, background transfers, editor load/save
+  term/               terminal core (alacritty_terminal), key/mouse encoding, colour schemes
+  ui/                 terminal widget, sidebar, editors, dialogs, SFTP panel, menu, fonts
+  crypto.rs           export encryption
+  secrets.rs          Keychain
+  i18n.rs             English/Indonesian strings (a test checks every UI string is translated)
+  instance.rs         single instance and argument forwarding
+tests/                integration tests (local sshd, in-process server, 1 GiB SFTP)
+scripts/              package.sh, install.sh, dev-sshd.sh
 ```
+
+Built with [egui](https://github.com/emilk/egui) (wgpu/Metal),
+[alacritty_terminal](https://github.com/alacritty/alacritty),
+[russh](https://github.com/Eugeny/russh) and russh-sftp, [tokio](https://tokio.rs) and
+[keyring](https://github.com/hwchen/keyring-rs).
+
+## Known limitations
+
+- Release builds are not signed with an Apple Developer ID yet. See *First launch* above.
+- Not covered by the automated tests, so worth a manual check: IME composition, reordering bookmarks
+  by drag and drop, and files dropped from Finder.
+- Files dropped from Finder upload to the remote folder that is open; macOS does not report where
+  in the window they were dropped.
+- `cargo audit` reports RUSTSEC-2023-0071, a timing side channel in the `rsa` crate that russh uses
+  for RSA keys. There is no fixed version yet. The risk is low for a client that only signs locally
+  with your own key; prefer Ed25519 keys.
+- Not yet available: port forwarding, ProxyJump, ssh-agent, and Linux/Windows builds.
+
+## License
+
+No license has been chosen yet; until one is added, all rights are reserved by the author.

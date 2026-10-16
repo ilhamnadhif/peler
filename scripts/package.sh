@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# Builds Peler.app (universal: Apple Silicon + Intel), signs it, wraps it in a DMG and writes a
-# Homebrew cask.
+# Builds Peler.app (universal: Apple Silicon + Intel), signs it, and produces the installers:
+#   dist/Peler-<version>.dmg   drag-to-Applications disk image
+#   dist/Peler-<version>.pkg   macOS Installer package (installs into /Applications)
+#   dist/homebrew/peler.rb     Homebrew cask pointing at the GitHub release
 #
 #   scripts/package.sh                 # ad-hoc signed (runs on this Mac)
 #   PELER_SIGN_IDENTITY="Developer ID Application: Name (TEAMID)" \
+#   PELER_INSTALLER_IDENTITY="Developer ID Installer: Name (TEAMID)" \
 #   PELER_NOTARY_PROFILE=peler-notary scripts/package.sh
 #                                      # Developer ID signing + Apple notarization
 #
@@ -23,6 +26,8 @@ ARCHS="${PELER_ARCHS:-aarch64 x86_64}"
 DIST="dist"
 APP="$DIST/$APP_NAME.app"
 DMG="$DIST/$APP_NAME-$VERSION.dmg"
+PKG="$DIST/$APP_NAME-$VERSION.pkg"
+REPO="${PELER_REPO:-ilhamnadhif/peler}"
 export MACOSX_DEPLOYMENT_TARGET=12.0
 
 echo "==> Building $APP_NAME $VERSION for: $ARCHS"
@@ -34,7 +39,7 @@ for arch in $ARCHS; do
     BINS+=("target/$target/release/$BIN_NAME")
 done
 
-rm -rf "$APP" "$DMG"
+rm -rf "$APP" "$DMG" "$PKG"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 if [ "${#BINS[@]}" -gt 1 ]; then
     lipo -create -output "$APP/Contents/MacOS/$BIN_NAME" "${BINS[@]}"
@@ -87,11 +92,50 @@ if [ -n "${PELER_SIGN_IDENTITY:-}" ]; then
     codesign --force --timestamp --sign "$PELER_SIGN_IDENTITY" "$DMG"
 fi
 
+echo "==> Creating installer package"
+PKG_ROOT="$(mktemp -d)"
+PKG_WORK="$(mktemp -d)"
+cp -R "$APP" "$PKG_ROOT/"
+pkgbuild --analyze --root "$PKG_ROOT" "$PKG_WORK/component.plist" >/dev/null
+# Always install into /Applications, never "update" a copy found elsewhere on the disk.
+plutil -replace 0.BundleIsRelocatable -bool NO "$PKG_WORK/component.plist"
+pkgbuild --quiet \
+    --root "$PKG_ROOT" \
+    --component-plist "$PKG_WORK/component.plist" \
+    --install-location /Applications \
+    --identifier "$BUNDLE_ID.pkg" \
+    --version "$VERSION" \
+    "$PKG_WORK/Peler-component.pkg"
+cat > "$PKG_WORK/distribution.xml" <<DIST
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>$APP_NAME $VERSION</title>
+    <options customize="never" require-scripts="false" hostArchitectures="arm64,x86_64"/>
+    <allowed-os-versions><os-version min="12.0"/></allowed-os-versions>
+    <domains enable_localSystem="true"/>
+    <choices-outline><line choice="default"><line choice="$BUNDLE_ID"/></line></choices-outline>
+    <choice id="default"/>
+    <choice id="$BUNDLE_ID" visible="false"><pkg-ref id="$BUNDLE_ID.pkg"/></choice>
+    <pkg-ref id="$BUNDLE_ID.pkg" version="$VERSION" onConclusion="none">Peler-component.pkg</pkg-ref>
+</installer-gui-script>
+DIST
+PRODUCT_SIGN=()
+if [ -n "${PELER_INSTALLER_IDENTITY:-}" ]; then
+    PRODUCT_SIGN=(--sign "$PELER_INSTALLER_IDENTITY" --timestamp)
+fi
+productbuild --quiet ${PRODUCT_SIGN[@]+"${PRODUCT_SIGN[@]}"} \
+    --distribution "$PKG_WORK/distribution.xml" \
+    --package-path "$PKG_WORK" \
+    "$PKG"
+rm -rf "$PKG_ROOT" "$PKG_WORK"
+
 if [ -n "${PELER_NOTARY_PROFILE:-}" ]; then
     echo "==> Notarizing (this can take a few minutes)"
-    xcrun notarytool submit "$DMG" --keychain-profile "$PELER_NOTARY_PROFILE" --wait
-    xcrun stapler staple "$DMG"
-    xcrun stapler validate "$DMG"
+    for artifact in "$DMG" "$PKG"; do
+        xcrun notarytool submit "$artifact" --keychain-profile "$PELER_NOTARY_PROFILE" --wait
+        xcrun stapler staple "$artifact"
+        xcrun stapler validate "$artifact"
+    done
 fi
 
 SHA="$(shasum -a 256 "$DMG" | awk '{print $1}')"
@@ -101,11 +145,10 @@ cask "peler" do
   version "$VERSION"
   sha256 "$SHA"
 
-  # Upload the DMG to your release host and adjust this URL.
-  url "https://example.com/peler/releases/Peler-#{version}.dmg"
+  url "https://github.com/$REPO/releases/download/v#{version}/Peler-#{version}.dmg"
   name "Peler"
   desc "Lightweight SSH and SFTP client"
-  homepage "https://example.com/peler"
+  homepage "https://github.com/$REPO"
 
   depends_on macos: ">= :monterey"
 
@@ -120,5 +163,6 @@ CASK
 echo
 echo "App:      $APP ($(du -sh "$APP" | awk '{print $1}'))"
 echo "DMG:      $DMG ($(du -h "$DMG" | awk '{print $1}'))"
+echo "PKG:      $PKG ($(du -h "$PKG" | awk '{print $1}'))"
 echo "Cask:     $DIST/homebrew/peler.rb"
 echo "Binary:   $(lipo -archs "$APP/Contents/MacOS/$BIN_NAME")"
