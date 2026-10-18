@@ -352,9 +352,10 @@ Built with [egui](https://github.com/emilk/egui) (wgpu/Metal),
   by drag and drop, and files dropped from Finder.
 - Files dropped from Finder upload to the remote folder that is open; macOS does not report where
   in the window they were dropped.
-- `cargo audit` reports RUSTSEC-2023-0071, a timing side channel in the `rsa` crate that russh uses
-  for RSA keys. There is no fixed version yet. The risk is low for a client that only signs locally
-  with your own key; prefer Ed25519 keys.
+- RSA logins are signed with `ring` (constant time), not the `rsa` crate that has a timing side
+  channel (RUSTSEC-2023-0071, ignored in `.cargo/audit.toml` with the reasons). The `rsa` crate
+  still signs in two rare cases: SHA-1 signatures for servers older than 2016 (only with legacy
+  algorithms on) and RSA keys shorter than 2048 bits.
 - Not yet available: port forwarding, ProxyJump, ssh-agent, and Linux/Windows builds.
 
 ## License

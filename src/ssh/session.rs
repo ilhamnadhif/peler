@@ -887,12 +887,21 @@ async fn auth_publickey(
                 None if legacy => vec![Some(HashAlg::Sha512), Some(HashAlg::Sha256), None],
                 None => vec![Some(HashAlg::Sha512), Some(HashAlg::Sha256)],
             };
+        // Signed with ring where it can (see rsa_sign): SHA-2 signatures, keys of 2048 bits
+        // and more.
+        let mut ring = super::rsa_sign::RingRsa::new(&key);
         let mut last = None;
         for hash in candidates {
-            let r = handle
-                .authenticate_publickey(user, PrivateKeyWithHashAlg::new(key.clone(), hash))
-                .await
-                .map_err(other)?;
+            let r = match (&mut ring, hash) {
+                (Some(signer), Some(_)) => handle
+                    .authenticate_publickey_with(user, key.public_key().clone(), hash, signer)
+                    .await
+                    .map_err(|e| ConnError::Other(e.0))?,
+                _ => handle
+                    .authenticate_publickey(user, PrivateKeyWithHashAlg::new(key.clone(), hash))
+                    .await
+                    .map_err(other)?,
+            };
             if r.success() {
                 return Ok(r);
             }

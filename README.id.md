@@ -356,9 +356,10 @@ Dibangun dengan [egui](https://github.com/emilk/egui) (wgpu/Metal),
   dengan drag and drop, dan file yang di-drop dari Finder.
 - File yang di-drop dari Finder diunggah ke folder remote yang sedang terbuka; macOS tidak memberi
   tahu di bagian jendela mana file itu di-drop.
-- `cargo audit` melaporkan RUSTSEC-2023-0071, side-channel waktu pada crate `rsa` yang dipakai russh
-  untuk key RSA. Belum ada versi perbaikannya. Risikonya rendah untuk klien yang hanya menandatangani
-  secara lokal dengan key Anda sendiri; sebaiknya pakai key Ed25519.
+- Login dengan key RSA ditandatangani memakai `ring` (constant time), bukan crate `rsa` yang punya
+  side-channel waktu (RUSTSEC-2023-0071, diabaikan di `.cargo/audit.toml` beserta alasannya). Crate
+  `rsa` masih menandatangani di dua kasus langka: tanda tangan SHA-1 untuk server sebelum 2016
+  (hanya bila legacy algorithms dinyalakan) dan key RSA di bawah 2048 bit.
 - Belum tersedia: port forwarding, ProxyJump, ssh-agent, dan build Linux/Windows.
 
 ## Lisensi

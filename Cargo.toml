@@ -26,6 +26,10 @@ memmap2 = "0.9.11"
 muda = "0.21.2"
 parking_lot = "0.12.5"
 rfd = "0.17.2"
+# RSA logins are signed with ring (constant time); see src/ssh/rsa_sign.rs. Both are already
+# used by russh, at these versions.
+ring = "0.17.14"
+rsa = "=0.10.0-rc.18"
 russh = { version = "0.64.1", default-features = false, features = ["flate2", "ring", "rsa"] }
 russh-sftp = "3.0.1"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -48,6 +52,7 @@ objc2-foundation = { version = "0.3.2", default-features = false, features = ["s
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSEvent", "NSApplication", "NSResponder", "NSWindow", "NSView", "NSGraphicsContext"] }
 
 [dev-dependencies]
+signature = "3.0.0"
 tempfile = "3.27.0"
 tiny-skia = "0.12.0"
 
