@@ -22,6 +22,7 @@ use crate::sftp::remote::{self, Sftp};
 use crate::sftp::transfer::{Direction, Summary, Transfer, TransferState, Transfers};
 use crate::ui::file_editor::{EditorOutput, FileEditor};
 use crate::ui::icons::{self, Icon};
+use crate::ui::style;
 
 enum Session {
     Opening(oneshot::Receiver<Result<SftpSession, String>>),
@@ -1562,7 +1563,7 @@ impl SftpPanel {
             match dialog {
                 Dialog::Mkdir { name, .. } => {
                     ui.heading(t("New folder"));
-                    let r = ui.add(egui::TextEdit::singleline(name).hint_text(t("Folder name")).desired_width(f32::INFINITY));
+                    let r = ui.add(style::input(name).hint_text(t("Folder name")));
                     if focus {
                         r.request_focus();
                     }
@@ -1572,7 +1573,7 @@ impl SftpPanel {
                 }
                 Dialog::Rename { to, .. } => {
                     ui.heading(t("Rename"));
-                    let r = ui.add(egui::TextEdit::singleline(to).desired_width(f32::INFINITY));
+                    let r = ui.add(style::input(to));
                     if focus {
                         r.request_focus();
                     }
@@ -1606,7 +1607,7 @@ impl SftpPanel {
                             for bit in [4u32, 2, 1] {
                                 let mask = bit << shift;
                                 let mut on = bits & mask != 0;
-                                if ui.checkbox(&mut on, "").changed() {
+                                if style::checkbox(ui, &mut on, "").changed() {
                                     bits = if on { bits | mask } else { bits & !mask };
                                     *mode = format!("{:o}", bits);
                                 }

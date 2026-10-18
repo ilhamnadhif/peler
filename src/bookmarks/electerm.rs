@@ -337,7 +337,7 @@ pub fn read(value: &Value) -> Result<Incoming> {
             start_dir,
             local_start_dir: s(b, "startDirectoryLocal").to_string(),
             startup_command,
-            legacy_algorithms: false,
+            ..Default::default()
         });
         if !secret.is_empty() {
             secrets.insert(id, secret);

@@ -24,6 +24,8 @@ pub enum ConnError {
     Disconnected(String),
     /// The server stopped answering a connection that looked open (see [`ProbeReason`]).
     NotResponding(ProbeReason),
+    /// Something went wrong on the way, at this jump host.
+    Jump(String, Box<ConnError>),
     Other(String),
 }
 
@@ -65,6 +67,7 @@ impl ConnError {
             ConnError::NotResponding(ProbeReason::NoReply) => {
                 t("The server stopped responding. Reconnect to continue.").into()
             }
+            ConnError::Jump(host, e) => tf("Jump host {}: {}", &[host, &e.message()]),
             ConnError::Other(e) => e.clone(),
         }
     }
@@ -146,6 +149,18 @@ pub struct ConnShared {
     pub info: String,
     /// Since when the app has been checking whether the server still answers.
     pub checking_since: Option<Instant>,
+    /// The jump host being connected to, on the way to the server.
+    pub via: Option<String>,
+    /// The connection's port forwards and how they are doing.
+    pub forwards: Vec<ForwardStatus>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ForwardStatus {
+    pub forward: crate::bookmarks::Forward,
+    pub listening: bool,
+    /// Why it isn't listening, or why its last connection failed.
+    pub error: Option<String>,
 }
 
 impl Default for ConnShared {
@@ -156,6 +171,8 @@ impl Default for ConnShared {
             connected_at: None,
             info: String::new(),
             checking_since: None,
+            via: None,
+            forwards: Vec::new(),
         }
     }
 }

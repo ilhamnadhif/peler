@@ -25,6 +25,7 @@ fn connect(rt: &tokio::runtime::Runtime, server: &TestServer) -> Connection {
         },
         // No keepalive: only the check may notice the dead server.
         keepalive_secs: 0,
+        jumps: Vec::new(),
         known_hosts: server.dir.path().join("kh"),
         save_secrets: false,
     };

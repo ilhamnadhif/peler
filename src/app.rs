@@ -1604,6 +1604,7 @@ impl PelerApp {
                     self.actions.push(Action::ToggleSftp);
                 }
                 self.theme_button(ui);
+                self.forwards_button(ui);
                 self.updater.toolbar_button(ui);
                 ui.add_enabled_ui(has_tab, |ui| {
                     ui.menu_button("⚡", |ui| {
@@ -1782,12 +1783,12 @@ impl PelerApp {
         let tab = &mut self.tabs[active];
         tab.clear_activity();
         let state = tab.state();
-        let (has_prompt, checking) = {
+        let (has_prompt, checking, via) = {
             let s = tab.conn.shared.lock();
             let checking = s
                 .checking_since
                 .is_some_and(|t| t.elapsed() >= Duration::from_millis(1500));
-            (s.prompt.is_some(), checking)
+            (s.prompt.is_some(), checking, s.via.clone())
         };
 
         // Status banner.
@@ -1798,6 +1799,16 @@ impl PelerApp {
                 style::AMBER,
                 false,
             )),
+            ConnState::Connecting | ConnState::Authenticating if !has_prompt && via.is_some() => {
+                Some((
+                    tf(
+                        "Connecting to {} through {}…",
+                        &[&tab.bookmark.address(), via.as_deref().unwrap_or_default()],
+                    ),
+                    style::AMBER,
+                    false,
+                ))
+            }
             ConnState::Connecting if !has_prompt => Some((
                 tf("Connecting to {}…", &[&tab.bookmark.address()]),
                 style::AMBER,
@@ -2162,6 +2173,7 @@ impl PelerApp {
         let on_top = ctx.memory(|m| m.top_modal_layer().is_none_or(|layer| layer.id == modal_id));
         let modal = egui::Modal::new(modal_id).show(ctx, |ui| {
             ui.set_width(440.0);
+            style::form_spacing(ui);
             match &view {
                 PromptView::HostKey { host, port, algorithm, fingerprint, changed, known } => {
                     if *changed {
@@ -2205,7 +2217,7 @@ impl PelerApp {
                         } else {
                             // No Enter shortcut: a key press meant for the terminal must never
                             // trust a host key. The decision takes a click.
-                            if ui.button(RichText::new(accept).strong()).clicked() {
+                            if ui.add(style::primary(accept)).clicked() {
                                 hostkey_answer = Some(true);
                             }
                             if ui.button(t("Cancel")).clicked() {
@@ -2233,8 +2245,8 @@ impl PelerApp {
                     if *retry {
                         ui.colored_label(style::RED, if *kind == SecretPromptKind::Passphrase { t("Wrong passphrase, try again.") } else { t("Wrong password, try again.") });
                     }
-                    let r = ui.add(egui::TextEdit::singleline(&mut tab.prompt.text).password(!echo).desired_width(f32::INFINITY));
-                    if *can_save && ui.checkbox(&mut tab.prompt.save, t("Save in Keychain")).changed() {
+                    let r = ui.add(style::input(&mut tab.prompt.text).password(!echo));
+                    if *can_save && style::checkbox(ui, &mut tab.prompt.save, t("Save in Keychain")).changed() {
                         // Back to the field, so Enter submits instead of toggling the box.
                         r.request_focus();
                     }
@@ -2255,7 +2267,7 @@ impl PelerApp {
                     }
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.button(RichText::new(t("Connect")).strong()).clicked() || submit {
+                        if ui.add(style::primary(t("Connect"))).clicked() || submit {
                             answer = Some(Some(SecretAnswer { value: std::mem::take(&mut tab.prompt.text), save: tab.prompt.save }));
                         }
                         if ui.button(t("Cancel")).clicked() {
@@ -2487,6 +2499,10 @@ impl PelerApp {
             if let Some(wait) = tab.watch_replies() {
                 ctx.request_repaint_after(wait);
             }
+            for error in tab.new_forward_errors() {
+                self.toasts
+                    .error(tf("{}: port forwarding: {}", &[&tab.title(), &error]));
+            }
         }
     }
 
@@ -2577,6 +2593,52 @@ impl PelerApp {
                 self.settings.window = Some(frame);
             }
         }
+    }
+
+    /// The active connection's port forwards: how many, and a list of how each is doing.
+    fn forwards_button(&mut self, ui: &mut Ui) {
+        let Some(tab) = self.tabs.get(self.active) else {
+            return;
+        };
+        let forwards = tab.conn.shared.lock().forwards.clone();
+        if forwards.is_empty() || !tab.state().is_connected() {
+            return;
+        }
+        let failing = forwards.iter().filter(|f| f.error.is_some()).count();
+        let color = if failing > 0 {
+            style::RED
+        } else {
+            style::GREEN
+        };
+        let label = RichText::new(format!("⇄ {}", forwards.len())).color(color);
+        ui.menu_button(label, |ui| {
+            ui.set_min_width(320.0);
+            ui.label(RichText::new(t("Port forwarding")).strong());
+            for f in &forwards {
+                let (mark, mark_color) = match (&f.error, f.listening) {
+                    (None, true) => ("●", style::GREEN),
+                    (Some(_), true) => ("●", style::AMBER),
+                    (_, false) => ("●", style::RED),
+                };
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(mark).color(mark_color));
+                    ui.label(RichText::new(f.forward.describe()).monospace());
+                });
+                if let Some(e) = &f.error {
+                    ui.label(
+                        RichText::new(e)
+                            .small()
+                            .color(ui.visuals().weak_text_color()),
+                    );
+                }
+            }
+        })
+        .response
+        .on_hover_text(if failing > 0 {
+            tf("{} port forward(s) not working", &[&failing.to_string()])
+        } else {
+            t("Port forwarding is on").to_string()
+        });
     }
 
     fn update_title(&mut self, ctx: &egui::Context) {

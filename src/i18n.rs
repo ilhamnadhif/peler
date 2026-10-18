@@ -32,7 +32,17 @@ pub fn set_language(lang: Language) {
     INDONESIAN.store(id, Ordering::Relaxed);
 }
 
+#[cfg(test)]
+thread_local! {
+    /// A language for one test's thread, so tests running at the same time don't see it.
+    static TEST_INDONESIAN: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
 pub fn is_indonesian() -> bool {
+    #[cfg(test)]
+    if let Some(id) = TEST_INDONESIAN.with(|c| c.get()) {
+        return id;
+    }
     INDONESIAN.load(Ordering::Relaxed)
 }
 
@@ -729,6 +739,150 @@ const ID: &[(&str, &str)] = &[
     ("Could not save: {}", "Tidak bisa menyimpan: {}"),
     ("Discard", "Buang"),
     ("Discard changes?", "Buang perubahan?"),
+    ("Behavior", "Perilaku"),
+    ("Colors", "Warna"),
+    ("Connecting to {} through {}…", "Menyambung ke {} lewat {}…"),
+    ("Connections", "Koneksi"),
+    (
+        "Peler asks GitHub for the latest release when it starts and every few hours.",
+        "Peler mengecek rilis terbaru di GitHub saat dibuka dan setiap beberapa jam.",
+    ),
+    ("Port forwarding is on", "Port forwarding aktif"),
+    ("Text", "Teks"),
+    ("Theme", "Tema"),
+    (
+        "{} port forward(s) not working",
+        "{} port forward tidak berjalan",
+    ),
+    ("{}: port forwarding: {}", "{}: port forwarding: {}"),
+    (
+        "{}: the jump host {} is not a Host in the config; choose its jump host by hand.",
+        "{}: jump host {} bukan Host di config; pilih jump host-nya secara manual.",
+    ),
+    (
+        "A SOCKS proxy at localhost:{}; its connections leave from the server.",
+        "Proxy SOCKS di localhost:{}; koneksinya keluar dari server.",
+    ),
+    ("Add Forward", "Tambah Forward"),
+    ("Advanced", "Lanjutan"),
+    ("Agent", "Agent"),
+    (
+        "Agent found. It signs for Peler; the keys never leave it.",
+        "Agent ditemukan. Agent yang menandatangani; key tidak pernah keluar darinya.",
+    ),
+    ("Jump host", "Jump host"),
+    ("Jump host {}: {}", "Jump host {}: {}"),
+    ("Key", "Key"),
+    ("Keys in ~/.ssh", "Key di ~/.ssh"),
+    ("Local (-L)", "Lokal (-L)"),
+    ("Login", "Login"),
+    ("Method", "Metode"),
+    (
+        "More than {} jump hosts in a row.",
+        "Lebih dari {} jump host berturut-turut.",
+    ),
+    ("Network", "Jaringan"),
+    (
+        "No agent socket at this path.",
+        "Tidak ada socket agent di path ini.",
+    ),
+    (
+        "No system agent is running: choose an agent's socket.",
+        "Agent sistem tidak berjalan: pilih socket agent.",
+    ),
+    ("None (connect directly)", "Tidak ada (sambung langsung)"),
+    ("Organize", "Atur"),
+    ("Port forwarding", "Port forwarding"),
+    (
+        "Port forwarding: each forward needs a port between 1 and 65535.",
+        "Port forwarding: setiap forward perlu port antara 1 dan 65535.",
+    ),
+    (
+        "Port forwarding: port {} is used twice.",
+        "Port forwarding: port {} dipakai dua kali.",
+    ),
+    (
+        "Port forwarding: say where port {} goes (host and port).",
+        "Port forwarding: isi tujuan port {} (host dan port).",
+    ),
+    (
+        "Port {} on the server reaches {}:{} as seen from this Mac.",
+        "Port {} di server menuju {}:{} dilihat dari Mac ini.",
+    ),
+    (
+        "Reach this server through another saved connection (ssh -J).",
+        "Sambung ke server ini lewat koneksi tersimpan lain (ssh -J).",
+    ),
+    ("Remote (-R)", "Remote (-R)"),
+    ("SOCKS proxy (-D)", "Proxy SOCKS (-D)"),
+    ("SSH agent", "SSH agent"),
+    ("System agent", "Agent sistem"),
+    (
+        "System agent (SSH_AUTH_SOCK)",
+        "Agent sistem (SSH_AUTH_SOCK)",
+    ),
+    (
+        "The jump host no longer exists.",
+        "Jump host sudah tidak ada.",
+    ),
+    (
+        "The jump hosts go round in a circle.",
+        "Jump host saling berputar (melingkar).",
+    ),
+    ("Use:", "Pakai:"),
+    (
+        "Uses the macOS SSH agent (keys added with ssh-add).",
+        "Memakai SSH agent macOS (key yang ditambahkan dengan ssh-add).",
+    ),
+    (
+        "could not reach the SSH agent at {} ({})",
+        "tidak bisa menghubungi SSH agent di {} ({})",
+    ),
+    (
+        "localhost:{} on this Mac reaches {}:{} as seen from the server.",
+        "localhost:{} di Mac ini menuju {}:{} dilihat dari server.",
+    ),
+    (
+        "no SSH agent is running (SSH_AUTH_SOCK is not set). Set the agent's socket in the connection's settings.",
+        "tidak ada SSH agent yang berjalan (SSH_AUTH_SOCK tidak diatur). Atur socket agent di pengaturan koneksi.",
+    ),
+    (
+        "port {} could not be opened ({})",
+        "port {} tidak bisa dibuka ({})",
+    ),
+    (
+        "port {} is already in use on this Mac",
+        "port {} sudah dipakai di Mac ini",
+    ),
+    (
+        "the SSH agent could not sign ({})",
+        "SSH agent gagal menandatangani ({})",
+    ),
+    (
+        "the SSH agent did not answer ({})",
+        "SSH agent tidak menjawab ({})",
+    ),
+    (
+        "the SSH agent did not sign in time",
+        "SSH agent tidak menandatangani tepat waktu",
+    ),
+    (
+        "the SSH agent has no keys (add one with ssh-add)",
+        "SSH agent tidak punya key (tambahkan dengan ssh-add)",
+    ),
+    (
+        "the server accepted none of the SSH agent's keys for user {} (server accepts: {})",
+        "server tidak menerima satu pun key dari SSH agent untuk user {} (server menerima: {})",
+    ),
+    (
+        "the server could not connect to {}:{} ({})",
+        "server tidak bisa terhubung ke {}:{} ({})",
+    ),
+    (
+        "the server would not listen on port {} ({})",
+        "server menolak membuka port {} ({})",
+    ),
+    ("{}:{} from the jump host ({})", "{}:{} dari jump host ({})"),
     ("Checking the connection to {}…", "Mengecek koneksi ke {}…"),
     (
         "The connection was lost when the network changed (for example a VPN was turned on or off). Reconnect to continue.",
@@ -863,10 +1017,6 @@ const ID: &[(&str, &str)] = &[
     ("Hide", "Sembunyikan"),
     ("Later", "Nanti"),
     ("Open Releases Page", "Buka Halaman Rilis"),
-    (
-        "Peler asks GitHub for the latest release at launch and once a day.",
-        "Peler menanyakan rilis terbaru ke GitHub saat dibuka dan sekali sehari.",
-    ),
     ("Peler is up to date", "Peler sudah versi terbaru"),
     (
         "Peler will quit, install the new version and open again. Open sessions are closed.",
@@ -946,10 +1096,10 @@ mod tests {
 
     #[test]
     fn fallback_and_format() {
-        INDONESIAN.store(true, Ordering::Relaxed);
+        TEST_INDONESIAN.with(|c| c.set(Some(true)));
         assert_eq!(t("(copy)"), "(salinan)");
         assert_eq!(t("__missing__"), "__missing__");
-        INDONESIAN.store(false, Ordering::Relaxed);
+        TEST_INDONESIAN.with(|c| c.set(Some(false)));
         assert_eq!(tf("{} of {}", &["1", "2"]), "1 of 2");
     }
 

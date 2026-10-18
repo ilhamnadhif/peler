@@ -110,6 +110,13 @@ Password yang tersimpan adalah item Keychain dengan service `peler`; hapus lewat
 - Login dengan password atau private key. **Paste key-nya** (OpenSSH atau PEM; RSA, ECDSA, atau
   Ed25519, terenkripsi atau tidak): Peler langsung memeriksanya saat di-paste dan menyimpannya di
   Keychain. Atau pilih file key di `~/.ssh`.
+- **SSH agent**: login dengan key dari agent macOS (`ssh-add`), 1Password, Secretive, atau agent
+  YubiKey. Agent yang menandatangani; key tidak pernah keluar darinya. Peler menemukan 1Password
+  dan Secretive sendiri.
+- **Jump host** (`ssh -J`): sambung ke server lewat koneksi tersimpan lain, juga beberapa
+  berturut-turut. Setiap hop memeriksa host key-nya sendiri dan login dengan metodenya sendiri.
+- **Port forwarding** per koneksi, aktif saat tersambung: lokal (`-L`), remote (`-R`), dan proxy
+  SOCKS (`-D`). Toolbar menampilkan forward-nya (⇄) dan memberi tahu kalau port sudah dipakai.
 - Grup bertingkat; drag and drop untuk mengurutkan atau memindah grup.
 - Pencarian fuzzy pada nama, host, user, tag, dan grup. Tekan Enter untuk konek.
 - `⌘K` membuka palet perintah. Mengetik `user@host:port` di sana (IPv6 sebagai `[::1]:22`) langsung
@@ -182,8 +189,8 @@ Klik dua kali file remote (atau klik kanan → **Edit**) untuk mengeditnya langs
   bisa dilewati, ditimpa, atau disimpan keduanya. Import file yang sama dua kali tidak mengubah apa
   pun. Startup command dari file hanya ikut bila Anda mencentangnya.
 - File export **Electerm** (koneksi dengan grup bertingkat, password, dan key yang ditempel) dan
-  **`~/.ssh/config`** (`Host`, `HostName`, `Port`, `User`, `IdentityFile`, `Host *`, negasi,
-  `Include`).
+  **`~/.ssh/config`** (`Host`, `HostName`, `Port`, `User`, `IdentityFile`, `IdentityAgent`,
+  `ProxyJump`, `LocalForward`, `RemoteForward`, `DynamicForward`, `Host *`, negasi, `Include`).
 
 ## Pintasan keyboard
 
@@ -360,7 +367,7 @@ Dibangun dengan [egui](https://github.com/emilk/egui) (wgpu/Metal),
   side-channel waktu (RUSTSEC-2023-0071, diabaikan di `.cargo/audit.toml` beserta alasannya). Crate
   `rsa` masih menandatangani di dua kasus langka: tanda tangan SHA-1 untuk server sebelum 2016
   (hanya bila legacy algorithms dinyalakan) dan key RSA di bawah 2048 bit.
-- Belum tersedia: port forwarding, ProxyJump, ssh-agent, dan build Linux/Windows.
+- Belum tersedia: agent forwarding, X11 forwarding, dan build Linux/Windows.
 
 ## Lisensi
 

@@ -38,6 +38,7 @@ fn connect(rt: &tokio::runtime::Runtime, server: &TestServer) -> (Connection, re
             ..Default::default()
         },
         keepalive_secs: 30,
+        jumps: Vec::new(),
         known_hosts: server.dir.path().join("kh"),
         save_secrets: true,
     };

@@ -39,6 +39,7 @@ fn spec(server: &TestServer, auth: Auth, known_hosts: &std::path::Path) -> Conne
             ..Default::default()
         },
         keepalive_secs: 30,
+        jumps: Vec::new(),
         known_hosts: known_hosts.to_path_buf(),
         save_secrets: true,
     }
@@ -378,6 +379,7 @@ fn network_errors_are_classified() {
             ..Default::default()
         },
         keepalive_secs: 0,
+        jumps: Vec::new(),
         known_hosts: known.clone(),
         save_secrets: true,
     };

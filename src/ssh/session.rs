@@ -57,6 +57,8 @@ const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 #[derive(Clone)]
 pub struct ConnectSpec {
     pub bookmark: Bookmark,
+    /// Jump hosts to go through (`ssh -J`), the first one to connect to first.
+    pub jumps: Vec<Bookmark>,
     pub keepalive_secs: u64,
     pub known_hosts: PathBuf,
     /// Offer "Save in Keychain" in prompts: only for bookmarks that are actually stored, so an
@@ -367,6 +369,27 @@ impl client::Handler for SshHandler {
         Ok(true)
     }
 
+    /// A connection to one of the server's remote forwards.
+    async fn server_channel_open_forwarded_tcpip(
+        &mut self,
+        channel: russh::Channel<client::Msg>,
+        _connected_address: &str,
+        connected_port: u32,
+        _originator_address: &str,
+        _originator_port: u32,
+        reply: client::ChannelOpenHandle,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        super::forward::serve_forwarded(
+            &self.flags.remote_forwards,
+            connected_port,
+            channel,
+            reply,
+            self.flags.cancel.clone(),
+        );
+        Ok(())
+    }
+
     async fn disconnected(
         &mut self,
         reason: DisconnectReason<Self::Error>,
@@ -616,19 +639,95 @@ struct Flags {
     cancel: CancellationToken,
     /// Bytes received from the server (the `Connection`'s counter).
     received: Arc<AtomicU64>,
+    /// Remote port forwards, for the connections the server sends back.
+    remote_forwards: super::forward::RemoteForwards,
 }
 
+/// Connects and logs in, through the jump hosts if there are any: the first hop over TCP, each
+/// next one through a `direct-tcpip` channel of the one before (as `ssh -J`). Returns the
+/// server's connection and the jump hosts' (they must stay open as long as it).
 async fn establish(
     spec: &ConnectSpec,
     shared: &Arc<Mutex<ConnShared>>,
     ctx: &Context,
     flags: &Flags,
-) -> Result<SshHandle, ConnError> {
+) -> Result<(SshHandle, Vec<SshHandle>), ConnError> {
+    let mut jumps: Vec<SshHandle> = Vec::new();
+    let hops = spec.jumps.len() + 1;
+    for i in 0..hops {
+        let last = i + 1 == hops;
+        let hop_spec = if last {
+            spec.clone()
+        } else {
+            ConnectSpec {
+                bookmark: spec.jumps[i].clone(),
+                jumps: Vec::new(),
+                // Jump hosts are saved connections.
+                save_secrets: true,
+                ..spec.clone()
+            }
+        };
+        let b = &hop_spec.bookmark;
+        shared.lock().via = (!last).then(|| b.display_name());
+        let host =
+            clean_host(&b.host).ok_or_else(|| ConnError::HostNotFound(b.host.trim().to_string()));
+        let result = match (host, jumps.last()) {
+            (Err(e), _) => Err(e),
+            (Ok(host), None) => match tcp_connect(&host, b.port).await {
+                Ok(tcp) => {
+                    let stream = CancellableStream::new(tcp, &flags.cancel, flags.received.clone());
+                    connect_hop(stream, &hop_spec, &host, shared, ctx, flags).await
+                }
+                Err(e) => Err(e),
+            },
+            (Ok(host), Some(prev)) => {
+                match prev
+                    .channel_open_direct_tcpip(host.clone(), b.port as u32, "127.0.0.1", 0)
+                    .await
+                {
+                    Ok(channel) => {
+                        connect_hop(channel.into_stream(), &hop_spec, &host, shared, ctx, flags)
+                            .await
+                    }
+                    Err(e) => Err(ConnError::Unreachable(tf(
+                        "{}:{} from the jump host ({})",
+                        &[&host, &b.port.to_string(), &e.to_string()],
+                    ))),
+                }
+            }
+        };
+        match result {
+            Ok(handle) if last => {
+                shared.lock().via = None;
+                return Ok((handle, jumps));
+            }
+            Ok(handle) => jumps.push(handle),
+            // Each failure names the hop it happened on; a cancelled prompt stays a cancel.
+            Err(ConnError::Cancelled) => return Err(ConnError::Cancelled),
+            Err(e) if i + 1 < hops => {
+                return Err(ConnError::Jump(b.display_name(), Box::new(e)));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!("the last hop returns")
+}
+
+/// The SSH handshake and login with one server, over `stream`.
+async fn connect_hop<S>(
+    stream: S,
+    spec: &ConnectSpec,
+    host: &str,
+    shared: &Arc<Mutex<ConnShared>>,
+    ctx: &Context,
+    flags: &Flags,
+) -> Result<SshHandle, ConnError>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
     let b = &spec.bookmark;
-    let host =
-        clean_host(&b.host).ok_or_else(|| ConnError::HostNotFound(b.host.trim().to_string()))?;
-    let stream = tcp_connect(&host, b.port).await?;
-    let stream = CancellableStream::new(stream, &flags.cancel, flags.received.clone());
+    let host = host.to_string();
+    set_state(shared, ctx, ConnState::Connecting);
     let handler = SshHandler {
         host: host.clone(),
         port: b.port,
@@ -721,7 +820,7 @@ async fn authenticate(
     let other = |e: russh::Error| ConnError::Other(e.to_string());
 
     let key_text = match &b.auth {
-        Auth::Password => None,
+        Auth::Password | Auth::Agent { .. } => None,
         Auth::Key { path } => {
             let path = paths::expand_tilde(path);
             Some((
@@ -740,6 +839,23 @@ async fn authenticate(
     };
 
     let mut fallback_methods: Option<Vec<MethodKind>> = None;
+    if let Auth::Agent { socket } = &b.auth {
+        let remaining = match auth_agent(handle, &user, socket, b.legacy_algorithms, flags).await? {
+            None => return Ok(()),
+            Some(remaining) => remaining,
+        };
+        if !remaining.is_empty()
+            && !remaining
+                .iter()
+                .any(|m| matches!(m, MethodKind::Password | MethodKind::KeyboardInteractive))
+        {
+            return Err(ConnError::AuthFailed(tf(
+                "the server accepted none of the SSH agent's keys for user {} (server accepts: {})",
+                &[&user, &method_list(&remaining)],
+            )));
+        }
+        fallback_methods = Some(remaining);
+    }
     if let Some((text, label)) = key_text {
         let mut passphrase = if keys::is_encrypted(&text) {
             keychain_get(b.id, SecretKind::Passphrase).await
@@ -915,6 +1031,95 @@ async fn auth_publickey(
         .map_err(other)
 }
 
+/// How long an SSH agent may take to sign: 1Password and the like ask for Touch ID first.
+const AGENT_SIGN_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Logs in with the keys of an SSH agent (`socket`, or `SSH_AUTH_SOCK` when empty). `None` when
+/// logged in; otherwise the methods the server still accepts. The server is asked about each
+/// key before the agent signs, so the agent only asks for approval for a key that works.
+async fn auth_agent(
+    handle: &mut SshHandle,
+    user: &str,
+    socket: &str,
+    legacy: bool,
+    flags: &Flags,
+) -> Result<Option<Vec<MethodKind>>, ConnError> {
+    use russh::keys::agent::AgentIdentity;
+    use russh::keys::agent::client::AgentClient;
+    let path = if socket.trim().is_empty() {
+        std::env::var("SSH_AUTH_SOCK").map_err(|_| {
+            ConnError::AuthFailed(
+                t("no SSH agent is running (SSH_AUTH_SOCK is not set). Set the agent's socket in the connection's settings.")
+                    .into(),
+            )
+        })?
+    } else {
+        paths::expand_tilde(socket.trim()).display().to_string()
+    };
+    let mut agent = AgentClient::connect_uds(&path).await.map_err(|e| {
+        ConnError::AuthFailed(tf(
+            "could not reach the SSH agent at {} ({})",
+            &[&path, &e.to_string()],
+        ))
+    })?;
+    let identities = agent.request_identities().await.map_err(|e| {
+        ConnError::AuthFailed(tf("the SSH agent did not answer ({})", &[&e.to_string()]))
+    })?;
+    let keys: Vec<_> = identities
+        .into_iter()
+        .filter_map(|id| match id {
+            AgentIdentity::PublicKey { key, .. } => Some(key),
+            AgentIdentity::Certificate { .. } => None,
+        })
+        .collect();
+    if keys.is_empty() {
+        return Err(ConnError::AuthFailed(
+            t("the SSH agent has no keys (add one with ssh-add)").into(),
+        ));
+    }
+    let other = |e: russh::Error| ConnError::Other(e.to_string());
+    let mut rsa_hash = None;
+    let mut remaining = Vec::new();
+    // Servers allow about six attempts in all (MaxAuthTries); keep some for a password.
+    for key in keys.into_iter().take(5) {
+        let hash = if key.algorithm().is_rsa() {
+            if rsa_hash.is_none() {
+                rsa_hash = Some(handle.best_supported_rsa_hash().await.map_err(other)?);
+            }
+            match rsa_hash.flatten() {
+                Some(Some(h)) => Some(h),
+                // SHA-1 only: like OpenSSH, only with legacy algorithms.
+                Some(None) if legacy => None,
+                Some(None) => continue,
+                None => Some(HashAlg::Sha512),
+            }
+        } else {
+            None
+        };
+        // Time waiting for the user to approve in the agent doesn't count against the login.
+        flags.prompting.store(true, Ordering::Relaxed);
+        let result = tokio::time::timeout(
+            AGENT_SIGN_TIMEOUT,
+            handle.authenticate_publickey_with(user, key, hash, &mut agent),
+        )
+        .await;
+        flags.prompting.store(false, Ordering::Relaxed);
+        let result = result
+            .map_err(|_| ConnError::AuthFailed(t("the SSH agent did not sign in time").into()))?
+            .map_err(|e| {
+                ConnError::AuthFailed(tf("the SSH agent could not sign ({})", &[&e.to_string()]))
+            })?;
+        if result.success() {
+            return Ok(None);
+        }
+        remaining = methods(&result);
+        if !remaining.is_empty() && !remaining.contains(&MethodKind::PublicKey) {
+            break;
+        }
+    }
+    Ok(Some(remaining))
+}
+
 /// Keyboard-interactive login: password-like hidden prompts get the password, anything else
 /// (e.g. a one-time code) is asked of the user.
 async fn keyboard_interactive(
@@ -996,6 +1201,7 @@ async fn run_connection(
         reason: Arc::new(Mutex::new(None)),
         cancel: CancellationToken::new(),
         received,
+        remote_forwards: Default::default(),
     };
     // However this task ends, the socket and any prompt still waiting go with it.
     let _cancel_on_exit = flags.cancel.clone().drop_guard();
@@ -1017,7 +1223,8 @@ async fn run_connection(
     };
     let queued: Vec<ConnCmd> = std::mem::take(&mut *pending.lock());
 
-    let handle = match result {
+    // The jump hosts' connections carry this one: they stay open until it ends.
+    let (handle, _jump_handles) = match result {
         None => {
             flags.cancel.cancel();
             set_state(&shared, &ctx, ConnState::Closed(None));
@@ -1031,9 +1238,19 @@ async fn run_connection(
             fail_all(queued, cmd_rx, &message);
             return;
         }
-        Some(Ok(h)) => Arc::new(h),
+        Some(Ok((h, jumps))) => (Arc::new(h), jumps),
     };
     set_state(&shared, &ctx, ConnState::Connected);
+    if !spec.bookmark.forwards.is_empty() {
+        super::forward::start(
+            handle.clone(),
+            &spec.bookmark.forwards,
+            &flags.remote_forwards,
+            &flags.cancel,
+            &shared,
+            &ctx,
+        );
+    }
 
     for cmd in queued {
         if handle_cmd(cmd, &handle, &ctx) {

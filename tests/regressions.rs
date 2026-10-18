@@ -68,6 +68,7 @@ fn user_known_hosts_mismatch_and_reconnect() {
     let spec = ConnectSpec {
         bookmark: bookmark(&server),
         keepalive_secs: 30,
+        jumps: Vec::new(),
         known_hosts: app_known.clone(),
         save_secrets: true,
     };

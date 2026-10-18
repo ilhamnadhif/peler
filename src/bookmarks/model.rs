@@ -39,11 +39,55 @@ pub enum Auth {
     /// Private key material stored in the Keychain (used when importing from tools that embed
     /// key contents, such as Electerm), so no key is written to disk in plain text.
     KeychainKey,
+    /// The keys of an SSH agent (the macOS one, 1Password, Secretive, a YubiKey…); the agent
+    /// signs, Peler never sees the keys. `socket` is the agent's socket, empty for the one in
+    /// `SSH_AUTH_SOCK`.
+    Agent {
+        #[serde(default)]
+        socket: String,
+    },
 }
 
 impl Auth {
+    /// A private key Peler reads itself, which may have a passphrase.
     pub fn uses_key(&self) -> bool {
-        !matches!(self, Auth::Password)
+        matches!(self, Auth::Key { .. } | Auth::KeychainKey)
+    }
+}
+
+/// A port forwarded through the connection while it is open.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Forward {
+    pub kind: ForwardKind,
+    /// The port that is listened on: on this Mac (local, dynamic) or on the server (remote).
+    pub listen_port: u16,
+    /// Where connections are sent: a host as the server sees it (local) or as this Mac sees it
+    /// (remote). Not used for dynamic forwarding.
+    #[serde(default)]
+    pub host: String,
+    #[serde(default)]
+    pub port: u16,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ForwardKind {
+    /// `ssh -L`: a port on this Mac reaches `host:port` from the server.
+    Local,
+    /// `ssh -R`: a port on the server reaches `host:port` from this Mac.
+    Remote,
+    /// `ssh -D`: a SOCKS proxy on this Mac whose connections leave from the server.
+    Dynamic,
+}
+
+impl Forward {
+    /// `-L 8080:localhost:80` style, for lists and tooltips.
+    pub fn describe(&self) -> String {
+        match self.kind {
+            ForwardKind::Local => format!("L {} → {}:{}", self.listen_port, self.host, self.port),
+            ForwardKind::Remote => format!("R {} → {}:{}", self.listen_port, self.host, self.port),
+            ForwardKind::Dynamic => format!("D {} (SOCKS)", self.listen_port),
+        }
     }
 }
 
@@ -76,6 +120,11 @@ pub struct Bookmark {
     /// Also offer older algorithms (ssh-rsa, SHA-1 key exchange, CBC ciphers) for old servers.
     #[serde(default)]
     pub legacy_algorithms: bool,
+    /// Reach the server through another saved connection (`ssh -J`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jump: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forwards: Vec<Forward>,
 }
 
 fn default_port() -> u16 {
@@ -98,6 +147,8 @@ impl Default for Bookmark {
             local_start_dir: String::new(),
             startup_command: String::new(),
             legacy_algorithms: false,
+            jump: None,
+            forwards: Vec::new(),
         }
     }
 }

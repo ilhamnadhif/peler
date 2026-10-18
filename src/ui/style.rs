@@ -1,6 +1,9 @@
 //! Visual style: a calm, native-looking theme for both light and dark mode.
 
-use eframe::egui::{self, Color32, CornerRadius, Margin, Stroke, Theme, ThemePreference, vec2};
+use eframe::egui::{
+    self, Align, Color32, CornerRadius, Layout, Margin, RichText, Stroke, Theme, ThemePreference,
+    Ui, vec2,
+};
 
 use crate::settings::ThemeMode;
 
@@ -64,8 +67,290 @@ pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
             ] {
                 w.corner_radius = CornerRadius::same(6);
             }
+            // Fields, checkboxes and buttons get a hairline border, so a text field doesn't
+            // look like plain text; it darkens on hover and turns blue while focused.
+            let (border, border_hover) = if dark {
+                (
+                    Color32::from_rgb(0x3b, 0x40, 0x4a),
+                    Color32::from_rgb(0x55, 0x5c, 0x68),
+                )
+            } else {
+                (
+                    Color32::from_rgb(0xcc, 0xd0, 0xd6),
+                    Color32::from_rgb(0xa9, 0xaf, 0xb8),
+                )
+            };
+            if !dark {
+                // White buttons and menus with a hairline border, as on macOS.
+                v.widgets.inactive.weak_bg_fill = Color32::WHITE;
+                v.widgets.hovered.weak_bg_fill = Color32::from_rgb(0xf3, 0xf4, 0xf6);
+                v.widgets.active.weak_bg_fill = Color32::from_rgb(0xe6, 0xe8, 0xeb);
+                v.widgets.open.weak_bg_fill = Color32::from_rgb(0xf3, 0xf4, 0xf6);
+            }
+            // Separators and table lines stay quiet.
+            v.widgets.noninteractive.bg_stroke = Stroke::new(
+                1.0,
+                if dark {
+                    Color32::from_rgb(0x2e, 0x32, 0x3a)
+                } else {
+                    Color32::from_rgb(0xdf, 0xe2, 0xe6)
+                },
+            );
+            v.widgets.inactive.bg_stroke = Stroke::new(1.0, border);
+            v.widgets.hovered.bg_stroke = Stroke::new(1.0, border_hover);
+            v.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT);
+            v.widgets.open.bg_stroke = Stroke::new(1.0, border_hover);
+            v.selection.stroke = Stroke::new(
+                1.5,
+                if dark {
+                    Color32::from_rgb(0x6c, 0xa8, 0xff)
+                } else {
+                    Color32::from_rgb(0x1d, 0x6f, 0xe0)
+                },
+            );
         });
     }
+}
+
+/// Width of the label column in forms.
+pub const LABEL_W: f32 = 128.0;
+/// Height of a form control (text field, button, menu).
+pub const CONTROL_H: f32 = 28.0;
+
+/// Roomier spacing for the content of a dialog or form.
+pub fn form_spacing(ui: &mut Ui) {
+    let s = ui.spacing_mut();
+    s.interact_size.y = CONTROL_H;
+    s.item_spacing = vec2(8.0, 8.0);
+    s.button_padding = vec2(12.0, 5.0);
+}
+
+/// A one-line text field with comfortable padding, as wide as there is room.
+pub fn input(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
+    egui::TextEdit::singleline(text)
+        .margin(Margin::symmetric(8, 6))
+        .desired_width(f32::INFINITY)
+}
+
+/// A multi-line text field with the same padding.
+pub fn input_multiline(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
+    egui::TextEdit::multiline(text)
+        .margin(Margin::symmetric(8, 6))
+        .desired_width(f32::INFINITY)
+}
+
+/// The main button of a dialog (blue).
+pub fn primary(text: impl Into<String>) -> egui::Button<'static> {
+    egui::Button::new(RichText::new(text.into()).color(Color32::WHITE)).fill(ACCENT)
+}
+
+/// A section title in a form.
+pub fn section(ui: &mut Ui, title: &str) {
+    ui.add_space(10.0);
+    ui.label(
+        RichText::new(title.to_uppercase())
+            .small()
+            .strong()
+            .color(ui.visuals().weak_text_color()),
+    );
+}
+
+/// A form row: the label on the left, lined up with the first control on the right.
+pub fn row<R>(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.horizontal_top(|ui| {
+        ui.allocate_ui_with_layout(
+            vec2(LABEL_W, CONTROL_H),
+            Layout::left_to_right(Align::Center),
+            |ui| {
+                ui.set_min_size(vec2(LABEL_W, CONTROL_H));
+                ui.label(label);
+            },
+        );
+        ui.vertical(|ui| {
+            ui.set_width(ui.available_width());
+            add(ui)
+        })
+        .inner
+    })
+    .inner
+}
+
+/// A segmented control (macOS style): one of `options`, the chosen one raised. Returns each
+/// segment's response.
+pub fn segmented<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    value: &mut T,
+    options: &[(T, &str)],
+) -> Vec<egui::Response> {
+    let dark = ui.visuals().dark_mode;
+    let (track, raised, border) = if dark {
+        (
+            Color32::from_rgb(0x1a, 0x1c, 0x21),
+            Color32::from_rgb(0x3a, 0x3f, 0x4a),
+            Color32::from_rgb(0x4a, 0x50, 0x5b),
+        )
+    } else {
+        (
+            Color32::from_rgb(0xe4, 0xe6, 0xea),
+            Color32::WHITE,
+            Color32::from_rgb(0xc8, 0xcc, 0xd2),
+        )
+    };
+    let (strong, normal) = (ui.visuals().strong_text_color(), ui.visuals().text_color());
+    egui::Frame::NONE
+        .fill(track)
+        .corner_radius(7)
+        .inner_margin(Margin::same(2))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 2.0;
+                ui.spacing_mut().button_padding = vec2(14.0, 3.0);
+                options
+                    .iter()
+                    .map(|(option, label)| {
+                        let selected = *value == *option;
+                        let button = egui::Button::new(RichText::new(*label).color(if selected {
+                            strong
+                        } else {
+                            normal
+                        }))
+                        .fill(if selected {
+                            raised
+                        } else {
+                            Color32::TRANSPARENT
+                        })
+                        .stroke(if selected {
+                            Stroke::new(1.0, border)
+                        } else {
+                            Stroke::NONE
+                        })
+                        .corner_radius(5)
+                        .min_size(vec2(0.0, CONTROL_H - 4.0));
+                        let r = ui.add(button);
+                        if r.clicked() {
+                            *value = *option;
+                        }
+                        r
+                    })
+                    .collect()
+            })
+            .inner
+        })
+        .inner
+}
+
+/// Lays widgets out from the right, in a band one control high (a plain right-to-left layout
+/// in a vertical one would take all the height there is). The last widget added can fill
+/// what is left with `ui.available_width()`.
+pub fn right_to_left<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
+    ui.allocate_ui_with_layout(
+        vec2(ui.available_width(), CONTROL_H),
+        Layout::right_to_left(Align::Center),
+        add,
+    )
+    .inner
+}
+
+/// A checkbox drawn as on macOS: a blue box with a white check when on.
+pub fn checkbox(
+    ui: &mut Ui,
+    checked: &mut bool,
+    text: impl Into<egui::WidgetText>,
+) -> egui::Response {
+    const BOX: f32 = 16.0;
+    const GAP: f32 = 8.0;
+    let galley = text.into().into_galley(
+        ui,
+        Some(egui::TextWrapMode::Wrap),
+        (ui.available_width() - BOX - GAP).max(40.0),
+        egui::TextStyle::Body,
+    );
+    // As tall as the other controls in the row, so labels beside it line up.
+    let line = ui.spacing().interact_size.y.max(22.0);
+    let size = vec2(
+        BOX + GAP + galley.size().x,
+        galley.size().y.max(BOX).max(line),
+    );
+    let (rect, mut response) = ui.allocate_exact_size(size, egui::Sense::click());
+    if response.clicked() {
+        *checked = !*checked;
+        response.mark_changed();
+    }
+    let on = *checked;
+    response.widget_info(|| {
+        egui::WidgetInfo::selected(
+            egui::WidgetType::Checkbox,
+            ui.is_enabled(),
+            on,
+            galley.text(),
+        )
+    });
+    if ui.is_rect_visible(rect) {
+        let visuals = ui.style().interact(&response);
+        let box_rect = egui::Rect::from_center_size(
+            egui::pos2(rect.left() + BOX / 2.0, rect.top() + line / 2.0),
+            vec2(BOX, BOX),
+        );
+        let painter = ui.painter();
+        if on {
+            let fill = if response.hovered() {
+                ACCENT.gamma_multiply(0.85)
+            } else {
+                ACCENT
+            };
+            painter.rect_filled(box_rect, 4.0, fill);
+            let (l, t, r, b) = (
+                box_rect.left(),
+                box_rect.top(),
+                box_rect.right(),
+                box_rect.bottom(),
+            );
+            painter.add(egui::Shape::line(
+                vec![
+                    egui::pos2(l + 3.8, t + 8.2),
+                    egui::pos2(l + 6.8, b - 4.2),
+                    egui::pos2(r - 3.6, t + 4.4),
+                ],
+                Stroke::new(1.8, Color32::WHITE),
+            ));
+        } else {
+            painter.rect(
+                box_rect,
+                4.0,
+                ui.visuals().extreme_bg_color,
+                visuals.bg_stroke,
+                egui::StrokeKind::Inside,
+            );
+        }
+        if response.has_focus() {
+            painter.rect_stroke(
+                box_rect.expand(2.0),
+                5.0,
+                ui.visuals().selection.stroke,
+                egui::StrokeKind::Outside,
+            );
+        }
+        let text_pos = egui::pos2(
+            box_rect.right() + GAP,
+            box_rect.center().y - galley.rows.first().map_or(galley.size().y, |r| r.height()) / 2.0,
+        );
+        painter.galley(text_pos, galley, visuals.text_color());
+    }
+    response
+}
+
+/// How wide `text` is in the body font.
+pub fn text_width(ui: &Ui, text: &str) -> f32 {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    ui.painter()
+        .layout_no_wrap(text.to_string(), font, Color32::WHITE)
+        .size()
+        .x
+}
+
+/// A small explanation under a control.
+pub fn hint(ui: &mut Ui, text: impl Into<String>) {
+    ui.label(RichText::new(text.into()).small().weak());
 }
 
 /// Background for the sidebar and tab strip (slightly different from the content area).

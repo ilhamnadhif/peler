@@ -19,7 +19,8 @@ use crate::crypto::{self, EncryptedBlob};
 use crate::i18n::{t, tf};
 use crate::secrets::SecretSet;
 
-pub const EXPORT_SCHEMA_VERSION: u32 = 1;
+/// 2: SSH agent logins, jump hosts and port forwards.
+pub const EXPORT_SCHEMA_VERSION: u32 = 2;
 pub const EXPORT_APP: &str = "peler";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -348,33 +349,70 @@ fn read_peler(value: serde_json::Value) -> Result<Incoming> {
 /// Converts `~/.ssh/config` hosts into bookmarks inside an "SSH config" group.
 pub fn from_ssh_config(hosts: &[ssh_config::SshConfigHost]) -> Incoming {
     let group = Group::new("SSH config", None);
-    let bookmarks = hosts
+    // Stable id per alias so re-importing the same config matches by id.
+    let id_of = |alias: &str| {
+        Uuid::new_v5(
+            &Uuid::NAMESPACE_URL,
+            format!("ssh-config:{alias}").as_bytes(),
+        )
+    };
+    let aliases: HashSet<&str> = hosts.iter().map(|h| h.alias.as_str()).collect();
+    let mut warnings = Vec::new();
+    let mut bookmarks: Vec<Bookmark> = hosts
         .iter()
         .map(|h| Bookmark {
-            // Stable id per alias so re-importing the same config matches by id.
-            id: Uuid::new_v5(
-                &Uuid::NAMESPACE_URL,
-                format!("ssh-config:{}", h.alias).as_bytes(),
-            ),
+            id: id_of(&h.alias),
             name: h.alias.clone(),
             host: h.hostname.clone().unwrap_or_else(|| h.alias.clone()),
             port: h.port.unwrap_or(super::DEFAULT_PORT),
             username: h.user.clone().unwrap_or_default(),
-            auth: match &h.identity_file {
-                Some(p) => super::Auth::Key { path: p.clone() },
-                None => super::Auth::Password,
+            // A key file named in the config wins; otherwise the agent it names.
+            auth: match (&h.identity_file, &h.identity_agent) {
+                (Some(p), _) => super::Auth::Key { path: p.clone() },
+                (None, Some(socket)) => super::Auth::Agent {
+                    socket: socket.clone(),
+                },
+                (None, None) => super::Auth::Password,
             },
+            forwards: h.forwards.clone(),
             group: Some(group.id),
             ..Default::default()
         })
         .collect();
+    // ProxyJump a,b: the connection goes through b, and b through a (when b names no jump of
+    // its own). Hops must be hosts of the same config.
+    for h in hosts.iter().filter(|h| !h.proxy_jump.is_empty()) {
+        if let Some(missing) = h
+            .proxy_jump
+            .iter()
+            .find(|hop| !aliases.contains(hop.as_str()))
+        {
+            warnings.push(tf(
+                "{}: the jump host {} is not a Host in the config; choose its jump host by hand.",
+                &[&h.alias, missing],
+            ));
+            continue;
+        }
+        let mut links = vec![(h.alias.as_str(), h.proxy_jump.last().unwrap().as_str())];
+        for pair in h.proxy_jump.windows(2) {
+            links.push((pair[1].as_str(), pair[0].as_str()));
+        }
+        for (from, to) in links {
+            if let Some(b) = bookmarks.iter_mut().find(|b| b.id == id_of(from))
+                && b.jump.is_none()
+                && from != to
+            {
+                b.jump = Some(id_of(to));
+            }
+        }
+    }
     Incoming {
         kind: SourceKind::SshConfig,
         groups: vec![group],
         bookmarks,
         secrets: HashMap::new(),
         encrypted_credentials: None,
-        warnings: Vec::new(),
+        warnings,
     }
 }
 
@@ -571,7 +609,16 @@ impl ImportPlan {
         }
 
         let mut out = ImportOutcome::default();
+        // Where each imported connection ended up, for the jump hosts that point at them.
+        let mut placed: HashMap<Uuid, Uuid> = HashMap::new();
+        let mut written: Vec<Uuid> = Vec::new();
         for item in &self.items {
+            match &item.status {
+                ItemStatus::Identical { existing } | ItemStatus::Conflict { existing, .. } => {
+                    placed.insert(item.incoming.id, *existing);
+                }
+                ItemStatus::New => {}
+            }
             let mut b = item.incoming.clone();
             if !self.import_startup_commands {
                 b.startup_command = match &item.status {
@@ -616,8 +663,17 @@ impl ImportPlan {
                     id
                 }
             };
+            placed.insert(item.incoming.id, target_id);
+            written.push(target_id);
             if !item.secrets.is_empty() {
                 out.secrets.push((target_id, item.secrets.clone()));
+            }
+        }
+        for id in written {
+            if let Some(b) = store.bookmarks.iter_mut().find(|b| b.id == id)
+                && let Some(jump) = b.jump
+            {
+                b.jump = placed.get(&jump).copied().or(Some(jump));
             }
         }
         store.sanitize();
@@ -969,5 +1025,78 @@ mod tests {
         );
         let plan = ImportPlan::new(from_ssh_config(&hosts), &store);
         assert_eq!(plan.summary(), (0, 0, 1));
+    }
+
+    #[test]
+    fn ssh_config_jump_hosts_link_imported_connections() {
+        let hosts = ssh_config::parse_str(
+            "Host bastion\n HostName b.example\n IdentityAgent SSH_AUTH_SOCK\n\
+             Host app\n HostName 10.0.0.2\n ProxyJump bastion\n LocalForward 8080 localhost:80\n\
+             Host far\n HostName 10.0.0.3\n ProxyJump nowhere.example\n",
+        );
+        let incoming = from_ssh_config(&hosts);
+        assert_eq!(incoming.warnings.len(), 1, "{:?}", incoming.warnings);
+        let mut store = BookmarkStore::default();
+        ImportPlan::new(incoming, &store).apply(&mut store);
+        let by_name = |n: &str| store.bookmarks.iter().find(|b| b.name == n).unwrap();
+        let (bastion, app, far) = (by_name("bastion"), by_name("app"), by_name("far"));
+        assert_eq!(
+            bastion.auth,
+            Auth::Agent {
+                socket: String::new()
+            }
+        );
+        assert_eq!(app.jump, Some(bastion.id));
+        assert_eq!(app.forwards.len(), 1);
+        assert_eq!(far.jump, None);
+        let chain: Vec<&str> = store
+            .jump_chain(app)
+            .unwrap()
+            .iter()
+            .map(|b| b.name.as_str())
+            .collect();
+        assert_eq!(chain, ["bastion"]);
+    }
+
+    /// Jump hosts and port forwards survive an export and import.
+    #[test]
+    fn export_keeps_jump_hosts_and_forwards() {
+        let mut store = BookmarkStore::default();
+        let bastion = Bookmark {
+            name: "bastion".into(),
+            host: "b.example".into(),
+            ..Default::default()
+        };
+        let app = Bookmark {
+            name: "app".into(),
+            host: "10.0.0.2".into(),
+            jump: Some(bastion.id),
+            forwards: vec![super::super::Forward {
+                kind: super::super::ForwardKind::Dynamic,
+                listen_port: 1080,
+                host: String::new(),
+                port: 0,
+            }],
+            ..Default::default()
+        };
+        store.bookmarks = vec![bastion, app];
+        let file = export(
+            &store,
+            &ExportScope::All,
+            None,
+            |_| Ok(SecretSet::default()),
+        )
+        .unwrap();
+        let json = serde_json::to_vec(&file).unwrap();
+        let mut other = BookmarkStore::default();
+        ImportPlan::new(read_import(&json).unwrap(), &other).apply(&mut other);
+        let bastion = other
+            .bookmarks
+            .iter()
+            .find(|b| b.name == "bastion")
+            .unwrap();
+        let app = other.bookmarks.iter().find(|b| b.name == "app").unwrap();
+        assert_eq!(app.jump, Some(bastion.id));
+        assert_eq!(app.forwards.len(), 1);
     }
 }

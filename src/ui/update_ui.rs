@@ -343,7 +343,7 @@ impl Updater {
                     ui.heading(t("Peler is up to date"));
                     ui.label(tf("Version {} is the latest version.", &[CURRENT]));
                     ui.add_space(8.0);
-                    if ui.button(RichText::new(t("OK")).strong()).clicked() {
+                    if ui.add(style::primary(t("OK"))).clicked() {
                         close = true;
                     }
                 }
@@ -352,7 +352,7 @@ impl Updater {
                     ui.colored_label(ui.visuals().error_fg_color, e.as_str());
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        if ui.button(RichText::new(t("OK")).strong()).clicked() {
+                        if ui.add(style::primary(t("OK"))).clicked() {
                             close = true;
                         }
                         if ui.button(t("Open Releases Page")).clicked() {
@@ -400,7 +400,7 @@ impl Updater {
                     }
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
-                        let skip = ui.checkbox(
+                        let skip = style::checkbox(ui,
                             &mut self.skip_ticked,
                             tf("Don't show again for version {}", &[&release.version]),
                         );

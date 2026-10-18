@@ -13,7 +13,8 @@ use uuid::Uuid;
 use super::model::{Bookmark, Group};
 use crate::paths;
 
-pub const STORE_SCHEMA_VERSION: u32 = 1;
+/// 2: SSH agent logins, jump hosts and port forwards (older versions would lose them on save).
+pub const STORE_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BookmarkStore {
@@ -296,8 +297,51 @@ impl BookmarkStore {
                 b.group = None;
             }
         }
+        // A jump host must be another saved connection, without going round in circles.
+        let bookmark_ids: HashSet<Uuid> = self.bookmarks.iter().map(|b| b.id).collect();
+        for b in &mut self.bookmarks {
+            if b.jump
+                .is_some_and(|j| j == b.id || !bookmark_ids.contains(&j))
+            {
+                b.jump = None;
+            }
+        }
+        for i in 0..self.bookmarks.len() {
+            if self.jump_chain(&self.bookmarks[i]).is_err() {
+                self.bookmarks[i].jump = None;
+            }
+        }
+    }
+
+    /// The jump hosts to go through to reach `b`, the first one to connect to first. An error
+    /// when they loop or go deeper than [`MAX_JUMPS`].
+    pub fn jump_chain(&self, b: &Bookmark) -> Result<Vec<&Bookmark>, String> {
+        let mut chain = Vec::new();
+        let mut seen = HashSet::from([b.id]);
+        let mut cur = b.jump;
+        while let Some(j) = cur {
+            if !seen.insert(j) {
+                return Err(crate::i18n::t("The jump hosts go round in a circle.").into());
+            }
+            let Some(hop) = self.bookmark(j) else {
+                return Err(crate::i18n::t("The jump host no longer exists.").into());
+            };
+            chain.push(hop);
+            if chain.len() > MAX_JUMPS {
+                return Err(crate::i18n::tf(
+                    "More than {} jump hosts in a row.",
+                    &[&MAX_JUMPS.to_string()],
+                ));
+            }
+            cur = hop.jump;
+        }
+        chain.reverse();
+        Ok(chain)
     }
 }
+
+/// The longest chain of jump hosts followed.
+pub const MAX_JUMPS: usize = 4;
 
 #[cfg(test)]
 mod tests {

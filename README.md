@@ -108,6 +108,13 @@ Saved passwords are Keychain items with the service name `peler`; remove them in
 - Log in with a password or a private key. **Paste the key** (OpenSSH or PEM; RSA, ECDSA or
   Ed25519, encrypted or not), and Peler checks it as you paste and keeps it in the Keychain. Or
   point to a key file in `~/.ssh`.
+- **SSH agent**: log in with the keys of the macOS agent (`ssh-add`), 1Password, Secretive or a
+  YubiKey agent. The agent signs; the keys never leave it. Peler finds 1Password and Secretive by
+  itself.
+- **Jump hosts** (`ssh -J`): reach a server through another saved connection, also several in a
+  row. Each hop checks its own host key and logs in with its own method.
+- **Port forwarding** per connection, started when it connects: local (`-L`), remote (`-R`) and a
+  SOCKS proxy (`-D`). The toolbar shows the forwards (⇄) and says when a port is already in use.
 - Nested groups; drag and drop to reorder or regroup.
 - Fuzzy search over name, host, user, tags and group. Press Enter to connect.
 - `⌘K` opens a command palette. Typing `user@host:port` there (IPv6 as `[::1]:22`) connects without
@@ -180,8 +187,8 @@ Double-click a remote file (or right-click → **Edit**) to edit it in place:
   skipped, overwritten or kept as both. Importing the same file twice changes nothing. Startup
   commands from a file are imported only if you opt in.
 - **Electerm** exports (connections with nested groups, passwords and pasted keys) and
-  **`~/.ssh/config`** (`Host`, `HostName`, `Port`, `User`, `IdentityFile`, `Host *`, negation,
-  `Include`).
+  **`~/.ssh/config`** (`Host`, `HostName`, `Port`, `User`, `IdentityFile`, `IdentityAgent`,
+  `ProxyJump`, `LocalForward`, `RemoteForward`, `DynamicForward`, `Host *`, negation, `Include`).
 
 ## Keyboard shortcuts
 
@@ -356,7 +363,7 @@ Built with [egui](https://github.com/emilk/egui) (wgpu/Metal),
   channel (RUSTSEC-2023-0071, ignored in `.cargo/audit.toml` with the reasons). The `rsa` crate
   still signs in two rare cases: SHA-1 signatures for servers older than 2016 (only with legacy
   algorithms on) and RSA keys shorter than 2048 bits.
-- Not yet available: port forwarding, ProxyJump, ssh-agent, and Linux/Windows builds.
+- Not yet available: agent forwarding, X11 forwarding, and Linux/Windows builds.
 
 ## License
 

@@ -70,6 +70,8 @@ pub struct Tab {
     pub prompt: PromptInput,
     /// When keys were sent with no reply since, and how much had been received then.
     input_watch: Option<(std::time::Instant, u64)>,
+    /// Port forward problems already reported.
+    forward_errors_seen: Vec<String>,
 }
 
 /// Text typed into a password/passphrase prompt (kept until submitted).
@@ -109,8 +111,15 @@ fn disconnect_after(
 }
 
 fn spec(bookmark: &Bookmark, env: &Env) -> ConnectSpec {
+    // The jump hosts are saved connections (kept consistent by the store).
+    let jumps = env
+        .store
+        .and_then(|s| s.jump_chain(bookmark).ok())
+        .map(|chain| chain.into_iter().cloned().collect())
+        .unwrap_or_default();
     ConnectSpec {
         bookmark: bookmark.clone(),
+        jumps,
         keepalive_secs: env.settings.keepalive_secs,
         known_hosts: env.known_hosts.clone(),
         save_secrets: env.store.is_some_and(|s| s.bookmark(bookmark.id).is_some()),
@@ -200,7 +209,29 @@ impl Tab {
             sftp_split: 0.45,
             prompt: PromptInput::default(),
             input_watch: None,
+            forward_errors_seen: Vec::new(),
         }
+    }
+
+    /// Forwards that could not start since last asked (a port in use, refused by the server),
+    /// each reported once.
+    pub fn new_forward_errors(&mut self) -> Vec<String> {
+        let failed: Vec<String> = self
+            .conn
+            .shared
+            .lock()
+            .forwards
+            .iter()
+            .filter(|f| !f.listening)
+            .filter_map(|f| f.error.clone())
+            .collect();
+        let new: Vec<String> = failed
+            .iter()
+            .filter(|e| !self.forward_errors_seen.contains(e))
+            .cloned()
+            .collect();
+        self.forward_errors_seen.extend(new.iter().cloned());
+        new
     }
 
     /// Keys were sent to the server: if nothing comes back for a while, the connection is
@@ -319,6 +350,7 @@ impl Tab {
         );
         disconnect_after(env.rt, old, pending);
         self.sftp = None;
+        self.forward_errors_seen.clear();
         let bookmark = self.bookmark.clone();
         for (i, pane) in self.panes.iter_mut().enumerate() {
             let (tx, rx) = mpsc::unbounded_channel();

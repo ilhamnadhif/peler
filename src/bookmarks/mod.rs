@@ -7,5 +7,5 @@ pub mod ssh_config;
 pub mod store;
 pub mod transfer;
 
-pub use model::{Auth, Bookmark, DEFAULT_PORT, Group};
+pub use model::{Auth, Bookmark, DEFAULT_PORT, Forward, ForwardKind, Group};
 pub use store::BookmarkStore;

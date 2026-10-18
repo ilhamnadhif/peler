@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, Align2, Color32, Key, RichText, vec2};
 use uuid::Uuid;
 
-use super::fonts;
+use super::{fonts, style};
 use crate::bookmarks::transfer::{
     ExportScope, ImportPlan, ItemStatus, MatchedBy, Resolution, SourceKind,
 };
@@ -54,6 +54,7 @@ impl Palette {
                 let edit = egui::TextEdit::singleline(&mut self.query)
                     .hint_text(t("Connect to… (type to search connections)"))
                     .font(egui::TextStyle::Heading)
+                    .margin(egui::Margin::symmetric(10, 8))
                     .desired_width(f32::INFINITY);
                 let r = ui.add(edit);
                 if !self.focused {
@@ -283,8 +284,8 @@ impl Dialog {
                         }
                     }
                     ui.add_space(10.0);
-                    ui.horizontal(|ui| {
-                        let ok = ui.button(RichText::new(button.as_str()).strong());
+                    style::right_to_left(ui, |ui| {
+                        let ok = ui.add(style::primary(button.as_str()));
                         #[cfg(debug_assertions)]
                         crate::devtest::record("confirm-ok", ok.rect);
                         if ok.clicked() || enter {
@@ -319,20 +320,16 @@ impl Dialog {
                         GroupTarget::New { .. } => t("New Group"),
                         GroupTarget::Rename(_) => t("Rename Group"),
                     });
-                    let r = ui.add(
-                        egui::TextEdit::singleline(name)
-                            .hint_text(t("Group name"))
-                            .desired_width(f32::INFINITY),
-                    );
+                    style::form_spacing(ui);
+                    let r = ui.add(style::input(name).hint_text(t("Group name")));
                     if std::mem::take(focus) {
                         r.request_focus();
                     }
                     if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                         submit = true;
                     }
-                    ui.add_space(8.0);
-                    ui.horizontal(|ui| {
-                        if ui.button(t("OK")).clicked() {
+                    style::right_to_left(ui, |ui| {
+                        if ui.add(style::primary(t("OK"))).clicked() {
                             submit = true;
                         }
                         if ui.button(t("Cancel")).clicked() {
@@ -468,7 +465,7 @@ impl ExportDialog {
                 egui::ScrollArea::vertical().max_height(160.0).show(ui, |ui| {
                     for b in &store.bookmarks {
                         let mut on = self.picked.contains(&b.id);
-                        if ui.checkbox(&mut on, format!("{}  ({})", b.display_name(), b.address())).changed() {
+                        if style::checkbox(ui, &mut on, format!("{}  ({})", b.display_name(), b.address())).changed() {
                             if on {
                                 self.picked.insert(b.id);
                             } else {
@@ -481,15 +478,15 @@ impl ExportDialog {
             }
 
             ui.add_space(8.0);
-            ui.checkbox(&mut self.include_credentials, t("Include saved passwords and passphrases (encrypted)"));
+            style::checkbox(ui, &mut self.include_credentials, t("Include saved passwords and passphrases (encrypted)"));
             if self.include_credentials {
                 ui.label(RichText::new(t("Credentials are encrypted with Argon2id + XChaCha20-Poly1305. You need this passphrase to import them.")).weak().small());
                 egui::Grid::new("export-pass").num_columns(2).show(ui, |ui| {
                     ui.label(t("Passphrase"));
-                    ui.add(egui::TextEdit::singleline(&mut self.pass1).password(true).desired_width(240.0));
+                    ui.add(style::input(&mut self.pass1).password(true).desired_width(240.0));
                     ui.end_row();
                     ui.label(t("Repeat"));
-                    ui.add(egui::TextEdit::singleline(&mut self.pass2).password(true).desired_width(240.0));
+                    ui.add(style::input(&mut self.pass2).password(true).desired_width(240.0));
                     ui.end_row();
                 });
             } else {
@@ -500,7 +497,7 @@ impl ExportDialog {
             }
             ui.add_space(10.0);
             ui.horizontal(|ui| {
-                if ui.button(RichText::new(t("Export…")).strong()).clicked() {
+                if ui.add(style::primary(t("Export…"))).clicked() {
                     if matches!(&self.scope, ExportScope::Selected(ids) if ids.is_empty()) {
                         self.error = Some(t("Select at least one connection.").into());
                     } else if self.include_credentials && self.pass1.len() < 8 {
@@ -610,7 +607,7 @@ impl ImportDialog {
                     ui.label(t("This file contains encrypted passwords. Enter the export passphrase to import them, or continue without them."));
                     ui.horizontal(|ui| {
                         let busy = self.unlocking.is_some();
-                        let r = ui.add_enabled(!busy, egui::TextEdit::singleline(&mut self.passphrase).password(true).hint_text(t("Passphrase")).desired_width(240.0));
+                        let r = ui.add_enabled(!busy, style::input(&mut self.passphrase).password(true).hint_text(t("Passphrase")).desired_width(240.0));
                         let go = ui.add_enabled(!busy, egui::Button::new(t("Unlock"))).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)));
                         if busy {
                             ui.spinner();
@@ -629,7 +626,7 @@ impl ImportDialog {
             if commands > 0 {
                 ui.add_space(4.0);
                 ui.group(|ui| {
-                    ui.checkbox(
+                    style::checkbox(ui,
                         &mut self.plan.import_startup_commands,
                         tf("Import startup commands ({} connection(s))", &[&commands.to_string()]),
                     );
@@ -715,7 +712,7 @@ impl ImportDialog {
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 let (add, change, _) = self.plan.summary();
-                if ui.add_enabled(add + change > 0 && self.unlocking.is_none(), egui::Button::new(RichText::new(t("Import")).strong())).clicked() {
+                if ui.add_enabled(add + change > 0 && self.unlocking.is_none(), style::primary(t("Import"))).clicked() {
                     result = DialogResult::Import(Box::new(self.plan.clone()));
                 }
                 if ui.button(t("Cancel")).clicked() {
@@ -749,31 +746,42 @@ impl SettingsDialog {
     fn show(&mut self, ctx: &egui::Context, s: &mut Settings) -> DialogResult {
         let mut close = false;
         let modal = egui::Modal::new(egui::Id::new("settings")).show(ctx, |ui| {
-            ui.set_width(560.0);
+            ui.set_width(600.0);
+            style::form_spacing(ui);
             ui.horizontal(|ui| {
-                ui.heading(t("Settings"));
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button(t("Done")).clicked() {
+                ui.heading(RichText::new(t("Settings")).strong());
+                style::right_to_left(ui, |ui| {
+                    if ui.add(style::primary(t("Done"))).clicked() {
                         close = true;
                     }
                 });
             });
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.tab, SettingsTab::General, t("General"));
-                ui.selectable_value(&mut self.tab, SettingsTab::Terminal, t("Terminal"));
-                ui.selectable_value(
-                    &mut self.tab,
-                    SettingsTab::QuickCommands,
-                    t("Quick Commands"),
-                );
-            });
+            let _tabs = style::segmented(
+                ui,
+                &mut self.tab,
+                &[
+                    (SettingsTab::General, t("General")),
+                    (SettingsTab::Terminal, t("Terminal")),
+                    (SettingsTab::QuickCommands, t("Quick Commands")),
+                ],
+            );
+            #[cfg(debug_assertions)]
+            {
+                crate::devtest::record("settings-terminal", _tabs[1].rect);
+                crate::devtest::record("settings-commands", _tabs[2].rect);
+            }
             ui.separator();
             egui::ScrollArea::vertical()
-                .max_height(460.0)
-                .show(ui, |ui| match self.tab {
-                    SettingsTab::General => general(ui, s),
-                    SettingsTab::Terminal => terminal(ui, s),
-                    SettingsTab::QuickCommands => quick_commands(ui, s),
+                .max_height((ctx.content_rect().height() - 160.0).clamp(240.0, 640.0))
+                .auto_shrink([false, true])
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width() - 10.0);
+                    match self.tab {
+                        SettingsTab::General => general(ui, s),
+                        SettingsTab::Terminal => terminal(ui, s),
+                        SettingsTab::QuickCommands => quick_commands(ui, s),
+                    }
+                    ui.add_space(4.0);
                 });
         });
         if close || modal.should_close() {
@@ -785,195 +793,198 @@ impl SettingsDialog {
 }
 
 fn general(ui: &mut egui::Ui, s: &mut Settings) {
-    egui::Grid::new("settings-general")
-        .num_columns(2)
-        .spacing([16.0, 10.0])
-        .show(ui, |ui| {
-            ui.label(t("Language"));
-            egui::ComboBox::from_id_salt("lang")
-                .selected_text(match s.language {
-                    Language::System => t("System"),
-                    Language::English => "English",
-                    Language::Indonesian => "Bahasa Indonesia",
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(&mut s.language, Language::System, t("System"));
-                    ui.selectable_value(&mut s.language, Language::English, "English");
-                    ui.selectable_value(&mut s.language, Language::Indonesian, "Bahasa Indonesia");
-                });
-            ui.end_row();
-
-            ui.label(t("Appearance"));
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut s.theme, ThemeMode::System, t("System"));
-                ui.selectable_value(&mut s.theme, ThemeMode::Light, t("Light"));
-                ui.selectable_value(&mut s.theme, ThemeMode::Dark, t("Dark"));
+    style::section(ui, t("Appearance"));
+    style::row(ui, t("Language"), |ui| {
+        egui::ComboBox::from_id_salt("lang")
+            .width(220.0)
+            .selected_text(match s.language {
+                Language::System => t("System"),
+                Language::English => "English",
+                Language::Indonesian => "Bahasa Indonesia",
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut s.language, Language::System, t("System"));
+                ui.selectable_value(&mut s.language, Language::English, "English");
+                ui.selectable_value(&mut s.language, Language::Indonesian, "Bahasa Indonesia");
             });
-            ui.end_row();
+    });
+    style::row(ui, t("Theme"), |ui| {
+        style::segmented(
+            ui,
+            &mut s.theme,
+            &[
+                (ThemeMode::System, t("System")),
+                (ThemeMode::Light, t("Light")),
+                (ThemeMode::Dark, t("Dark")),
+            ],
+        );
+    });
 
-            ui.label(t("Keepalive"));
-            ui.horizontal(|ui| {
-                ui.add(
-                    egui::DragValue::new(&mut s.keepalive_secs)
-                        .range(0..=600)
-                        .update_while_editing(false)
-                        .suffix(" s"),
-                );
-                ui.label(RichText::new(t("0 = off. Applies to new connections.")).weak());
-            });
-            ui.end_row();
-
-            ui.label(t("Closing tabs"));
-            ui.checkbox(
-                &mut s.confirm_close_connected,
-                t("Ask before closing a connected tab"),
+    style::section(ui, t("Connections"));
+    style::row(ui, t("Keepalive"), |ui| {
+        ui.horizontal(|ui| {
+            ui.add(
+                egui::DragValue::new(&mut s.keepalive_secs)
+                    .range(0..=600)
+                    .update_while_editing(false)
+                    .suffix(" s"),
             );
-            ui.end_row();
-
-            ui.label(t("Updates"));
-            ui.checkbox(&mut s.check_updates, t("Check for updates automatically"))
-                .on_hover_text(t(
-                    "Peler asks GitHub for the latest release at launch and once a day.",
-                ));
-            ui.end_row();
-
-            ui.label(t("Data folder"));
-            if ui.button(t("Show in Finder")).clicked() {
-                let _ = std::process::Command::new("open")
-                    .arg(crate::paths::data_dir())
-                    .spawn();
-            }
-            ui.end_row();
+            ui.label(RichText::new(t("0 = off. Applies to new connections.")).weak());
         });
+    });
+    style::row(ui, t("Closing tabs"), |ui| {
+        style::checkbox(
+            ui,
+            &mut s.confirm_close_connected,
+            t("Ask before closing a connected tab"),
+        );
+    });
+
+    style::section(ui, t("Updates"));
+    style::row(ui, "", |ui| {
+        style::checkbox(
+            ui,
+            &mut s.check_updates,
+            t("Check for updates automatically"),
+        )
+        .on_hover_text(t(
+            "Peler asks GitHub for the latest release when it starts and every few hours.",
+        ));
+    });
+    style::row(ui, t("Data folder"), |ui| {
+        if ui.button(t("Show in Finder")).clicked() {
+            let _ = std::process::Command::new("open")
+                .arg(crate::paths::data_dir())
+                .spawn();
+        }
+    });
 }
 
 fn terminal(ui: &mut egui::Ui, s: &mut Settings) {
-    egui::Grid::new("settings-terminal")
-        .num_columns(2)
-        .spacing([16.0, 10.0])
-        .show(ui, |ui| {
-            ui.label(t("Font"));
-            ui.horizontal(|ui| {
-                let current = fonts::effective_choice(&s.font);
-                egui::ComboBox::from_id_salt("font")
-                    .selected_text(current.name.clone())
-                    .width(180.0)
-                    .show_ui(ui, |ui| {
-                        for p in fonts::PRESETS {
-                            let available = p
-                                .path
-                                .is_none_or(|path| std::path::Path::new(path).exists());
-                            if available
-                                && ui
-                                    .selectable_label(current.name == p.name, p.name)
-                                    .clicked()
-                            {
-                                s.font = FontChoice {
-                                    name: p.name.into(),
-                                    path: None,
-                                    index: 0,
-                                };
-                            }
+    style::section(ui, t("Text"));
+    style::row(ui, t("Font"), |ui| {
+        ui.horizontal(|ui| {
+            let current = fonts::effective_choice(&s.font);
+            egui::ComboBox::from_id_salt("font")
+                .selected_text(current.name.clone())
+                .width(220.0)
+                .show_ui(ui, |ui| {
+                    for p in fonts::PRESETS {
+                        let available = p
+                            .path
+                            .is_none_or(|path| std::path::Path::new(path).exists());
+                        if available
+                            && ui
+                                .selectable_label(current.name == p.name, p.name)
+                                .clicked()
+                        {
+                            s.font = FontChoice {
+                                name: p.name.into(),
+                                path: None,
+                                index: 0,
+                            };
                         }
-                    });
-                if ui.button(t("Other font file…")).clicked()
-                    && let Some(p) = rfd::FileDialog::new()
-                        .add_filter(t("Fonts"), &["ttf", "otf", "ttc"])
-                        .pick_file()
-                {
-                    let name = p
-                        .file_stem()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default();
-                    s.font = FontChoice {
-                        name,
-                        path: Some(crate::paths::contract_tilde(&p)),
-                        index: 0,
-                    };
-                }
-            });
-            ui.end_row();
-
-            ui.label(t("Size"));
-            ui.add(
-                egui::Slider::new(&mut s.font_size, Settings::MIN_FONT..=Settings::MAX_FONT)
-                    .step_by(0.5)
-                    .suffix(" pt"),
-            );
-            ui.end_row();
-
-            for (label, value, dark) in [
-                (t("Colors (dark)"), &mut s.scheme_dark, true),
-                (t("Colors (light)"), &mut s.scheme_light, false),
-            ] {
-                ui.label(label);
-                egui::ComboBox::from_id_salt(("scheme", dark))
-                    .selected_text(value.clone())
-                    .width(180.0)
-                    .show_ui(ui, |ui| {
-                        for sc in SCHEMES.iter().filter(|sc| sc.dark == dark) {
-                            ui.horizontal(|ui| {
-                                let (r, _) =
-                                    ui.allocate_exact_size(vec2(42.0, 14.0), egui::Sense::hover());
-                                ui.painter().rect_filled(r, 2.0, sc.background);
-                                for (i, c) in sc.ansi[1..7].iter().enumerate() {
-                                    let x = r.left() + 3.0 + i as f32 * 6.0;
-                                    ui.painter().rect_filled(
-                                        egui::Rect::from_min_size(
-                                            egui::pos2(x, r.top() + 3.0),
-                                            vec2(5.0, 8.0),
-                                        ),
-                                        1.0,
-                                        *c,
-                                    );
-                                }
-                                if ui.selectable_label(*value == sc.name, sc.name).clicked() {
-                                    *value = sc.name.to_string();
-                                }
-                            });
-                        }
-                    });
-                ui.end_row();
+                    }
+                });
+            if ui.button(t("Other font file…")).clicked()
+                && let Some(p) = rfd::FileDialog::new()
+                    .add_filter(t("Fonts"), &["ttf", "otf", "ttc"])
+                    .pick_file()
+            {
+                let name = p
+                    .file_stem()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                s.font = FontChoice {
+                    name,
+                    path: Some(crate::paths::contract_tilde(&p)),
+                    index: 0,
+                };
             }
-
-            ui.label(t("Scrollback"));
-            ui.horizontal(|ui| {
-                ui.add(
-                    egui::DragValue::new(&mut s.scrollback)
-                        .range(0..=Settings::MAX_SCROLLBACK)
-                        .speed(100)
-                        // Applied when typing ends: each change resizes every open terminal's
-                        // history, and "5" on the way to "50000" would cut it to 5 lines.
-                        .update_while_editing(false)
-                        .suffix(t(" lines")),
-                );
-            });
-            ui.end_row();
-
-            ui.label(t("Cursor"));
-            ui.horizontal(|ui| {
-                ui.selectable_value(&mut s.cursor_style, CursorStyle::Block, t("Block"));
-                ui.selectable_value(&mut s.cursor_style, CursorStyle::Beam, t("Bar"));
-                ui.selectable_value(&mut s.cursor_style, CursorStyle::Underline, t("Underline"));
-                ui.checkbox(&mut s.cursor_blink, t("Blink"));
-            });
-            ui.end_row();
-
-            ui.label(t("Keyboard"));
-            ui.checkbox(&mut s.option_as_meta, t("Use Option as Meta key"));
-            ui.end_row();
-
-            ui.label(t("Selection"));
-            ui.checkbox(&mut s.copy_on_select, t("Copy text when selected"));
-            ui.end_row();
-
-            ui.label(t("Fonts"));
-            ui.checkbox(
-                &mut s.load_cjk_font,
-                t("Chinese/Japanese/Korean fallback fonts"),
-            );
-            ui.end_row();
         });
+    });
+    style::row(ui, t("Size"), |ui| {
+        ui.add(
+            egui::Slider::new(&mut s.font_size, Settings::MIN_FONT..=Settings::MAX_FONT)
+                .step_by(0.5)
+                .suffix(" pt"),
+        );
+    });
+    style::row(ui, t("Fonts"), |ui| {
+        style::checkbox(
+            ui,
+            &mut s.load_cjk_font,
+            t("Chinese/Japanese/Korean fallback fonts"),
+        );
+    });
+
+    style::section(ui, t("Colors"));
+    for (label, value, dark) in [
+        (t("Colors (dark)"), &mut s.scheme_dark, true),
+        (t("Colors (light)"), &mut s.scheme_light, false),
+    ] {
+        style::row(ui, label, |ui| {
+            egui::ComboBox::from_id_salt(("scheme", dark))
+                .selected_text(value.clone())
+                .width(220.0)
+                .show_ui(ui, |ui| {
+                    for sc in SCHEMES.iter().filter(|sc| sc.dark == dark) {
+                        ui.horizontal(|ui| {
+                            let (r, _) =
+                                ui.allocate_exact_size(vec2(42.0, 14.0), egui::Sense::hover());
+                            ui.painter().rect_filled(r, 2.0, sc.background);
+                            for (i, c) in sc.ansi[1..7].iter().enumerate() {
+                                let x = r.left() + 3.0 + i as f32 * 6.0;
+                                ui.painter().rect_filled(
+                                    egui::Rect::from_min_size(
+                                        egui::pos2(x, r.top() + 3.0),
+                                        vec2(5.0, 8.0),
+                                    ),
+                                    1.0,
+                                    *c,
+                                );
+                            }
+                            if ui.selectable_label(*value == sc.name, sc.name).clicked() {
+                                *value = sc.name.to_string();
+                            }
+                        });
+                    }
+                });
+        });
+    }
+
+    style::section(ui, t("Behavior"));
+    style::row(ui, t("Cursor"), |ui| {
+        ui.horizontal(|ui| {
+            style::segmented(
+                ui,
+                &mut s.cursor_style,
+                &[
+                    (CursorStyle::Block, t("Block")),
+                    (CursorStyle::Beam, t("Bar")),
+                    (CursorStyle::Underline, t("Underline")),
+                ],
+            );
+            style::checkbox(ui, &mut s.cursor_blink, t("Blink"));
+        });
+    });
+    style::row(ui, t("Scrollback"), |ui| {
+        ui.add(
+            egui::DragValue::new(&mut s.scrollback)
+                .range(0..=Settings::MAX_SCROLLBACK)
+                .speed(100)
+                // Applied when typing ends: each change resizes every open terminal's
+                // history, and "5" on the way to "50000" would cut it to 5 lines.
+                .update_while_editing(false)
+                .suffix(t(" lines")),
+        );
+    });
+    style::row(ui, t("Keyboard"), |ui| {
+        style::checkbox(ui, &mut s.option_as_meta, t("Use Option as Meta key"));
+    });
+    style::row(ui, t("Selection"), |ui| {
+        style::checkbox(ui, &mut s.copy_on_select, t("Copy text when selected"));
+    });
 }
 
 fn quick_commands(ui: &mut egui::Ui, s: &mut Settings) {
@@ -998,14 +1009,13 @@ fn quick_commands(ui: &mut egui::Ui, s: &mut Settings) {
             ui.label("");
             ui.end_row();
             for (i, qc) in s.quick_commands.iter_mut().enumerate() {
-                ui.add(egui::TextEdit::singleline(&mut qc.name).desired_width(130.0));
+                ui.add(style::input(&mut qc.name).desired_width(130.0));
                 ui.add(
-                    egui::TextEdit::singleline(&mut qc.command)
-                        .desired_width(240.0)
+                    style::input(&mut qc.command)
+                        .desired_width(260.0)
                         .font(egui::TextStyle::Monospace),
                 );
-                ui.checkbox(&mut qc.run, "")
-                    .on_hover_text(t("Press Enter after sending"));
+                style::checkbox(ui, &mut qc.run, "").on_hover_text(t("Press Enter after sending"));
                 ui.horizontal(|ui| {
                     if ui
                         .add_enabled(i > 0, egui::Button::new("▲").small())
@@ -1032,7 +1042,7 @@ fn quick_commands(ui: &mut egui::Ui, s: &mut Settings) {
     if let Some((a, b)) = swap {
         s.quick_commands.swap(a, b);
     }
-    if ui.button(t("Add command")).clicked() {
+    if ui.button(format!("+ {}", t("Add command"))).clicked() {
         s.quick_commands.push(QuickCommand::new("", ""));
     }
 }

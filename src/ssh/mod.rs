@@ -1,5 +1,6 @@
 //! SSH connections (russh): connect, authenticate, verify host keys, shells.
 
+pub mod forward;
 pub mod keys;
 pub mod known_hosts;
 pub mod rsa_sign;

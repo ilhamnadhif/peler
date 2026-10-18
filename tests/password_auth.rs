@@ -145,6 +145,7 @@ fn spec(port: u16, id: uuid::Uuid, known: &std::path::Path) -> ConnectSpec {
             ..Default::default()
         },
         keepalive_secs: 30,
+        jumps: Vec::new(),
         known_hosts: known.to_path_buf(),
         save_secrets: true,
     }

@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
+use super::model::{Forward, ForwardKind};
 use crate::paths;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -15,6 +16,12 @@ pub struct SshConfigHost {
     pub port: Option<u16>,
     pub user: Option<String>,
     pub identity_file: Option<String>,
+    /// `ProxyJump`: the hops, as written (`none` leaves it empty).
+    pub proxy_jump: Vec<String>,
+    /// `IdentityAgent`: the agent's socket, empty for `SSH_AUTH_SOCK`.
+    pub identity_agent: Option<String>,
+    /// `LocalForward`, `RemoteForward` and `DynamicForward` (all of them apply, as in ssh).
+    pub forwards: Vec<Forward>,
 }
 
 #[derive(Debug, Default)]
@@ -22,7 +29,7 @@ struct Block {
     patterns: Vec<String>,
     /// `Match` blocks are skipped: their conditions can't be evaluated statically.
     is_match: bool,
-    options: Vec<(String, String)>,
+    options: Vec<(String, Vec<String>)>,
 }
 
 /// Largest config file read (anything bigger is not a hand-written config).
@@ -145,8 +152,10 @@ fn parse_text(text: &str, blocks: &mut Vec<Block>, depth: usize, budget: &mut Op
             }
             "include" => {}
             _ => {
-                if let (Some(block), Some(value)) = (blocks.last_mut(), args.into_iter().next()) {
-                    block.options.push((key, value));
+                if let Some(block) = blocks.last_mut()
+                    && !args.is_empty()
+                {
+                    block.options.push((key, args));
                 }
             }
         }
@@ -225,8 +234,10 @@ fn resolve(blocks: &[Block]) -> Vec<SshConfigHost> {
                 alias: alias.clone(),
                 ..Default::default()
             };
+            let mut jump_seen = false;
             for block in blocks.iter().filter(|b| block_matches(b, &alias)) {
-                for (key, value) in &block.options {
+                for (key, args) in &block.options {
+                    let value = &args[0];
                     match key.as_str() {
                         "hostname" if h.hostname.is_none() => {
                             h.hostname = Some(value.replace("%h", &alias))
@@ -238,6 +249,28 @@ fn resolve(blocks: &[Block]) -> Vec<SshConfigHost> {
                             let v = value.replace("%d", &home.to_string_lossy());
                             h.identity_file = Some(v);
                         }
+                        "proxyjump" if !jump_seen => {
+                            jump_seen = true;
+                            if !value.eq_ignore_ascii_case("none") {
+                                h.proxy_jump = value
+                                    .split(',')
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .collect();
+                            }
+                        }
+                        "identityagent" if h.identity_agent.is_none() => {
+                            h.identity_agent = Some(match value.as_str() {
+                                "none" => continue,
+                                "SSH_AUTH_SOCK" => String::new(),
+                                v => v.replace("%d", &paths::home_dir().to_string_lossy()),
+                            });
+                        }
+                        "localforward" | "remoteforward" | "dynamicforward" => {
+                            if let Some(f) = forward(key, args) {
+                                h.forwards.push(f);
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -247,9 +280,81 @@ fn resolve(blocks: &[Block]) -> Vec<SshConfigHost> {
         .collect()
 }
 
+/// A `LocalForward`/`RemoteForward` (`[bind:]port host:port`) or `DynamicForward`
+/// (`[bind:]port`). Unix socket forwards are not supported (`None`).
+fn forward(key: &str, args: &[String]) -> Option<Forward> {
+    let port_of = |s: &str| -> Option<u16> { s.rsplit(':').next()?.parse().ok() };
+    let listen_port = port_of(args.first()?)?;
+    if key == "dynamicforward" {
+        return Some(Forward {
+            kind: ForwardKind::Dynamic,
+            listen_port,
+            host: String::new(),
+            port: 0,
+        });
+    }
+    let target = args.get(1)?;
+    let (host, port) = target.rsplit_once(':')?;
+    let host = host.trim_start_matches('[').trim_end_matches(']');
+    Some(Forward {
+        kind: if key == "localforward" {
+            ForwardKind::Local
+        } else {
+            ForwardKind::Remote
+        },
+        listen_port,
+        host: host.to_string(),
+        port: port.parse().ok()?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn jump_hosts_agents_and_forwards() {
+        let cfg = r#"
+Host bastion
+    HostName bastion.example.com
+    IdentityAgent "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+
+Host app
+    HostName 10.0.0.9
+    ProxyJump bastion
+    LocalForward 8080 localhost:80
+    LocalForward 127.0.0.1:5433 [::1]:5432
+    RemoteForward 9000 localhost:3000
+    DynamicForward 1080
+
+Host *
+    ProxyJump none
+"#;
+        let hosts = parse_str(cfg);
+        let bastion = &hosts[0];
+        assert!(bastion.proxy_jump.is_empty());
+        assert_eq!(
+            bastion.identity_agent.as_deref(),
+            Some("~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock")
+        );
+        let app = &hosts[1];
+        assert_eq!(app.proxy_jump, ["bastion"]);
+        let f = |kind, listen_port, host: &str, port| Forward {
+            kind,
+            listen_port,
+            host: host.into(),
+            port,
+        };
+        assert_eq!(
+            app.forwards,
+            [
+                f(ForwardKind::Local, 8080, "localhost", 80),
+                f(ForwardKind::Local, 5433, "::1", 5432),
+                f(ForwardKind::Remote, 9000, "localhost", 3000),
+                f(ForwardKind::Dynamic, 1080, "", 0),
+            ]
+        );
+    }
 
     #[test]
     fn parses_blocks_with_defaults_and_negation() {

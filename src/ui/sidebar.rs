@@ -107,7 +107,8 @@ impl Sidebar {
                 let search_id = egui::Id::new("sidebar-search");
                 let edit = egui::TextEdit::singleline(&mut self.search)
                     .id(search_id)
-                    .hint_text(t("Search connections"))
+                    .hint_text(format!("🔍  {}", t("Search connections")))
+                    .margin(egui::Margin::symmetric(8, 4))
                     .desired_width(ui.available_width());
                 let resp = ui.add(edit);
                 if std::mem::take(&mut self.focus_search) {
@@ -569,7 +570,7 @@ impl Sidebar {
         }
         resp.context_menu(|ui| {
             self.selected = Some(id);
-            if ui.button(RichText::new(t("Connect")).strong()).clicked() {
+            if ui.add(super::style::primary(t("Connect"))).clicked() {
                 cx.actions.push(Action::Connect(id));
                 ui.close();
             }
