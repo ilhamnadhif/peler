@@ -56,7 +56,7 @@ impl Palette {
                     .font(egui::TextStyle::Heading)
                     .margin(egui::Margin::symmetric(10, 8))
                     .desired_width(f32::INFINITY);
-                let r = ui.add(edit);
+                let r = ui.add(style::Field(edit));
                 if !self.focused {
                     r.request_focus();
                     self.focused = true;

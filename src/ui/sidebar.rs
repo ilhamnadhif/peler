@@ -110,7 +110,7 @@ impl Sidebar {
                     .hint_text(format!("🔍  {}", t("Search connections")))
                     .margin(egui::Margin::symmetric(8, 4))
                     .desired_width(ui.available_width());
-                let resp = ui.add(edit);
+                let resp = ui.add(super::style::Field(edit));
                 if std::mem::take(&mut self.focus_search) {
                     resp.request_focus();
                 }

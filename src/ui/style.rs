@@ -38,14 +38,32 @@ pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
             } else {
                 Color32::from_rgb(0xb4, 0xd5, 0xfe)
             };
+            // The text color of selected rows, items and text. egui also rings focused text
+            // fields with it; `Field` paints its own blue ring over that.
             v.selection.stroke = Stroke::new(
                 1.0,
                 if dark {
-                    Color32::from_rgb(0xd0, 0xe4, 0xff)
+                    Color32::WHITE
                 } else {
                     Color32::from_rgb(0x10, 0x3d, 0x7a)
                 },
             );
+            // Near-white text rather than pure white (which glares on a dark background), and a
+            // quieter gray for details; both read well above the 4.5:1 contrast WCAG asks for.
+            let (text, weak) = if dark {
+                (
+                    Color32::from_rgb(0xdc, 0xdf, 0xe4),
+                    Color32::from_rgb(0x8f, 0x96, 0xa0),
+                )
+            } else {
+                (
+                    Color32::from_rgb(0x2b, 0x2f, 0x36),
+                    Color32::from_rgb(0x64, 0x6a, 0x73),
+                )
+            };
+            v.widgets.noninteractive.fg_stroke.color = text;
+            v.widgets.inactive.fg_stroke.color = text;
+            v.weak_text_color = Some(weak);
             v.hyperlink_color = ACCENT;
             if dark {
                 v.panel_fill = Color32::from_rgb(0x1e, 0x20, 0x26);
@@ -100,15 +118,46 @@ pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
             v.widgets.hovered.bg_stroke = Stroke::new(1.0, border_hover);
             v.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT);
             v.widgets.open.bg_stroke = Stroke::new(1.0, border_hover);
-            v.selection.stroke = Stroke::new(
-                1.5,
-                if dark {
-                    Color32::from_rgb(0x6c, 0xa8, 0xff)
-                } else {
-                    Color32::from_rgb(0x1d, 0x6f, 0xe0)
-                },
-            );
         });
+    }
+}
+
+/// The blue ring around a focused text field or checkbox.
+pub fn focus_ring(v: &egui::Visuals) -> Stroke {
+    Stroke::new(
+        1.5,
+        if v.dark_mode {
+            Color32::from_rgb(0x6c, 0xa8, 0xff)
+        } else {
+            Color32::from_rgb(0x1d, 0x6f, 0xe0)
+        },
+    )
+}
+
+/// The colors of a file list: it sits a shade apart from the panel, with faint stripes.
+pub struct ListColors {
+    pub bg: Color32,
+    pub stripe: Color32,
+    pub hover: Color32,
+    /// While files from the other side are dragged over it.
+    pub drop: Color32,
+}
+
+pub fn list_colors(v: &egui::Visuals) -> ListColors {
+    if v.dark_mode {
+        ListColors {
+            bg: v.extreme_bg_color,
+            stripe: Color32::from_rgb(0x1c, 0x1f, 0x25),
+            hover: Color32::from_rgb(0x27, 0x2b, 0x33),
+            drop: Color32::from_rgb(0x1a, 0x2a, 0x3d),
+        }
+    } else {
+        ListColors {
+            bg: v.extreme_bg_color,
+            stripe: Color32::from_rgb(0xf5, 0xf6, 0xf8),
+            hover: Color32::from_rgb(0xea, 0xee, 0xf3),
+            drop: Color32::from_rgb(0xe3, 0xef, 0xfe),
+        }
     }
 }
 
@@ -126,17 +175,65 @@ pub fn form_spacing(ui: &mut Ui) {
 }
 
 /// A one-line text field with comfortable padding, as wide as there is room.
-pub fn input(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
-    egui::TextEdit::singleline(text)
-        .margin(Margin::symmetric(8, 6))
-        .desired_width(f32::INFINITY)
+pub fn input(text: &mut dyn egui::TextBuffer) -> Field<'_> {
+    Field(
+        egui::TextEdit::singleline(text)
+            .margin(Margin::symmetric(8, 6))
+            .desired_width(f32::INFINITY),
+    )
 }
 
 /// A multi-line text field with the same padding.
-pub fn input_multiline(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
-    egui::TextEdit::multiline(text)
-        .margin(Margin::symmetric(8, 6))
-        .desired_width(f32::INFINITY)
+pub fn input_multiline(text: &mut dyn egui::TextBuffer) -> Field<'_> {
+    Field(
+        egui::TextEdit::multiline(text)
+            .margin(Margin::symmetric(8, 6))
+            .desired_width(f32::INFINITY),
+    )
+}
+
+/// A text field with a blue focus ring. egui rings a focused field with `selection.stroke`,
+/// which is also the color of selected text and so has to stay readable on the selection; the
+/// blue ring is painted over it.
+pub struct Field<'t>(pub egui::TextEdit<'t>);
+
+impl Field<'_> {
+    pub fn hint_text(self, text: impl Into<egui::WidgetText>) -> Self {
+        Self(self.0.hint_text(text))
+    }
+
+    pub fn password(self, password: bool) -> Self {
+        Self(self.0.password(password))
+    }
+
+    pub fn desired_width(self, width: f32) -> Self {
+        Self(self.0.desired_width(width))
+    }
+
+    pub fn desired_rows(self, rows: usize) -> Self {
+        Self(self.0.desired_rows(rows))
+    }
+
+    pub fn font(self, font: impl Into<egui::FontSelection>) -> Self {
+        Self(self.0.font(font))
+    }
+}
+
+impl egui::Widget for Field<'_> {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        let response = ui.add(self.0);
+        if response.has_focus() {
+            // Where egui drew its ring: a focused field is drawn as active.
+            let active = ui.visuals().widgets.active;
+            ui.painter().rect_stroke(
+                response.rect.expand(active.expansion),
+                active.corner_radius,
+                focus_ring(ui.visuals()),
+                egui::StrokeKind::Inside,
+            );
+        }
+        response
+    }
 }
 
 /// The main button of a dialog (blue).
@@ -326,7 +423,7 @@ pub fn checkbox(
             painter.rect_stroke(
                 box_rect.expand(2.0),
                 5.0,
-                ui.visuals().selection.stroke,
+                focus_ring(ui.visuals()),
                 egui::StrokeKind::Outside,
             );
         }

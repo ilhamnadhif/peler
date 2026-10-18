@@ -849,9 +849,9 @@ impl SftpPanel {
                 if is_remote && side.loading {
                     ui.spinner();
                 }
-                let edit = ui.add(
+                let edit = ui.add(style::Field(
                     egui::TextEdit::singleline(&mut side.path_edit).desired_width(f32::INFINITY),
-                );
+                ));
                 if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     actions.push(SideAction::Cd(is_remote, side.path_edit.clone()));
                 }
@@ -877,7 +877,7 @@ impl SftpPanel {
                 (ui.available_height() - footer_h).max(60.0),
             );
             let list = ui.allocate_ui(list_size, |ui| {
-                ui.dnd_drop_zone::<DragFiles, _>(egui::Frame::NONE, |ui| {
+                file_drop_zone(ui, is_remote, |ui| {
                     ui.set_min_size(ui.available_size());
                     let mut sort_clicked = None;
                     // The list always reaches the bottom of the panel, and its columns follow the
@@ -922,14 +922,18 @@ impl SftpPanel {
                         |ui: &mut Ui, label: &str, key: SortKey, clicked: &mut Option<SortKey>| {
                             if ui
                                 .add(
-                                    egui::Button::new(format!("{label}{}", arrow(key)))
-                                        .frame(false),
+                                    egui::Button::new(
+                                        RichText::new(format!("{label}{}", arrow(key)))
+                                            .color(ui.visuals().weak_text_color()),
+                                    )
+                                    .frame(false),
                                 )
                                 .clicked()
                             {
                                 *clicked = Some(key);
                             }
                         };
+                    let mut header_rect = egui::Rect::NOTHING;
                     table
                         .header(row_h, |mut header| {
                             header.col(|ui| {
@@ -950,17 +954,31 @@ impl SftpPanel {
                                 header.col(|ui| {
                                     // Same look and baseline as the sortable headers.
                                     ui.add(
-                                        egui::Button::new(t("Permissions"))
-                                            .frame(false)
-                                            .sense(Sense::hover()),
+                                        egui::Button::new(
+                                            RichText::new(t("Permissions"))
+                                                .color(ui.visuals().weak_text_color()),
+                                        )
+                                        .frame(false)
+                                        .sense(Sense::hover()),
                                     );
                                 });
                             }
+                            header_rect = header.response().rect;
                         })
                         .body(|body| {
                             body.rows(row_h, visible.len(), |mut row| {
                                 let e = &side.entries[visible[row.index()]];
-                                row.set_selected(side.selected.contains(&e.name));
+                                let selected = side.selected.contains(&e.name);
+                                row.set_selected(selected);
+                                // Names in the text color, details a step quieter (as in
+                                // Finder); a selected row is all in the selection's text color.
+                                let detail = |ui: &Ui| {
+                                    if selected {
+                                        ui.visuals().selection.stroke.color
+                                    } else {
+                                        ui.visuals().weak_text_color()
+                                    }
+                                };
                                 row.col(|ui| {
                                     let icon = if e.is_dir {
                                         Icon::Folder
@@ -973,19 +991,20 @@ impl SftpPanel {
                                 });
                                 row.col(|ui| {
                                     if !e.is_dir {
-                                        ui.label(entry::human_size(e.size));
+                                        let size = entry::human_size(e.size);
+                                        ui.label(RichText::new(size).color(detail(ui)));
                                     }
                                 });
                                 row.col(|ui| {
-                                    ui.label(
-                                        e.modified.map(entry::format_time).unwrap_or_default(),
-                                    );
+                                    let time =
+                                        e.modified.map(entry::format_time).unwrap_or_default();
+                                    ui.label(RichText::new(time).color(detail(ui)));
                                 });
                                 if is_remote {
                                     row.col(|ui| {
-                                        ui.monospace(
-                                            e.mode.map(entry::mode_string).unwrap_or_default(),
-                                        );
+                                        let mode =
+                                            e.mode.map(entry::mode_string).unwrap_or_default();
+                                        ui.label(RichText::new(mode).monospace().color(detail(ui)));
                                     });
                                 }
                                 let resp = row.response();
@@ -1167,6 +1186,15 @@ impl SftpPanel {
                                 });
                             });
                         });
+                    // A hairline between the column titles and the files.
+                    if header_rect.is_positive() {
+                        let y = header_rect.bottom() + 0.5 * ui.spacing().item_spacing.y;
+                        ui.painter().hline(
+                            ui.max_rect().x_range(),
+                            y,
+                            ui.visuals().widgets.noninteractive.bg_stroke,
+                        );
+                    }
                     if let Some(k) = sort_clicked {
                         actions.push(SideAction::Sort(is_remote, k));
                     }
@@ -1617,7 +1645,7 @@ impl SftpPanel {
                     });
                     ui.horizontal(|ui| {
                         ui.label(t("Octal"));
-                        ui.add(egui::TextEdit::singleline(mode).desired_width(60.0));
+                        ui.add(style::Field(egui::TextEdit::singleline(mode).desired_width(60.0)));
                         ui.monospace(entry::parse_mode(mode).map(entry::mode_string).unwrap_or_else(|| "?".into()));
                     });
                 }
@@ -2116,6 +2144,35 @@ fn footer_ui(
             }
         });
     });
+}
+
+/// The list's surface, which takes files dragged from the other side. `Ui::dnd_drop_zone` would
+/// paint it in the button gray, on which the names were hard to read, and light it up for this
+/// side's own files too.
+fn file_drop_zone<R>(
+    ui: &mut Ui,
+    is_remote: bool,
+    add_contents: impl FnOnce(&mut Ui) -> R,
+) -> (R, Option<Arc<DragFiles>>) {
+    let colors = style::list_colors(ui.visuals());
+    let mut frame = egui::Frame::NONE.begin(ui);
+    let v = frame.content_ui.visuals_mut();
+    v.faint_bg_color = colors.stripe;
+    v.widgets.hovered.bg_fill = colors.hover;
+    let inner = add_contents(&mut frame.content_ui);
+    let response = frame.allocate_space(ui);
+    // `contains_pointer`, not `hovered`: nothing counts as hovered while something is dragged.
+    let target = response.contains_pointer()
+        && egui::DragAndDrop::payload::<DragFiles>(ui.ctx())
+            .is_some_and(|p| p.from_remote != is_remote);
+    frame.frame.fill = if target { colors.drop } else { colors.bg };
+    frame.frame.stroke = if target {
+        egui::Stroke::new(1.0, style::ACCENT)
+    } else {
+        ui.visuals().widgets.noninteractive.bg_stroke
+    };
+    frame.paint(ui);
+    (inner, response.dnd_release_payload::<DragFiles>())
 }
 
 fn ui_mods(resp: &egui::Response) -> (bool, bool) {

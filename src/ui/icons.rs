@@ -67,7 +67,11 @@ pub fn icon_label(ui: &mut Ui, icon: Icon, text: &str) {
         let (rect, _) = ui.allocate_exact_size(vec2(h * 1.3, h), egui::Sense::hover());
         let color = match icon {
             Icon::Folder => folder_color(ui.visuals().dark_mode),
-            _ => ui.visuals().weak_text_color(),
+            // In a selected row, in the row's text color.
+            _ => ui
+                .visuals()
+                .override_text_color
+                .unwrap_or_else(|| ui.visuals().weak_text_color()),
         };
         paint(ui.painter(), icon, rect.center(), h, color);
         ui.add(egui::Label::new(text).truncate().selectable(false));
