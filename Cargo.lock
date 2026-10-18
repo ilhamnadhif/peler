@@ -3440,6 +3440,7 @@ dependencies = [
  "getrandom 0.4.3",
  "hmac",
  "keyring",
+ "libc",
  "log",
  "memmap2",
  "muda",

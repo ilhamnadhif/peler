@@ -68,6 +68,8 @@ pub struct Tab {
     /// Height of the SFTP panel as a fraction of the tab.
     pub sftp_split: f32,
     pub prompt: PromptInput,
+    /// When keys were sent with no reply since, and how much had been received then.
+    input_watch: Option<(std::time::Instant, u64)>,
 }
 
 /// Text typed into a password/passphrase prompt (kept until submitted).
@@ -81,6 +83,10 @@ pub struct PromptInput {
     /// When the current prompt first appeared.
     pub shown_at: Option<std::time::Instant>,
 }
+
+/// How long typed keys may go without any reply before the connection is checked. Shells
+/// echo within milliseconds; even keys that aren't echoed (a password) only cost a ping.
+const NO_REPLY_AFTER: std::time::Duration = std::time::Duration::from_secs(4);
 
 /// Closes `conn` once the cancelled `pending` transfers have removed their partial files
 /// (a few seconds at most).
@@ -193,6 +199,33 @@ impl Tab {
             show_sftp: false,
             sftp_split: 0.45,
             prompt: PromptInput::default(),
+            input_watch: None,
+        }
+    }
+
+    /// Keys were sent to the server: if nothing comes back for a while, the connection is
+    /// checked (a network that went away without a word).
+    pub fn note_input(&mut self) {
+        if self.input_watch.is_none() && self.state().is_connected() {
+            self.input_watch = Some((std::time::Instant::now(), self.conn.received()));
+        }
+    }
+
+    /// Checks the connection once typed keys got no reply for [`NO_REPLY_AFTER`]. Returns when
+    /// to look again.
+    pub fn watch_replies(&mut self) -> Option<std::time::Duration> {
+        let (since, received) = self.input_watch?;
+        if self.conn.received() != received || !self.state().is_connected() {
+            self.input_watch = None;
+            return None;
+        }
+        match NO_REPLY_AFTER.checked_sub(since.elapsed()) {
+            Some(left) if !left.is_zero() => Some(left),
+            _ => {
+                self.input_watch = None;
+                self.conn.probe(crate::ssh::types::ProbeReason::NoReply);
+                None
+            }
         }
     }
 

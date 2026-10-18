@@ -7,6 +7,7 @@ pub mod crypto;
 pub mod devtest;
 pub mod i18n;
 pub mod instance;
+pub mod netwatch;
 pub mod paths;
 pub mod secrets;
 pub mod settings;

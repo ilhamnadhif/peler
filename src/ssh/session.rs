@@ -49,6 +49,9 @@ const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
 /// against the authentication time limit.
 const SECOND_FACTOR_TIMEOUT: Duration = Duration::from_secs(120);
 const MAX_ATTEMPTS: usize = 3;
+/// How long the server has to answer when the app checks a quiet connection. Data arriving
+/// meanwhile counts as an answer too (a reply can queue behind a big output on a slow link).
+const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 
 /// Everything needed to (re)connect.
 #[derive(Clone)]
@@ -117,12 +120,16 @@ impl PaneStart {
 enum ConnCmd {
     OpenShell(PaneStart),
     OpenSftp(oneshot::Sender<Result<SftpSession, String>>),
+    /// Check that the server still answers; close the connection if it doesn't.
+    Probe(ProbeReason),
     Disconnect,
 }
 
 pub struct Connection {
     pub shared: Arc<Mutex<ConnShared>>,
     cmd_tx: mpsc::UnboundedSender<ConnCmd>,
+    /// Bytes received from the server so far (any traffic shows it is there).
+    received: Arc<AtomicU64>,
 }
 
 impl Connection {
@@ -130,11 +137,29 @@ impl Connection {
     pub fn start(rt: &tokio::runtime::Handle, ctx: Context, spec: ConnectSpec) -> Self {
         let shared = Arc::new(Mutex::new(ConnShared::default()));
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
-        let task_shared = shared.clone();
+        let received = Arc::new(AtomicU64::new(0));
+        let (task_shared, task_received) = (shared.clone(), received.clone());
         rt.spawn(async move {
-            run_connection(spec, task_shared, ctx, cmd_rx).await;
+            run_connection(spec, task_shared, ctx, cmd_rx, task_received).await;
         });
-        Self { shared, cmd_tx }
+        Self {
+            shared,
+            cmd_tx,
+            received,
+        }
+    }
+
+    /// Bytes received from the server so far.
+    pub fn received(&self) -> u64 {
+        self.received.load(Ordering::Relaxed)
+    }
+
+    /// Checks that the server still answers (after a network change, or when typed keys got no
+    /// reply). A connection that doesn't answer is closed and says it needs a reconnect.
+    pub fn probe(&self, reason: ProbeReason) {
+        if self.state().is_connected() {
+            let _ = self.cmd_tx.send(ConnCmd::Probe(reason));
+        }
     }
 
     pub fn state(&self) -> ConnState {
@@ -191,13 +216,16 @@ fn fail_pane(pane: &PaneStart, message: &str) {
 struct CancellableStream {
     inner: TcpStream,
     cancelled: Pin<Box<WaitForCancellationFutureOwned>>,
+    /// Bytes read so far.
+    received: Arc<AtomicU64>,
 }
 
 impl CancellableStream {
-    fn new(inner: TcpStream, cancel: &CancellationToken) -> Self {
+    fn new(inner: TcpStream, cancel: &CancellationToken, received: Arc<AtomicU64>) -> Self {
         Self {
             inner,
             cancelled: Box::pin(cancel.clone().cancelled_owned()),
+            received,
         }
     }
 
@@ -220,7 +248,13 @@ impl AsyncRead for CancellableStream {
     ) -> Poll<std::io::Result<()>> {
         let this = self.get_mut();
         this.check(cx)?;
-        Pin::new(&mut this.inner).poll_read(cx, buf)
+        let before = buf.filled().len();
+        let result = Pin::new(&mut this.inner).poll_read(cx, buf);
+        let read = buf.filled().len() - before;
+        if read > 0 {
+            this.received.fetch_add(read as u64, Ordering::Relaxed);
+        }
+        result
     }
 }
 
@@ -580,6 +614,8 @@ struct Flags {
     reason: Arc<Mutex<Option<String>>>,
     /// Fires when the connection task ends: the transport and any pending prompt die with it.
     cancel: CancellationToken,
+    /// Bytes received from the server (the `Connection`'s counter).
+    received: Arc<AtomicU64>,
 }
 
 async fn establish(
@@ -592,7 +628,7 @@ async fn establish(
     let host =
         clean_host(&b.host).ok_or_else(|| ConnError::HostNotFound(b.host.trim().to_string()))?;
     let stream = tcp_connect(&host, b.port).await?;
-    let stream = CancellableStream::new(stream, &flags.cancel);
+    let stream = CancellableStream::new(stream, &flags.cancel, flags.received.clone());
     let handler = SshHandler {
         host: host.clone(),
         port: b.port,
@@ -941,6 +977,7 @@ async fn run_connection(
     shared: Arc<Mutex<ConnShared>>,
     ctx: Context,
     mut cmd_rx: mpsc::UnboundedReceiver<ConnCmd>,
+    received: Arc<AtomicU64>,
 ) {
     let flags = Flags {
         prompting: Arc::new(AtomicBool::new(false)),
@@ -949,6 +986,7 @@ async fn run_connection(
         closed: Arc::new(Notify::new()),
         reason: Arc::new(Mutex::new(None)),
         cancel: CancellationToken::new(),
+        received,
     };
     // However this task ends, the socket and any prompt still waiting go with it.
     let _cancel_on_exit = flags.cancel.clone().drop_guard();
@@ -994,10 +1032,17 @@ async fn run_connection(
             return;
         }
     }
+    // A check that found the server gone reports here.
+    let (lost_tx, mut lost_rx) = mpsc::unbounded_channel::<ProbeReason>();
+    let probing = Arc::new(AtomicBool::new(false));
     loop {
         tokio::select! {
             cmd = cmd_rx.recv() => {
                 let stop = match cmd {
+                    Some(ConnCmd::Probe(reason)) => {
+                        probe(&handle, &shared, &ctx, &flags, &probing, &lost_tx, reason);
+                        false
+                    }
                     Some(cmd) => handle_cmd(cmd, &handle, &ctx),
                     None => true,
                 };
@@ -1005,6 +1050,15 @@ async fn run_connection(
                     close(&handle, &flags, &shared, &ctx).await;
                     return;
                 }
+            }
+            Some(reason) = lost_rx.recv() => {
+                // TCP alone would take many minutes to give up on a route that went dead. The
+                // socket is closed as this task ends, and the shells end with it.
+                let error = ConnError::NotResponding(reason);
+                let message = error.message();
+                set_state(&shared, &ctx, ConnState::Closed(Some(error)));
+                fail_all(Vec::new(), cmd_rx, &message);
+                return;
             }
             _ = flags.closed.notified() => {
                 // Transport ended; shells notice on their own. Refuse further commands.
@@ -1037,7 +1091,7 @@ fn fail_all(queued: Vec<ConnCmd>, mut rx: mpsc::UnboundedReceiver<ConnCmd>, reas
             ConnCmd::OpenSftp(tx) => {
                 let _ = tx.send(Err(reason.to_string()));
             }
-            ConnCmd::Disconnect => {}
+            ConnCmd::Probe(_) | ConnCmd::Disconnect => {}
         }
     }
 }
@@ -1058,8 +1112,55 @@ fn handle_cmd(cmd: ConnCmd, handle: &Arc<SshHandle>, ctx: &Context) -> bool {
             });
             false
         }
+        // Made while connecting: the connection is brand new.
+        ConnCmd::Probe(_) => false,
         ConnCmd::Disconnect => true,
     }
+}
+
+/// Asks the server for a reply (keepalive with a response); `lost` hears about it when none
+/// comes and no other data arrives within [`PROBE_TIMEOUT`]. One check at a time.
+fn probe(
+    handle: &Arc<SshHandle>,
+    shared: &Arc<Mutex<ConnShared>>,
+    ctx: &Context,
+    flags: &Flags,
+    probing: &Arc<AtomicBool>,
+    lost: &mpsc::UnboundedSender<ProbeReason>,
+    reason: ProbeReason,
+) {
+    if probing.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let (handle, shared, ctx) = (handle.clone(), shared.clone(), ctx.clone());
+    let (probing, lost, received) = (probing.clone(), lost.clone(), flags.received.clone());
+    tokio::spawn(async move {
+        shared.lock().checking_since = Some(Instant::now());
+        ctx.request_repaint_after(Duration::from_millis(1600));
+        let before = received.load(Ordering::Relaxed);
+        let heard = || received.load(Ordering::Relaxed) != before;
+        let ping = handle.send_ping();
+        tokio::pin!(ping);
+        let deadline = tokio::time::sleep(PROBE_TIMEOUT);
+        tokio::pin!(deadline);
+        let alive = loop {
+            tokio::select! {
+                _ = &mut ping => break true,
+                _ = &mut deadline => break heard(),
+                _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                    if heard() {
+                        break true;
+                    }
+                }
+            }
+        };
+        shared.lock().checking_since = None;
+        probing.store(false, Ordering::SeqCst);
+        if !alive {
+            let _ = lost.send(reason);
+        }
+        ctx.request_repaint();
+    });
 }
 
 async fn open_sftp(handle: &SshHandle) -> Result<SftpSession, String> {

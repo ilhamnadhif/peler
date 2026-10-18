@@ -17,6 +17,10 @@ dalam ±0,1 detik, CPU 0% saat diam, dan memakai sekitar 70 MB memori dengan sat
 - **Terminal sungguhan** (alacritty_terminal): warna 24-bit, mouse untuk vim/htop/tmux, IME, CJK,
   dan garis kotak yang digambar presisi.
 - **Tab dan split pane** yang memakai satu koneksi SSH bersama.
+- **Mendeteksi koneksi yang mati**: setelah jaringan berubah (VPN dinyalakan atau dimatikan, ganti
+  Wi-Fi, Mac bangun dari sleep), atau saat ketikan tidak dibalas, Peler mengecek server. Koneksi
+  yang tidak menjawab lagi langsung diberi tahu dalam beberapa detik dengan tombol **Reconnect**,
+  bukan menggantung.
 - **SFTP dua panel**: transfer banyak file sekaligus di latar belakang, dengan progres, kecepatan,
   dan perkiraan sisa waktu. Folder ditransfer rekursif dan permission tetap terjaga.
 - **Editor bawaan untuk file remote**: ubah config YAML di server, lalu tekan `⌘S`.
@@ -332,6 +336,7 @@ src/
   secrets.rs          Keychain
   i18n.rs             teks Inggris/Indonesia (ada tes yang memastikan semua teks UI diterjemahkan)
   instance.rs         satu instance dan penerusan argumen
+  netwatch.rs         mendeteksi perubahan jaringan (VPN, Wi-Fi, sleep) supaya koneksi dicek
   update.rs           cek update, unduh, verifikasi, dan pasang
 tests/                tes integrasi (sshd lokal, server in-process, SFTP 1 GiB)
 scripts/              package.sh, release.sh, install.sh, dev-sshd.sh

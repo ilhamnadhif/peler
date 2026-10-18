@@ -17,6 +17,9 @@ and uses around 70 MB of memory with a session open.
 - **A real terminal** (alacritty_terminal): 24-bit colour, mouse reporting for vim/htop/tmux, IME,
   CJK, and box drawing drawn pixel-exact.
 - **Tabs and split panes** that share one SSH connection.
+- **Notices dead connections**: after the network changes (a VPN turned on or off, another Wi-Fi,
+  waking from sleep), or when typed keys get no reply, Peler checks the server. A connection that
+  no longer answers says so within seconds and offers **Reconnect**, instead of hanging.
 - **Dual-pane SFTP**: transfer many files at once in the background, with progress, speed and time
   left. Folders transfer recursively, and permissions are kept.
 - **Built-in editor for remote files**: change a YAML config on the server and press `⌘S`.
@@ -329,6 +332,7 @@ src/
   secrets.rs          Keychain
   i18n.rs             English/Indonesian strings (a test checks every UI string is translated)
   instance.rs         single instance and argument forwarding
+  netwatch.rs         notices network changes (VPN, Wi-Fi, sleep) so connections get checked
   update.rs           update check, download, verification and install
 tests/                integration tests (local sshd, in-process server, 1 GiB SFTP)
 scripts/              package.sh, release.sh, install.sh, dev-sshd.sh

@@ -262,9 +262,18 @@ pub fn end_session(feeder: &mut Feeder, text: &str) {
         feeder.parser.stop_sync(&mut *term);
     }
     feeder.parser = Processor::new();
-    const RESET: &str = "\x1b[?1049l\x1b[r\x1b[?6l\x1b[4l\x1b(B\x1b[?1l\x1b>\x1b[?25h\x1b[?7h\
+    // Back on the main screen first: the message goes under its last output.
+    let _ = feeder.feed(b"\x1b[?1049l");
+    let (line, column) = {
+        let term = feeder.shared.term.lock();
+        let at = term.grid().cursor.point;
+        (at.line.0.max(0) + 1, at.column.0 + 1)
+    };
+    const RESET: &str = "\x1b[r\x1b[?6l\x1b[4l\x1b(B\x1b[?1l\x1b>\x1b[?25h\x1b[?7h\
         \x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1004l\x1b[?2004l\x1b[0m";
     let _ = feeder.feed(RESET.as_bytes());
+    // Resetting the scroll region and origin mode moved the cursor to the top: put it back.
+    let _ = feeder.feed(format!("\x1b[{line};{column}H").as_bytes());
     write_status(feeder, text);
     let _ = feeder.drain_events();
 }
@@ -352,5 +361,17 @@ mod tests {
             })
             .collect();
         assert!(text.contains("closed"), "{text:?}");
+    }
+
+    /// The message goes under the session's last output, not over the top of the screen.
+    #[test]
+    fn end_session_writes_below_the_output() {
+        let mut f = make();
+        f.feed(b"one\r\ntwo\r\nuser@host % ");
+        end_session(&mut f, "[closed]");
+        assert_eq!(
+            (0..4).map(|l| row_text(&f, l)).collect::<Vec<_>>(),
+            ["one", "two", "user@host %", "[closed]"]
+        );
     }
 }

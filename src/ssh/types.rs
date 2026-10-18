@@ -22,7 +22,19 @@ pub enum ConnError {
     Cancelled,
     KeyFile(String),
     Disconnected(String),
+    /// The server stopped answering a connection that looked open (see [`ProbeReason`]).
+    NotResponding(ProbeReason),
     Other(String),
+}
+
+/// Why the app asked a quiet connection whether the server is still there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProbeReason {
+    /// The Mac's network changed: a VPN went up or down, another Wi-Fi, waking from sleep.
+    /// Connections made before often stay open but carry nothing any more.
+    NetworkChanged,
+    /// Keys were sent and nothing came back.
+    NoReply,
 }
 
 impl ConnError {
@@ -46,6 +58,13 @@ impl ConnError {
             ConnError::Cancelled => t("Cancelled.").into(),
             ConnError::KeyFile(e) => tf("Private key error: {}", &[e]),
             ConnError::Disconnected(r) => tf("Disconnected: {}", &[r]),
+            ConnError::NotResponding(ProbeReason::NetworkChanged) => t(
+                "The connection was lost when the network changed (for example a VPN was turned on or off). Reconnect to continue.",
+            )
+            .into(),
+            ConnError::NotResponding(ProbeReason::NoReply) => {
+                t("The server stopped responding. Reconnect to continue.").into()
+            }
             ConnError::Other(e) => e.clone(),
         }
     }
@@ -125,6 +144,8 @@ pub struct ConnShared {
     pub connected_at: Option<Instant>,
     /// Server identification and negotiated details, for the status line.
     pub info: String,
+    /// Since when the app has been checking whether the server still answers.
+    pub checking_since: Option<Instant>,
 }
 
 impl Default for ConnShared {
@@ -134,6 +155,7 @@ impl Default for ConnShared {
             prompt: None,
             connected_at: None,
             info: String::new(),
+            checking_since: None,
         }
     }
 }

@@ -124,6 +124,9 @@ pub struct PelerApp {
     option_as_alt: Option<bool>,
     /// Arguments of later launches, forwarded by `crate::instance`.
     instance_rx: Option<std::sync::mpsc::Receiver<Vec<String>>>,
+    /// Network changes (VPN, Wi-Fi, sleep), after which connections are checked.
+    netwatch: crate::netwatch::NetWatch,
+    net_changes_seen: u64,
     /// (tab id, pane id) that last received keyboard focus.
     focus_target: Option<(u64, crate::ui::layout::PaneId)>,
     /// Modification time of bookmarks.json as last loaded or saved by this window.
@@ -267,6 +270,8 @@ impl PelerApp {
             first_frame: true,
             startup: targets,
             instance_rx: inbox.map(|i| i.attach(ctx)),
+            netwatch: crate::netwatch::NetWatch::start(ctx.clone()),
+            net_changes_seen: 0,
             updater: Default::default(),
             last_recovered_panic: None,
             last_active_tab: None,
@@ -455,6 +460,8 @@ impl PelerApp {
             "panic" => panic!("devtest: deliberate panic"),
             // Focus on a widget that is never drawn (what crashed the app with VoiceOver on).
             "focus-ghost" => ctx.memory_mut(|m| m.request_focus(egui::Id::new("devtest-ghost"))),
+            // As if a VPN had just been turned on.
+            "net-change" => self.netwatch.simulate_change(),
             "debug-hits" => ctx.all_styles_mut(|s| {
                 s.debug.show_widget_hits = true;
                 s.debug.show_interactive_widgets = true;
@@ -1775,10 +1782,22 @@ impl PelerApp {
         let tab = &mut self.tabs[active];
         tab.clear_activity();
         let state = tab.state();
-        let has_prompt = tab.conn.shared.lock().prompt.is_some();
+        let (has_prompt, checking) = {
+            let s = tab.conn.shared.lock();
+            let checking = s
+                .checking_since
+                .is_some_and(|t| t.elapsed() >= Duration::from_millis(1500));
+            (s.prompt.is_some(), checking)
+        };
 
         // Status banner.
         let banner = match &state {
+            // Only shown when the answer is slow: a healthy server replies in milliseconds.
+            ConnState::Connected if checking => Some((
+                tf("Checking the connection to {}…", &[&tab.bookmark.address()]),
+                style::AMBER,
+                false,
+            )),
             ConnState::Connecting if !has_prompt => Some((
                 tf("Connecting to {}…", &[&tab.bookmark.address()]),
                 style::AMBER,
@@ -1887,6 +1906,7 @@ impl PelerApp {
         let multi = pane_rects.len() > 1;
         let tab_id = tab.id;
         let mut new_focus = None;
+        let mut sent_input = false;
         let mut close_pane = None;
         for (pane_index, (pane_id, rect)) in pane_rects.into_iter().enumerate() {
             #[cfg(debug_assertions)]
@@ -1909,6 +1929,7 @@ impl PelerApp {
             );
             if !resp.input.is_empty() {
                 pane.send(resp.input);
+                sent_input = true;
             }
             if let Some((size, px_w, px_h)) = resp.resized {
                 let _ = pane.input.send(crate::ssh::session::PaneInput::Resize {
@@ -1984,6 +2005,9 @@ impl PelerApp {
         }
         if let Some(f) = new_focus {
             tab.focused = f;
+        }
+        if sent_input {
+            tab.note_input();
         }
         if let Some(id) = close_pane {
             tab.close_pane(id);
@@ -2447,6 +2471,25 @@ impl PelerApp {
     }
 
     /// End-of-frame focus bookkeeping.
+    /// Checks every connection after a network change, and one whose typed keys got no reply:
+    /// a connection whose route went away (a VPN turned on, another Wi-Fi, a night asleep) is
+    /// closed within seconds and says it needs a reconnect, instead of hanging for minutes.
+    fn watch_connections(&mut self, ctx: &egui::Context) {
+        let changes = self.netwatch.changes();
+        if changes != self.net_changes_seen {
+            self.net_changes_seen = changes;
+            for tab in &self.tabs {
+                tab.conn
+                    .probe(crate::ssh::types::ProbeReason::NetworkChanged);
+            }
+        }
+        for tab in &mut self.tabs {
+            if let Some(wait) = tab.watch_replies() {
+                ctx.request_repaint_after(wait);
+            }
+        }
+    }
+
     fn track_focus(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
         // Leaving a tab: its panes lose focus (a focus-out report for programs that asked).
         let active_id = self.tabs.get(self.active).map(|t| t.id);
@@ -2714,6 +2757,7 @@ impl PelerApp {
             }
         }
         self.process_actions(&ctx);
+        self.watch_connections(&ctx);
         self.track_focus(&ctx, frame);
         self.remember_window(&ctx, frame);
         self.update_title(&ctx);

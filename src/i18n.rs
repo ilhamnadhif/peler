@@ -729,6 +729,15 @@ const ID: &[(&str, &str)] = &[
     ("Could not save: {}", "Tidak bisa menyimpan: {}"),
     ("Discard", "Buang"),
     ("Discard changes?", "Buang perubahan?"),
+    ("Checking the connection to {}…", "Mengecek koneksi ke {}…"),
+    (
+        "The connection was lost when the network changed (for example a VPN was turned on or off). Reconnect to continue.",
+        "Koneksi terputus karena jaringan berubah (misalnya VPN dinyalakan atau dimatikan). Sambungkan ulang untuk melanjutkan.",
+    ),
+    (
+        "The server stopped responding. Reconnect to continue.",
+        "Server tidak merespons lagi. Sambungkan ulang untuk melanjutkan.",
+    ),
     (
         "A new version of Peler is available.",
         "Versi baru Peler tersedia.",

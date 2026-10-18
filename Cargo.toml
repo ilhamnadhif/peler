@@ -20,6 +20,7 @@ egui_extras = { version = "0.36.2", default-features = false }
 getrandom = "0.4.3"
 hmac = "0.13.0"
 keyring = { version = "4.2.0", default-features = false, features = ["apple-native-keyring-store", "v1"] }
+libc = "0.2.190"
 log = "0.4.34"
 memmap2 = "0.9.11"
 muda = "0.21.2"
