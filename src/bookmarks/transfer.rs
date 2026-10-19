@@ -84,6 +84,22 @@ pub enum ExportScope {
     Selected(Vec<Uuid>),
 }
 
+/// The bookmarks an export of `scope` holds.
+fn in_scope<'a>(
+    store: &'a BookmarkStore,
+    scope: &'a ExportScope,
+) -> impl Iterator<Item = &'a Bookmark> + 'a {
+    let groups = match scope {
+        ExportScope::Group(gid) => store.group_and_descendants(*gid),
+        _ => HashSet::new(),
+    };
+    store.bookmarks.iter().filter(move |b| match scope {
+        ExportScope::All => true,
+        ExportScope::Group(_) => b.group.is_some_and(|g| groups.contains(&g)),
+        ExportScope::Selected(ids) => ids.contains(&b.id),
+    })
+}
+
 /// Builds an export. `secrets` provides each exported bookmark's credentials and is only called
 /// when `passphrase` is given; an error reading them fails the export (rather than silently
 /// leaving credentials out).
@@ -93,24 +109,7 @@ pub fn export(
     passphrase: Option<&str>,
     mut secrets: impl FnMut(Uuid) -> Result<SecretSet>,
 ) -> Result<ExportFile> {
-    let bookmarks: Vec<Bookmark> = match scope {
-        ExportScope::All => store.bookmarks.clone(),
-        ExportScope::Group(gid) => {
-            let set = store.group_and_descendants(*gid);
-            store
-                .bookmarks
-                .iter()
-                .filter(|b| b.group.is_some_and(|g| set.contains(&g)))
-                .cloned()
-                .collect()
-        }
-        ExportScope::Selected(ids) => store
-            .bookmarks
-            .iter()
-            .filter(|b| ids.contains(&b.id))
-            .cloned()
-            .collect(),
-    };
+    let bookmarks: Vec<Bookmark> = in_scope(store, scope).cloned().collect();
 
     // Keep every group on the path to an exported bookmark so the tree survives the trip,
     // plus all sub-groups of an exported group (even empty ones).
@@ -220,6 +219,8 @@ pub struct ImportItem {
     pub secrets: SecretSet,
     pub status: ItemStatus,
     pub resolution: Resolution,
+    /// Overwriting the existing bookmark keeps the pasted key it has in the Keychain.
+    pub keeps_key: bool,
 }
 
 /// Parsed import file, before the user decides how to resolve conflicts.
@@ -461,6 +462,9 @@ impl ImportPlan {
             let existing_address = existing
                 .map(|(e, _)| e.address())
                 .filter(|a| *a != b.address());
+            let keeps_key = existing.is_some_and(|(e, _)| {
+                matches!(e.auth, super::Auth::KeychainKey) && e.same_endpoint(&b)
+            });
             let status = match existing {
                 Some((e, by)) => {
                     endpoint_taken.insert(e.id);
@@ -490,6 +494,7 @@ impl ImportPlan {
                 secrets,
                 status,
                 resolution,
+                keeps_key,
             });
         }
 
@@ -563,6 +568,25 @@ impl ImportPlan {
         Ok(n)
     }
 
+    /// Settles the key files that came along in the file: a connection keeps its key file when
+    /// this Mac has the same one at that path (`local` reads it), and otherwise logs in with the
+    /// copy from the file, saved in the Keychain like a pasted key.
+    pub fn adopt_key_files(&mut self, local: impl Fn(&str) -> Option<String>) {
+        for item in &mut self.items {
+            let super::Auth::Key { path } = &item.incoming.auth else {
+                continue;
+            };
+            let Some(key) = &item.secrets.private_key else {
+                continue;
+            };
+            if local(path).is_some_and(|here| here.trim() == key.trim()) {
+                item.secrets.private_key = None;
+            } else {
+                item.incoming.auth = super::Auth::KeychainKey;
+            }
+        }
+    }
+
     /// Bookmarks to be imported that carry a startup command.
     pub fn startup_command_count(&self) -> usize {
         self.items
@@ -573,6 +597,25 @@ impl ImportPlan {
                     (&i.status, i.resolution),
                     (ItemStatus::Identical { .. }, _) | (_, Resolution::Skip)
                 )
+            })
+            .count()
+    }
+
+    /// Connections that will be imported to log in with a pasted key the file doesn't carry
+    /// (an older export, without credentials): they need the key pasted again before they can
+    /// connect. None while the file's credentials are still locked, as the keys may be there.
+    pub fn keys_missing(&self) -> usize {
+        if self.encrypted_credentials.is_some() {
+            return 0;
+        }
+        self.items
+            .iter()
+            .filter(|i| matches!(i.incoming.auth, super::Auth::KeychainKey))
+            .filter(|i| i.secrets.private_key.is_none())
+            .filter(|i| match (&i.status, i.resolution) {
+                (ItemStatus::Identical { .. }, _) | (_, Resolution::Skip) => false,
+                (ItemStatus::Conflict { .. }, Resolution::Overwrite) => !i.keeps_key,
+                _ => true,
             })
             .count()
     }
@@ -806,8 +849,16 @@ mod tests {
 
     #[test]
     fn round_trip_with_encrypted_credentials_is_identical() {
-        let src = sample_store();
-        let secrets = secrets_for(&src);
+        let mut src = sample_store();
+        src.bookmarks[2].auth = Auth::KeychainKey;
+        let mut secrets = secrets_for(&src);
+        secrets.insert(
+            src.bookmarks[2].id,
+            SecretSet {
+                private_key: Some("PASTED KEY".into()),
+                ..Default::default()
+            },
+        );
         let file = export(&src, &ExportScope::All, Some("correct horse"), |id| {
             Ok(secrets.get(&id).cloned().unwrap_or_default())
         })
@@ -815,14 +866,16 @@ mod tests {
         let json = serde_json::to_vec_pretty(&file).unwrap();
         let text = String::from_utf8(json.clone()).unwrap();
         assert!(
-            !text.contains("hunter2") && !text.contains("key pass"),
+            !text.contains("hunter2") && !text.contains("key pass") && !text.contains("PASTED"),
             "secrets must be encrypted"
         );
 
         let mut dst = BookmarkStore::default();
         let mut plan = ImportPlan::new(read_import(&json).unwrap(), &dst);
         assert!(plan.unlock_credentials("wrong").is_err());
-        assert_eq!(plan.unlock_credentials("correct horse").unwrap(), 2);
+        assert_eq!(plan.keys_missing(), 0, "still locked in the file");
+        assert_eq!(plan.unlock_credentials("correct horse").unwrap(), 3);
+        assert_eq!(plan.keys_missing(), 0);
         plan.import_startup_commands = true;
         let out = plan.apply(&mut dst);
         assert_eq!((out.added, out.updated, out.skipped), (3, 0, 0));
@@ -926,6 +979,85 @@ mod tests {
         .unwrap();
         assert_eq!(f.bookmarks.len(), 1);
         assert!(f.groups.is_empty());
+    }
+
+    #[test]
+    fn pasted_keys_missing_from_a_file_are_flagged() {
+        let mut src = sample_store();
+        src.bookmarks[2].auth = Auth::KeychainKey;
+        let loose = src.bookmarks[2].id;
+        // A file from an older version, exported without credentials.
+        let file = export(&src, &ExportScope::All, None, |_| unreachable!()).unwrap();
+        let json = serde_json::to_vec(&file).unwrap();
+        // On another Mac: the key isn't in the file, nor in that Mac's Keychain.
+        let mut plan = ImportPlan::new(read_import(&json).unwrap(), &BookmarkStore::default());
+        assert_eq!(plan.keys_missing(), 1);
+        let i = plan
+            .items
+            .iter()
+            .position(|i| i.incoming.id == loose)
+            .unwrap();
+        plan.items[i].secrets.private_key = Some("KEY".into());
+        assert_eq!(plan.keys_missing(), 0, "the file carried it");
+
+        // Back on the Mac it came from, the Keychain still has it.
+        let mut local = src.clone();
+        local.bookmarks[2].notes = "edited".into();
+        let mut plan = ImportPlan::new(read_import(&json).unwrap(), &local);
+        let i = plan
+            .items
+            .iter()
+            .position(|i| i.incoming.id == loose)
+            .unwrap();
+        plan.items[i].resolution = Resolution::Overwrite;
+        assert_eq!(plan.keys_missing(), 0, "overwriting keeps the saved key");
+        // ...unless the address changes, which drops it.
+        plan.items[i].incoming.host = "5.6.7.8".into();
+        plan.items[i].keeps_key = false;
+        assert_eq!(plan.keys_missing(), 1);
+        plan.items[i].resolution = Resolution::Skip;
+        assert_eq!(plan.keys_missing(), 0);
+    }
+
+    #[test]
+    fn key_files_travel_with_the_export() {
+        let src = sample_store();
+        let pg = src.bookmarks[1].id; // logs in with ~/.ssh/id_ed25519
+        let file = export(&src, &ExportScope::All, Some("correct horse"), |id| {
+            Ok(SecretSet {
+                private_key: (id == pg).then(|| "KEY FILE TEXT\n".into()),
+                ..Default::default()
+            })
+        })
+        .unwrap();
+        let json = serde_json::to_vec(&file).unwrap();
+        let plan_on = |local: Option<&'static str>| {
+            let mut plan = ImportPlan::new(read_import(&json).unwrap(), &BookmarkStore::default());
+            plan.unlock_credentials("correct horse").unwrap();
+            plan.adopt_key_files(|path| {
+                assert_eq!(path, "~/.ssh/id_ed25519");
+                local.map(String::from)
+            });
+            let mut dst = BookmarkStore::default();
+            let out = plan.apply(&mut dst);
+            (dst.bookmark(pg).unwrap().auth.clone(), out.secrets)
+        };
+
+        // This Mac has the same key file: the connection keeps using it.
+        let (auth, secrets) = plan_on(Some("KEY FILE TEXT"));
+        assert!(matches!(auth, Auth::Key { .. }));
+        assert!(secrets.iter().all(|(_, s)| s.private_key.is_none()));
+
+        // It doesn't (or has another key there): the copy goes to the Keychain.
+        for local in [None, Some("ANOTHER KEY")] {
+            let (auth, secrets) = plan_on(local);
+            assert_eq!(auth, Auth::KeychainKey);
+            let set = secrets.iter().find(|(id, _)| *id == pg).map(|(_, s)| s);
+            assert_eq!(
+                set.and_then(|s| s.private_key.as_deref()),
+                Some("KEY FILE TEXT\n")
+            );
+        }
     }
 
     #[test]

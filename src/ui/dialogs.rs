@@ -201,7 +201,7 @@ pub enum DialogResult {
     GroupName(GroupTarget, String),
     Export {
         scope: ExportScope,
-        passphrase: Option<String>,
+        passphrase: String,
     },
     Import(Box<ImportPlan>),
 }
@@ -403,7 +403,6 @@ fn shortcuts(ctx: &egui::Context) -> DialogResult {
 
 pub struct ExportDialog {
     pub scope: ExportScope,
-    include_credentials: bool,
     pass1: String,
     pass2: String,
     error: Option<String>,
@@ -418,7 +417,6 @@ impl ExportDialog {
         };
         Self {
             scope,
-            include_credentials: false,
             pass1: String::new(),
             pass2: String::new(),
             error: None,
@@ -477,21 +475,20 @@ impl ExportDialog {
                 self.scope = ExportScope::Selected(store.bookmarks.iter().filter(|b| self.picked.contains(&b.id)).map(|b| b.id).collect());
             }
 
+            // Everything a connection needs goes along, so the file opens on another Mac as it
+            // was here; the passwords and keys in it are encrypted with this passphrase.
             ui.add_space(8.0);
-            style::checkbox(ui, &mut self.include_credentials, t("Include saved passwords and passphrases (encrypted)"));
-            if self.include_credentials {
-                ui.label(RichText::new(t("Credentials are encrypted with Argon2id + XChaCha20-Poly1305. You need this passphrase to import them.")).weak().small());
-                egui::Grid::new("export-pass").num_columns(2).show(ui, |ui| {
-                    ui.label(t("Passphrase"));
-                    ui.add(style::input(&mut self.pass1).password(true).desired_width(240.0));
-                    ui.end_row();
-                    ui.label(t("Repeat"));
-                    ui.add(style::input(&mut self.pass2).password(true).desired_width(240.0));
-                    ui.end_row();
-                });
-            } else {
-                ui.label(RichText::new(t("Private key files are referenced by path only; their contents are never exported.")).weak().small());
-            }
+            ui.label(RichText::new(t("Passwords and keys")).strong());
+            ui.label(RichText::new(t("Saved passwords, passphrases and keys are exported too, encrypted with this passphrase (Argon2id + XChaCha20-Poly1305). You need it to import them on the other Mac.")).weak().small());
+            egui::Grid::new("export-pass").num_columns(2).show(ui, |ui| {
+                ui.label(t("Passphrase"));
+                ui.add(style::input(&mut self.pass1).password(true).desired_width(240.0));
+                ui.end_row();
+                ui.label(t("Repeat"));
+                ui.add(style::input(&mut self.pass2).password(true).desired_width(240.0));
+                ui.end_row();
+            });
+            ui.label(RichText::new(t("Key files (such as ~/.ssh/id_ed25519) go along too. On a Mac without the file, the connection keeps the key in the Keychain instead.")).weak().small());
             if let Some(e) = &self.error {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
@@ -500,14 +497,14 @@ impl ExportDialog {
                 if ui.add(style::primary(t("Export…"))).clicked() {
                     if matches!(&self.scope, ExportScope::Selected(ids) if ids.is_empty()) {
                         self.error = Some(t("Select at least one connection.").into());
-                    } else if self.include_credentials && self.pass1.len() < 8 {
+                    } else if self.pass1.len() < 8 {
                         self.error = Some(t("Use a passphrase of at least 8 characters.").into());
-                    } else if self.include_credentials && self.pass1 != self.pass2 {
+                    } else if self.pass1 != self.pass2 {
                         self.error = Some(t("The passphrases do not match.").into());
                     } else {
                         result = DialogResult::Export {
                             scope: self.scope.clone(),
-                            passphrase: self.include_credentials.then(|| self.pass1.clone()),
+                            passphrase: self.pass1.clone(),
                         };
                     }
                 }
@@ -599,15 +596,17 @@ impl ImportDialog {
             ui.heading(t("Import Connections"));
             ui.label(RichText::new(format!("{} · {kind}", self.source)).weak());
             for w in &self.plan.warnings {
-                ui.label(RichText::new(format!("⚠ {w}")).color(Color32::from_rgb(0xd0, 0x9a, 0x2a)));
+                ui.label(RichText::new(format!("⚠ {w}")).color(style::warn_text(ui.visuals())));
             }
             if self.plan.encrypted_credentials.is_some() {
                 ui.add_space(4.0);
                 ui.group(|ui| {
-                    ui.label(t("This file contains encrypted passwords. Enter the export passphrase to import them, or continue without them."));
+                    ui.label(t("This file contains encrypted passwords and keys. Enter the export passphrase to import them, or continue without them."));
                     ui.horizontal(|ui| {
                         let busy = self.unlocking.is_some();
                         let r = ui.add_enabled(!busy, style::input(&mut self.passphrase).password(true).hint_text(t("Passphrase")).desired_width(240.0));
+                        #[cfg(debug_assertions)]
+                        crate::devtest::record("import-passphrase", r.rect);
                         let go = ui.add_enabled(!busy, egui::Button::new(t("Unlock"))).clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)));
                         if busy {
                             ui.spinner();
@@ -620,6 +619,10 @@ impl ImportDialog {
             if let Some((msg, err)) = &self.unlock_message {
                 let color = if *err { ui.visuals().error_fg_color } else { Color32::from_rgb(0x3f, 0xb9, 0x50) };
                 ui.colored_label(color, msg);
+            }
+            let missing = self.plan.keys_missing();
+            if missing > 0 {
+                ui.label(RichText::new(format!("⚠ {}", tf("{} connection(s) log in with a pasted key that this file doesn't include. Paste the key again in Edit Connection before connecting (or choose a key file).", &[&missing.to_string()]))).color(style::warn_text(ui.visuals())));
             }
 
             let commands = self.plan.startup_command_count();
@@ -712,7 +715,10 @@ impl ImportDialog {
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 let (add, change, _) = self.plan.summary();
-                if ui.add_enabled(add + change > 0 && self.unlocking.is_none(), style::primary(t("Import"))).clicked() {
+                let import = ui.add_enabled(add + change > 0 && self.unlocking.is_none(), style::primary(t("Import")));
+                #[cfg(debug_assertions)]
+                crate::devtest::record("import-ok", import.rect);
+                if import.clicked() {
                     result = DialogResult::Import(Box::new(self.plan.clone()));
                 }
                 if ui.button(t("Cancel")).clicked() {

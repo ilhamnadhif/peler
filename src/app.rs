@@ -346,6 +346,12 @@ impl PelerApp {
             }
             "search" => self.sidebar.search = arg.to_string(),
             "import" => self.import_file(PathBuf::from(arg)),
+            // `export-to <passphrase> <path>`: everything, without the save panel.
+            "export-to" => {
+                if let Some((pass, path)) = arg.split_once(' ') {
+                    self.export_to(std::path::Path::new(path), &ExportScope::All, pass);
+                }
+            }
             "action" => {
                 let first = self.store.bookmarks.first().map(|b| b.id);
                 let action = match arg {
@@ -1294,7 +1300,7 @@ impl PelerApp {
         }
     }
 
-    fn do_export(&mut self, scope: ExportScope, passphrase: Option<String>) {
+    fn do_export(&mut self, scope: ExportScope, passphrase: String) {
         let default_name = format!(
             "peler-connections-{}.json",
             chrono::Local::now().format("%Y-%m-%d")
@@ -1307,23 +1313,42 @@ impl PelerApp {
         else {
             return;
         };
-        let result = transfer::export(
-            &self.store,
-            &scope,
-            passphrase.as_deref(),
-            secrets::try_load_set,
-        )
+        self.export_to(&path, &scope, &passphrase);
+    }
+
+    fn export_to(&mut self, path: &std::path::Path, scope: &ExportScope, passphrase: &str) {
+        // Key files go along too (encrypted with the rest), for a Mac that doesn't have them.
+        let mut unreadable = Vec::new();
+        let result = transfer::export(&self.store, scope, Some(passphrase), |id| {
+            let mut set = secrets::try_load_set(id)?;
+            if let Some(b) = self.store.bookmark(id)
+                && let Auth::Key { path } = &b.auth
+            {
+                set.private_key = crate::ssh::keys::read_key_file(&paths::expand_tilde(path)).ok();
+                if set.private_key.is_none() {
+                    unreadable.push(b.display_name());
+                }
+            }
+            Ok(set)
+        })
         .and_then(|file| Ok(serde_json::to_vec_pretty(&file)?))
-        .and_then(|json| Ok(paths::write_private(&path, &json)?));
+        .and_then(|json| Ok(paths::write_private(path, &json)?));
         match result {
-            Ok(()) => self
+            Ok(()) if unreadable.is_empty() => self
                 .toasts
                 .info(tf("Exported to {}", &[&path.display().to_string()])),
+            Ok(()) => self.toasts.error(tf(
+                "Exported to {}, but the key file of {} could not be read: copy it to the other Mac yourself.",
+                &[&path.display().to_string(), &unreadable.join(", ")],
+            )),
             Err(e) => self.toasts.error(format!("{e:#}")),
         }
     }
 
-    fn apply_import(&mut self, plan: ImportPlan) {
+    fn apply_import(&mut self, mut plan: ImportPlan) {
+        plan.adopt_key_files(|path| {
+            crate::ssh::keys::read_key_file(&paths::expand_tilde(path)).ok()
+        });
         let outcome = plan.apply(&mut self.store);
         let mut failed = 0;
         for id in &outcome.clear_secrets {

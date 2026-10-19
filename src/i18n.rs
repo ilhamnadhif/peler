@@ -205,10 +205,6 @@ const ID: &[(&str, &str)] = &[
         "File koneksi tidak bisa dibaca ({}). File disimpan sebagai {}.",
     ),
     ("Create", "Buat"),
-    (
-        "Credentials are encrypted with Argon2id + XChaCha20-Poly1305. You need this passphrase to import them.",
-        "Kredensial dienkripsi dengan Argon2id + XChaCha20-Poly1305. Passphrase ini diperlukan saat mengimpornya.",
-    ),
     ("Cursor", "Kursor"),
     ("Cut", "Potong"),
     ("Dark", "Gelap"),
@@ -242,6 +238,10 @@ const ID: &[(&str, &str)] = &[
     ("Export Connections", "Ekspor Koneksi"),
     ("Export Connections…", "Ekspor Koneksi…"),
     ("Export Group…", "Ekspor Grup…"),
+    (
+        "Exported to {}, but the key file of {} could not be read: copy it to the other Mac yourself.",
+        "Diekspor ke {}, tapi file key milik {} tidak bisa dibaca: salin sendiri file-nya ke Mac lain.",
+    ),
     ("Exported to {}", "Diekspor ke {}"),
     ("Export…", "Ekspor…"),
     ("Failed", "Gagal"),
@@ -274,14 +274,14 @@ const ID: &[(&str, &str)] = &[
     ("Import from ~/.ssh/config", "Impor dari ~/.ssh/config"),
     ("Imported key (Keychain)", "Key hasil impor (Keychain)"),
     (
-        "Include saved passwords and passphrases (encrypted)",
-        "Sertakan password dan passphrase tersimpan (terenkripsi)",
-    ),
-    (
         "Invalid permissions; use octal like 644 or 755.",
         "Permission tidak valid; gunakan oktal seperti 644 atau 755.",
     ),
     ("Keep both", "Simpan keduanya"),
+    (
+        "Key files (such as ~/.ssh/id_ed25519) go along too. On a Mac without the file, the connection keeps the key in the Keychain instead.",
+        "File key (misalnya ~/.ssh/id_ed25519) juga ikut. Di Mac yang tidak punya file itu, key-nya disimpan di Keychain.",
+    ),
     ("Keepalive", "Keepalive"),
     ("Key file", "File key"),
     ("Key passphrase", "Passphrase key"),
@@ -355,10 +355,6 @@ const ID: &[(&str, &str)] = &[
     ("Previous / next tab", "Tab sebelumnya / berikutnya"),
     ("Previous Pane", "Panel Sebelumnya"),
     ("Private key", "Private key"),
-    (
-        "Private key files are referenced by path only; their contents are never exported.",
-        "File private key hanya dirujuk lewat path; isinya tidak pernah diekspor.",
-    ),
     ("Quick Commands", "Quick Command"),
     ("Quick Connect…", "Konek Cepat…"),
     ("Quit", "Keluar"),
@@ -397,6 +393,11 @@ const ID: &[(&str, &str)] = &[
     ),
     ("Scroll back", "Gulir ke atas"),
     ("Scrollback", "Riwayat gulir"),
+    (
+        "Saved passwords, passphrases and keys are exported too, encrypted with this passphrase (Argon2id + XChaCha20-Poly1305). You need it to import them on the other Mac.",
+        "Password, passphrase, dan key yang tersimpan ikut diekspor, dienkripsi dengan passphrase ini (Argon2id + XChaCha20-Poly1305). Passphrase ini diperlukan untuk mengimpornya di Mac lain.",
+    ),
+    ("Passwords and keys", "Password dan key"),
     ("Search connections", "Cari koneksi"),
     (
         "Search connections and connect",
@@ -486,8 +487,8 @@ const ID: &[(&str, &str)] = &[
         "Pengaturan Electerm berikut belum didukung dan tidak diimpor: {}.",
     ),
     (
-        "This file contains encrypted passwords. Enter the export passphrase to import them, or continue without them.",
-        "File ini berisi password terenkripsi. Masukkan passphrase ekspor untuk mengimpornya, atau lanjutkan tanpa password.",
+        "This file contains encrypted passwords and keys. Enter the export passphrase to import them, or continue without them.",
+        "File ini berisi password dan key terenkripsi. Masukkan passphrase ekspor untuk mengimpornya, atau lanjutkan tanpanya.",
     ),
     (
         "This file was exported by a newer version of peler (schema {}); this version reads up to schema {}. Please update the app.",
@@ -574,8 +575,8 @@ const ID: &[(&str, &str)] = &[
         "key terenkripsi dan memerlukan passphrase",
     ),
     (
-        "the private key is missing from the Keychain",
-        "private key tidak ada di Keychain",
+        "this Mac has no saved copy of the pasted key. Paste it again in Edit Connection, or choose a key file.",
+        "key yang di-paste tidak tersimpan di Mac ini. Paste lagi di Edit Koneksi, atau pilih file key.",
     ),
     (
         "the server closed the connection during the handshake",
@@ -593,6 +594,10 @@ const ID: &[(&str, &str)] = &[
     ("wrong password for {}", "password salah untuk {}"),
     ("{} already exists.", "{} sudah ada."),
     ("{} connections", "{} koneksi"),
+    (
+        "{} connection(s) log in with a pasted key that this file doesn't include. Paste the key again in Edit Connection before connecting (or choose a key file).",
+        "{} koneksi login dengan key yang di-paste, tapi key-nya tidak ada di file ini. Paste lagi key-nya di Edit Koneksi sebelum konek (atau pilih file key).",
+    ),
     ("{} conflict(s). For all:", "{} konflik. Untuk semua:"),
     (
         "{} connection(s) are open and will be closed.",

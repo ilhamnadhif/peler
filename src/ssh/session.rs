@@ -832,7 +832,11 @@ async fn authenticate(
             let text = keychain_get(b.id, SecretKind::PrivateKey)
                 .await
                 .ok_or_else(|| {
-                    ConnError::KeyFile(t("the private key is missing from the Keychain").into())
+                    // Typically a connection imported without its credentials.
+                    ConnError::KeyFile(
+                        t("this Mac has no saved copy of the pasted key. Paste it again in Edit Connection, or choose a key file.")
+                            .into(),
+                    )
                 })?;
             Some((text, "Keychain".to_string()))
         }

@@ -24,8 +24,8 @@ dalam ±0,1 detik, CPU 0% saat diam, dan memakai sekitar 70 MB memori dengan sat
 - **SFTP dua panel**: transfer banyak file sekaligus di latar belakang, dengan progres, kecepatan,
   dan perkiraan sisa waktu. Folder ditransfer rekursif dan permission tetap terjaga.
 - **Editor bawaan untuk file remote**: ubah config YAML di server, lalu tekan `⌘S`.
-- **Import** dari Electerm dan `~/.ssh/config`. **Export** ke JSON berversi, dengan kredensial
-  terenkripsi bila diinginkan.
+- **Import** dari Electerm dan `~/.ssh/config`. **Export** ke JSON berversi, termasuk password dan
+  key (terenkripsi), untuk memindahkan semuanya ke Mac lain.
 - **Hati-hati dengan server Anda**: pemeriksaan host key yang ketat (`known_hosts` ter-hash,
   `@revoked`), penyimpanan yang aman, dan transfer yang tidak pernah meninggalkan file setengah jadi.
 - **Update otomatis** dari rilis GitHub, dipasang dengan satu klik.
@@ -181,10 +181,11 @@ Klik dua kali file remote (atau klik kanan → **Edit**) untuk mengeditnya langs
 
 - **Export** semua koneksi, satu grup, atau pilihan tertentu ke JSON berversi (`schema_version`,
   `exported_at`, `groups`, `bookmarks`).
-- Kredensial **tidak** diekspor kecuali diminta. Jika diminta, kredensial dienkripsi dengan
-  passphrase (Argon2id 64 MiB + XChaCha20-Poly1305) dan terikat ke host, port, dan user-nya. Kalau
-  ada yang mengubah daftar koneksi di file agar menunjuk ke server lain, kredensial itu tidak ikut
-  di-import.
+- Password, passphrase, dan key ikut diekspor, termasuk isi file key (`~/.ssh/...`). Semuanya
+  dienkripsi dengan passphrase pilihan Anda (Argon2id 64 MiB + XChaCha20-Poly1305) dan terikat ke
+  host, port, dan user-nya. Kalau ada yang mengubah daftar koneksi di file agar menunjuk ke server
+  lain, kredensial itu tidak ikut di-import. Di Mac yang punya file key yang sama di path itu,
+  koneksi tetap memakai file tersebut; di Mac lain key-nya disimpan di Keychain.
 - **Import** menampilkan pratinjau apa yang akan ditambah, diperbarui, atau dilewati. Setiap konflik
   bisa dilewati, ditimpa, atau disimpan keduanya. Import file yang sama dua kali tidak mengubah apa
   pun. Startup command dari file hanya ikut bila Anda mencentangnya.

@@ -122,6 +122,15 @@ pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
     }
 }
 
+/// Warning text: amber, dark enough to read on a light background.
+pub fn warn_text(v: &egui::Visuals) -> Color32 {
+    if v.dark_mode {
+        AMBER
+    } else {
+        Color32::from_rgb(0x8f, 0x5b, 0x00)
+    }
+}
+
 /// The blue ring around a focused text field or checkbox.
 pub fn focus_ring(v: &egui::Visuals) -> Stroke {
     Stroke::new(

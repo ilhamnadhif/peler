@@ -23,8 +23,8 @@ and uses around 70 MB of memory with a session open.
 - **Dual-pane SFTP**: transfer many files at once in the background, with progress, speed and time
   left. Folders transfer recursively, and permissions are kept.
 - **Built-in editor for remote files**: change a YAML config on the server and press `⌘S`.
-- **Import** from Electerm and `~/.ssh/config`. **Export** to versioned JSON, with optional encrypted
-  credentials.
+- **Import** from Electerm and `~/.ssh/config`. **Export** to versioned JSON, passwords and keys
+  included (encrypted), to move everything to another Mac.
 - **Careful with your servers**: strict host-key checking (hashed `known_hosts`, `@revoked`), safe
   saves, and transfers that never leave half-written files behind.
 - **Automatic updates** from GitHub releases, with one click to install.
@@ -180,9 +180,11 @@ Double-click a remote file (or right-click → **Edit**) to edit it in place:
 
 - **Export** all connections, a group, or a selection to versioned JSON (`schema_version`,
   `exported_at`, `groups`, `bookmarks`).
-- Credentials are **not** exported unless you ask. If you do, they are encrypted with a passphrase
-  (Argon2id 64 MiB + XChaCha20-Poly1305) and bound to their host, port and user. If someone edits the
-  connection list in the file to point elsewhere, the credentials are not imported.
+- Saved passwords, passphrases and keys are exported too, including the contents of key files
+  (`~/.ssh/...`). They are encrypted with a passphrase you choose (Argon2id 64 MiB +
+  XChaCha20-Poly1305) and bound to their host, port and user. If someone edits the connection list
+  in the file to point elsewhere, the credentials are not imported. A connection keeps its key file
+  on a Mac that has the same file at that path; elsewhere its key is kept in the Keychain.
 - **Import** shows a preview of what will be added, updated or skipped. Each conflict can be
   skipped, overwritten or kept as both. Importing the same file twice changes nothing. Startup
   commands from a file are imported only if you opt in.
