@@ -54,6 +54,8 @@ struct SideState {
     anchor: Option<String>,
     sort: SortKey,
     descending: bool,
+    /// Whether this side shows dot-files; each side has its own toggle.
+    show_hidden: bool,
     /// Width the table was laid out for: when it changes, the columns are laid out again.
     table_width: f32,
 }
@@ -138,7 +140,6 @@ pub struct SftpPanel {
     events_rx: mpsc::Receiver<Event>,
     local: SideState,
     remote: SideState,
-    show_hidden: bool,
     remote_seq: u64,
     pub transfers: Transfers,
     dialog: Option<Dialog>,
@@ -214,7 +215,7 @@ enum SideAction {
         path: String,
         mode: u32,
     },
-    ToggleHidden,
+    ToggleHidden(bool),
 }
 
 impl SftpPanel {
@@ -236,7 +237,6 @@ impl SftpPanel {
             events_rx,
             local: SideState::default(),
             remote: SideState::default(),
-            show_hidden: false,
             remote_seq: 0,
             transfers: Transfers::default(),
             dialog: None,
@@ -797,7 +797,6 @@ impl SftpPanel {
 
     fn side_ui(&mut self, ui: &mut Ui, is_remote: bool, input_enabled: bool) -> Vec<SideAction> {
         let mut actions = Vec::new();
-        let show_hidden = self.show_hidden;
         let menu_target = self.menu_target.clone().filter(|m| m.remote == is_remote);
         // Where the footer buttons send the selection.
         let other_cwd = if is_remote {
@@ -811,6 +810,7 @@ impl SftpPanel {
         } else {
             &mut self.local
         };
+        let show_hidden = side.show_hidden;
         let mut path_focused = false;
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
@@ -839,12 +839,20 @@ impl SftpPanel {
                 {
                     actions.push(SideAction::Mkdir(is_remote));
                 }
-                if ui
+                let hidden_btn = ui
                     .add(egui::Button::new(RichText::new(".*").small()).selected(show_hidden))
-                    .on_hover_text(t("Show hidden files"))
-                    .clicked()
-                {
-                    actions.push(SideAction::ToggleHidden);
+                    .on_hover_text(t("Show hidden files"));
+                #[cfg(debug_assertions)]
+                crate::devtest::record(
+                    if is_remote {
+                        "remote-hidden"
+                    } else {
+                        "local-hidden"
+                    },
+                    hidden_btn.rect,
+                );
+                if hidden_btn.clicked() {
+                    actions.push(SideAction::ToggleHidden(is_remote));
                 }
                 if is_remote && side.loading {
                     ui.spinner();
@@ -1253,11 +1261,15 @@ impl SftpPanel {
                 }
                 self.menu_target = Some(target);
             }
-            SideAction::ToggleHidden => {
-                self.show_hidden = !self.show_hidden;
-                if !self.show_hidden {
-                    self.local.selected.retain(|n| !n.starts_with('.'));
-                    self.remote.selected.retain(|n| !n.starts_with('.'));
+            SideAction::ToggleHidden(remote) => {
+                let side = if remote {
+                    &mut self.remote
+                } else {
+                    &mut self.local
+                };
+                side.show_hidden = !side.show_hidden;
+                if !side.show_hidden {
+                    side.selected.retain(|n| !n.starts_with('.'));
                 }
             }
             SideAction::Up(true) => {
@@ -1294,13 +1306,15 @@ impl SftpPanel {
                 }
             }
             SideAction::SelectAll(remote) => {
-                let show_hidden = self.show_hidden;
                 let side = if remote {
                     &mut self.remote
                 } else {
                     &mut self.local
                 };
-                side.selected = side.visible(show_hidden).map(|e| e.name.clone()).collect();
+                side.selected = side
+                    .visible(side.show_hidden)
+                    .map(|e| e.name.clone())
+                    .collect();
                 side.anchor = None;
             }
             SideAction::Edit { dir, name } => match self.sftp() {
@@ -1373,14 +1387,15 @@ impl SftpPanel {
                 );
             }
             SideAction::Select(remote, name, toggle, range) => {
-                let show_hidden = self.show_hidden;
                 let side = if remote {
                     &mut self.remote
                 } else {
                     &mut self.local
                 };
-                let names: Vec<String> =
-                    side.visible(show_hidden).map(|e| e.name.clone()).collect();
+                let names: Vec<String> = side
+                    .visible(side.show_hidden)
+                    .map(|e| e.name.clone())
+                    .collect();
                 let anchor_pos = side
                     .anchor
                     .as_ref()
