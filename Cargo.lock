@@ -3426,7 +3426,7 @@ dependencies = [
 
 [[package]]
 name = "peler"
-version = "1.2.2"
+version = "1.2.3"
 dependencies = [
  "alacritty_terminal",
  "anyhow",
