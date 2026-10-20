@@ -113,6 +113,11 @@ pub struct Editor {
     /// A pasted key is already in the Keychain (editing an existing connection).
     had_stored_key: bool,
     replace_stored_key: bool,
+    /// Password and passphrase fields show their text (and a saved one, loaded to be read).
+    show_password: bool,
+    show_passphrase: bool,
+    /// The saved pasted key, while it is shown.
+    shown_key: Option<String>,
     /// The last checked key text and what it is.
     key_check: Option<(String, KeyCheck)>,
     /// The login method when the editor opened (a saved passphrase belongs to that key).
@@ -202,6 +207,9 @@ impl Editor {
             key_text: String::new(),
             had_stored_key,
             replace_stored_key: false,
+            show_password: false,
+            show_passphrase: false,
+            shown_key: None,
             key_check: None,
             agent_socket,
             agents: known_agents(),
@@ -482,22 +490,33 @@ impl Editor {
         match self.auth {
             AuthKind::Password => {
                 style::row(ui, t("Password"), |ui| {
-                    let hint = if self.had_password && !self.clear_password {
+                    let saved = self.had_password && !self.clear_password;
+                    let hint = if saved {
                         t("Saved in Keychain — type to replace")
                     } else {
                         t("Leave empty to ask when connecting")
                     };
-                    ui.add(
-                        style::input(&mut self.password)
-                            .password(true)
-                            .hint_text(hint),
+                    secret_input(
+                        ui,
+                        &mut self.password,
+                        &mut self.show_password,
+                        hint,
+                        saved.then_some((self.draft.id, SecretKind::Password)),
+                        &mut self.error,
+                        "editor-show-password",
                     );
-                    if self.had_password {
-                        style::checkbox(
+                    if self.had_password
+                        && style::checkbox(
                             ui,
                             &mut self.clear_password,
                             t("Forget the saved password"),
-                        );
+                        )
+                        .changed()
+                        && self.clear_password
+                    {
+                        // A shown saved password would otherwise be saved again.
+                        self.password.clear();
+                        self.show_password = false;
                     }
                 });
             }
@@ -518,22 +537,32 @@ impl Editor {
                     }
                 });
                 style::row(ui, t("Passphrase"), |ui| {
-                    let hint = if self.had_passphrase && !self.clear_passphrase {
+                    let saved = self.had_passphrase && !self.clear_passphrase;
+                    let hint = if saved {
                         t("Saved in Keychain — type to replace")
                     } else {
                         t("Only if the key is encrypted")
                     };
-                    ui.add(
-                        style::input(&mut self.passphrase)
-                            .password(true)
-                            .hint_text(hint),
+                    secret_input(
+                        ui,
+                        &mut self.passphrase,
+                        &mut self.show_passphrase,
+                        hint,
+                        saved.then_some((self.draft.id, SecretKind::Passphrase)),
+                        &mut self.error,
+                        "editor-show-passphrase",
                     );
-                    if self.had_passphrase {
-                        style::checkbox(
+                    if self.had_passphrase
+                        && style::checkbox(
                             ui,
                             &mut self.clear_passphrase,
                             t("Forget the saved passphrase"),
-                        );
+                        )
+                        .changed()
+                        && self.clear_passphrase
+                    {
+                        self.passphrase.clear();
+                        self.show_passphrase = false;
                     }
                 });
             }
@@ -581,10 +610,45 @@ impl Editor {
                     "🔑 {}",
                     t("A private key is saved in the Keychain.")
                 ));
+                let show = ui.button(if self.shown_key.is_some() {
+                    t("Hide")
+                } else {
+                    t("Show")
+                });
+                #[cfg(debug_assertions)]
+                crate::devtest::record("editor-show-key", show.rect);
+                if show.clicked() && self.shown_key.take().is_none() {
+                    match secrets::get(self.draft.id, SecretKind::PrivateKey) {
+                        Ok(Some(key)) => self.shown_key = Some(key),
+                        Ok(None) => {
+                            self.error =
+                                Some(t("The private key is not in the Keychain any more.").into())
+                        }
+                        Err(e) => self.error = Some(format!("{e:#}")),
+                    }
+                }
                 if ui.button(t("Replace…")).clicked() {
                     self.replace_stored_key = true;
+                    self.shown_key = None;
                 }
             });
+            // Shown as it is saved, to read or copy; changing it goes through Replace.
+            if let Some(key) = &self.shown_key {
+                let mut view = key.as_str();
+                egui::ScrollArea::vertical()
+                    .id_salt("editor-shown-key")
+                    .max_height(150.0)
+                    .show(ui, |ui| {
+                        ui.add(
+                            style::input_multiline(&mut view)
+                                .font(egui::TextStyle::Monospace)
+                                .desired_rows(5),
+                        )
+                    });
+                if ui.button(t("Copy")).clicked() {
+                    ui.ctx().copy_text(key.clone());
+                }
+            }
             return;
         }
         // Long keys (RSA is ~50 lines) scroll inside the box.
@@ -935,4 +999,48 @@ impl Editor {
             });
         let _ = header;
     }
+}
+
+/// A password field with a Show/Hide button after it. Showing a value that is saved (`saved`)
+/// and not typed over loads it from the Keychain into the field, to be read or copied; saving it
+/// unchanged stores the same value.
+fn secret_input(
+    ui: &mut egui::Ui,
+    text: &mut String,
+    shown: &mut bool,
+    hint: &str,
+    saved: Option<(Uuid, SecretKind)>,
+    error: &mut Option<String>,
+    _record: &str,
+) -> egui::Response {
+    // Left to right with the button after the field, so Tab goes from the field to it.
+    ui.horizontal(|ui| {
+        let label = if *shown { t("Hide") } else { t("Show") };
+        let button_w = style::text_width(ui, label) + 2.0 * ui.spacing().button_padding.x;
+        let field_w = ui.available_width() - button_w - ui.spacing().item_spacing.x;
+        let field = ui.add(
+            style::input(text)
+                .password(!*shown)
+                .hint_text(hint)
+                .desired_width(field_w.max(80.0)),
+        );
+        let button = ui.button(label);
+        #[cfg(debug_assertions)]
+        crate::devtest::record(_record, button.rect);
+        if button.clicked() {
+            *shown = !*shown;
+            if *shown
+                && text.is_empty()
+                && let Some((id, kind)) = saved
+            {
+                match secrets::get(id, kind) {
+                    Ok(Some(value)) => *text = value,
+                    Ok(None) => {}
+                    Err(e) => *error = Some(format!("{e:#}")),
+                }
+            }
+        }
+        field
+    })
+    .inner
 }

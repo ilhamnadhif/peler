@@ -20,7 +20,10 @@ use crate::i18n::{t, tf};
 use crate::secrets::SecretSet;
 
 /// 2: SSH agent logins, jump hosts and port forwards.
-pub const EXPORT_SCHEMA_VERSION: u32 = 2;
+/// 3: each connection carries its password, passphrase and key in plain text (schema 2 kept
+/// them in an encrypted `credentials` blob, still read on import). Older versions refuse a
+/// schema 3 file instead of importing it without its passwords.
+pub const EXPORT_SCHEMA_VERSION: u32 = 3;
 pub const EXPORT_APP: &str = "peler";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -30,10 +33,29 @@ pub struct ExportFile {
     #[serde(default)]
     pub app: String,
     pub groups: Vec<Group>,
-    pub bookmarks: Vec<Bookmark>,
-    /// Encrypted `BTreeMap<Uuid, CredentialEntry>`; absent when credentials were not exported.
+    pub bookmarks: Vec<ExportedBookmark>,
+    /// Schema 2: the credentials as an encrypted `BTreeMap<Uuid, CredentialEntry>`. Only read.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credentials: Option<EncryptedBlob>,
+}
+
+/// A connection in an export, with its saved password, passphrase and key next to its other
+/// settings (`password`, `passphrase`, `private_key`), readable as they are.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExportedBookmark {
+    #[serde(flatten)]
+    pub bookmark: Bookmark,
+    #[serde(flatten)]
+    pub secrets: SecretSet,
+}
+
+impl From<Bookmark> for ExportedBookmark {
+    fn from(bookmark: Bookmark) -> Self {
+        Self {
+            bookmark,
+            secrets: SecretSet::default(),
+        }
+    }
 }
 
 /// Largest file accepted for import.
@@ -52,15 +74,6 @@ pub struct CredentialEntry {
 }
 
 impl CredentialEntry {
-    fn for_bookmark(b: &Bookmark, secrets: SecretSet) -> Self {
-        Self {
-            host: b.host.trim().to_string(),
-            port: b.port,
-            username: b.username.trim().to_string(),
-            secrets,
-        }
-    }
-
     fn matches(&self, b: &Bookmark) -> bool {
         self.host.trim().eq_ignore_ascii_case(b.host.trim())
             && self.port == b.port
@@ -100,16 +113,15 @@ fn in_scope<'a>(
     })
 }
 
-/// Builds an export. `secrets` provides each exported bookmark's credentials and is only called
-/// when `passphrase` is given; an error reading them fails the export (rather than silently
-/// leaving credentials out).
+/// Builds an export, every connection with its saved credentials in plain text. `secrets`
+/// provides them; an error reading them fails the export (rather than silently leaving
+/// credentials out).
 pub fn export(
     store: &BookmarkStore,
     scope: &ExportScope,
-    passphrase: Option<&str>,
     mut secrets: impl FnMut(Uuid) -> Result<SecretSet>,
 ) -> Result<ExportFile> {
-    let bookmarks: Vec<Bookmark> = in_scope(store, scope).cloned().collect();
+    let picked: Vec<&Bookmark> = in_scope(store, scope).collect();
 
     // Keep every group on the path to an exported bookmark so the tree survives the trip,
     // plus all sub-groups of an exported group (even empty ones).
@@ -118,7 +130,7 @@ pub fn export(
         ExportScope::Group(gid) => store.group_and_descendants(*gid),
         ExportScope::Selected(_) => HashSet::new(),
     };
-    let starts: Vec<Uuid> = bookmarks
+    let starts: Vec<Uuid> = picked
         .iter()
         .filter_map(|b| b.group)
         .chain(keep.clone())
@@ -139,28 +151,22 @@ pub fn export(
         .cloned()
         .collect();
 
-    let credentials = match passphrase {
-        Some(pass) => {
-            let mut map: BTreeMap<Uuid, CredentialEntry> = BTreeMap::new();
-            for b in &bookmarks {
-                let set = secrets(b.id).map_err(|e| {
-                    anyhow!(
-                        "{}",
-                        tf(
-                            "Could not read the saved credentials of {} from the Keychain: {}",
-                            &[&b.display_name(), &format!("{e:#}")]
-                        )
-                    )
-                })?;
-                if !set.is_empty() {
-                    map.insert(b.id, CredentialEntry::for_bookmark(b, set));
-                }
-            }
-            let plain = serde_json::to_vec(&map)?;
-            Some(crypto::encrypt(pass, &plain)?)
-        }
-        None => None,
-    };
+    let mut bookmarks = Vec::with_capacity(picked.len());
+    for b in picked {
+        let secrets = secrets(b.id).map_err(|e| {
+            anyhow!(
+                "{}",
+                tf(
+                    "Could not read the saved credentials of {} from the Keychain: {}",
+                    &[&b.display_name(), &format!("{e:#}")]
+                )
+            )
+        })?;
+        bookmarks.push(ExportedBookmark {
+            bookmark: b.clone(),
+            secrets,
+        });
+    }
 
     Ok(ExportFile {
         schema_version: EXPORT_SCHEMA_VERSION,
@@ -168,7 +174,7 @@ pub fn export(
         app: EXPORT_APP.into(),
         groups,
         bookmarks,
-        credentials,
+        credentials: None,
     })
 }
 
@@ -330,18 +336,31 @@ fn read_peler(value: serde_json::Value) -> Result<Incoming> {
     if file
         .bookmarks
         .iter()
-        .any(|b| b.group.is_some_and(|g| !ids.contains(&g)))
+        .any(|e| e.bookmark.group.is_some_and(|g| !ids.contains(&g)))
     {
         warnings.push(
             t("Some connections refer to missing groups; they will be placed at the top level.")
                 .into(),
         );
     }
+    let mut bookmarks = Vec::with_capacity(file.bookmarks.len());
+    let mut secrets = HashMap::new();
+    for e in file.bookmarks {
+        if !e.secrets.is_empty() {
+            secrets.insert(e.bookmark.id, e.secrets);
+        }
+        bookmarks.push(e.bookmark);
+    }
+    if !secrets.is_empty() {
+        warnings.push(
+            t("Passwords and keys from the file will be stored in the macOS Keychain.").into(),
+        );
+    }
     Ok(Incoming {
         kind: SourceKind::Peler,
         groups: file.groups,
-        bookmarks: file.bookmarks,
-        secrets: HashMap::new(),
+        bookmarks,
+        secrets,
         encrypted_credentials: file.credentials,
         warnings,
     })
@@ -847,8 +866,40 @@ mod tests {
         m
     }
 
+    /// A schema 2 export, as Peler 1.1 to 1.2.3 made them: credentials in an encrypted blob.
+    fn encrypted_export(
+        src: &BookmarkStore,
+        secrets: &HashMap<Uuid, SecretSet>,
+        pass: &str,
+    ) -> Vec<u8> {
+        let map: BTreeMap<Uuid, CredentialEntry> = src
+            .bookmarks
+            .iter()
+            .filter_map(|b| {
+                let secrets = secrets.get(&b.id)?.clone();
+                let entry = CredentialEntry {
+                    host: b.host.clone(),
+                    port: b.port,
+                    username: b.username.clone(),
+                    secrets,
+                };
+                Some((b.id, entry))
+            })
+            .collect();
+        let blob = crypto::encrypt(pass, &serde_json::to_vec(&map).unwrap()).unwrap();
+        let file = ExportFile {
+            schema_version: 2,
+            exported_at: Utc::now(),
+            app: EXPORT_APP.into(),
+            groups: src.groups.clone(),
+            bookmarks: src.bookmarks.iter().cloned().map(Into::into).collect(),
+            credentials: Some(blob),
+        };
+        serde_json::to_vec(&file).unwrap()
+    }
+
     #[test]
-    fn round_trip_with_encrypted_credentials_is_identical() {
+    fn round_trip_with_credentials_in_plain_text_is_identical() {
         let mut src = sample_store();
         src.bookmarks[2].auth = Auth::KeychainKey;
         let mut secrets = secrets_for(&src);
@@ -859,22 +910,22 @@ mod tests {
                 ..Default::default()
             },
         );
-        let file = export(&src, &ExportScope::All, Some("correct horse"), |id| {
+        let file = export(&src, &ExportScope::All, |id| {
             Ok(secrets.get(&id).cloned().unwrap_or_default())
         })
         .unwrap();
         let json = serde_json::to_vec_pretty(&file).unwrap();
-        let text = String::from_utf8(json.clone()).unwrap();
-        assert!(
-            !text.contains("hunter2") && !text.contains("key pass") && !text.contains("PASTED"),
-            "secrets must be encrypted"
-        );
+        // Readable as it is, each connection with its own credentials.
+        let v: serde_json::Value = serde_json::from_slice(&json).unwrap();
+        assert_eq!(v["schema_version"], 3);
+        assert!(v.get("credentials").is_none());
+        assert_eq!(v["bookmarks"][0]["password"], "hunter2");
+        assert_eq!(v["bookmarks"][1]["passphrase"], "key pass");
+        assert_eq!(v["bookmarks"][2]["private_key"], "PASTED KEY");
 
         let mut dst = BookmarkStore::default();
         let mut plan = ImportPlan::new(read_import(&json).unwrap(), &dst);
-        assert!(plan.unlock_credentials("wrong").is_err());
-        assert_eq!(plan.keys_missing(), 0, "still locked in the file");
-        assert_eq!(plan.unlock_credentials("correct horse").unwrap(), 3);
+        assert!(plan.encrypted_credentials.is_none());
         assert_eq!(plan.keys_missing(), 0);
         plan.import_startup_commands = true;
         let out = plan.apply(&mut dst);
@@ -892,16 +943,29 @@ mod tests {
     }
 
     #[test]
-    fn credentials_stay_with_their_address_and_commands_need_consent() {
+    fn encrypted_exports_from_older_versions_still_import() {
+        let src = sample_store();
+        let secrets = secrets_for(&src);
+        let json = encrypted_export(&src, &secrets, "correct horse");
+        let mut dst = BookmarkStore::default();
+        let mut plan = ImportPlan::new(read_import(&json).unwrap(), &dst);
+        assert!(plan.unlock_credentials("wrong").is_err());
+        assert_eq!(plan.unlock_credentials("correct horse").unwrap(), 2);
+        plan.import_startup_commands = true;
+        let out = plan.apply(&mut dst);
+        assert_eq!(dst, src);
+        let got: HashMap<Uuid, SecretSet> = out.secrets.into_iter().collect();
+        assert_eq!(got, secrets);
+    }
+
+    #[test]
+    fn encrypted_credentials_stay_with_their_address_and_commands_need_consent() {
         let mut src = sample_store();
         src.bookmarks[0].startup_command = "curl example.com | sh".into();
         let secrets = secrets_for(&src);
-        let file = export(&src, &ExportScope::All, Some("correct horse"), |id| {
-            Ok(secrets.get(&id).cloned().unwrap_or_default())
-        })
-        .unwrap();
+        let json = encrypted_export(&src, &secrets, "correct horse");
         // Someone edits the unencrypted bookmark list to point web-1 at their own server.
-        let mut v = serde_json::to_value(&file).unwrap();
+        let mut v: serde_json::Value = serde_json::from_slice(&json).unwrap();
         v["bookmarks"][0]["host"] = "evil.example".into();
         let json = serde_json::to_vec(&v).unwrap();
 
@@ -939,16 +1003,22 @@ mod tests {
     }
 
     #[test]
-    fn export_without_passphrase_has_no_credentials() {
+    fn export_lists_each_connection_with_its_credentials() {
         let src = sample_store();
-        let file = export(&src, &ExportScope::All, None, |_| {
-            panic!("must not read secrets")
+        let secrets = secrets_for(&src);
+        let file = export(&src, &ExportScope::All, |id| {
+            Ok(secrets.get(&id).cloned().unwrap_or_default())
         })
         .unwrap();
-        assert!(file.credentials.is_none());
         let v = serde_json::to_value(&file).unwrap();
         for key in ["schema_version", "exported_at", "groups", "bookmarks"] {
             assert!(v.get(key).is_some(), "missing {key}");
+        }
+        // Nothing saved, nothing written.
+        let loose = &v["bookmarks"][2];
+        assert_eq!(loose["name"], "loose");
+        for key in ["password", "passphrase", "private_key"] {
+            assert!(loose.get(key).is_none(), "{key}");
         }
     }
 
@@ -957,23 +1027,22 @@ mod tests {
         let src = sample_store();
         let prod = src.groups[0].id;
         let db = src.groups[1].id;
-        let f = export(&src, &ExportScope::Group(db), None, |_| {
-            Ok(SecretSet::default())
-        })
-        .unwrap();
+        let f = export(&src, &ExportScope::Group(db), |_| Ok(SecretSet::default())).unwrap();
         assert_eq!(f.bookmarks.len(), 1);
         let gids: Vec<_> = f.groups.iter().map(|g| g.id).collect();
         assert_eq!(gids, [prod, db], "ancestors are kept so the path survives");
 
-        let f = export(&src, &ExportScope::Group(prod), None, |_| {
-            Ok(SecretSet::default())
-        })
+        let f = export(
+            &src,
+            &ExportScope::Group(prod),
+            |_| Ok(SecretSet::default()),
+        )
         .unwrap();
         assert_eq!(f.bookmarks.len(), 2);
         assert_eq!(f.groups.len(), 3, "includes the empty sub-group");
 
         let loose = src.bookmarks[2].id;
-        let f = export(&src, &ExportScope::Selected(vec![loose]), None, |_| {
+        let f = export(&src, &ExportScope::Selected(vec![loose]), |_| {
             Ok(SecretSet::default())
         })
         .unwrap();
@@ -986,8 +1055,8 @@ mod tests {
         let mut src = sample_store();
         src.bookmarks[2].auth = Auth::KeychainKey;
         let loose = src.bookmarks[2].id;
-        // A file from an older version, exported without credentials.
-        let file = export(&src, &ExportScope::All, None, |_| unreachable!()).unwrap();
+        // A file without the key, as older versions made them when credentials were left out.
+        let file = export(&src, &ExportScope::All, |_| Ok(SecretSet::default())).unwrap();
         let json = serde_json::to_vec(&file).unwrap();
         // On another Mac: the key isn't in the file, nor in that Mac's Keychain.
         let mut plan = ImportPlan::new(read_import(&json).unwrap(), &BookmarkStore::default());
@@ -1023,7 +1092,7 @@ mod tests {
     fn key_files_travel_with_the_export() {
         let src = sample_store();
         let pg = src.bookmarks[1].id; // logs in with ~/.ssh/id_ed25519
-        let file = export(&src, &ExportScope::All, Some("correct horse"), |id| {
+        let file = export(&src, &ExportScope::All, |id| {
             Ok(SecretSet {
                 private_key: (id == pg).then(|| "KEY FILE TEXT\n".into()),
                 ..Default::default()
@@ -1033,7 +1102,6 @@ mod tests {
         let json = serde_json::to_vec(&file).unwrap();
         let plan_on = |local: Option<&'static str>| {
             let mut plan = ImportPlan::new(read_import(&json).unwrap(), &BookmarkStore::default());
-            plan.unlock_credentials("correct horse").unwrap();
             plan.adopt_key_files(|path| {
                 assert_eq!(path, "~/.ssh/id_ed25519");
                 local.map(String::from)
@@ -1076,7 +1144,10 @@ mod tests {
             exported_at: Utc::now(),
             app: "peler".into(),
             groups: src.groups.clone(),
-            bookmarks: vec![src.bookmarks[0].clone(), pg_endpoint_twin.clone()],
+            bookmarks: vec![
+                src.bookmarks[0].clone().into(),
+                pg_endpoint_twin.clone().into(),
+            ],
             credentials: None,
         };
         let json = serde_json::to_vec(&file).unwrap();
@@ -1126,7 +1197,7 @@ mod tests {
         let prod = local.add_group("Production", None);
         let src = sample_store();
         let json = serde_json::to_vec(
-            &export(&src, &ExportScope::All, None, |_| Ok(SecretSet::default())).unwrap(),
+            &export(&src, &ExportScope::All, |_| Ok(SecretSet::default())).unwrap(),
         )
         .unwrap();
         let plan = ImportPlan::new(read_import(&json).unwrap(), &local);
@@ -1212,13 +1283,7 @@ mod tests {
             ..Default::default()
         };
         store.bookmarks = vec![bastion, app];
-        let file = export(
-            &store,
-            &ExportScope::All,
-            None,
-            |_| Ok(SecretSet::default()),
-        )
-        .unwrap();
+        let file = export(&store, &ExportScope::All, |_| Ok(SecretSet::default())).unwrap();
         let json = serde_json::to_vec(&file).unwrap();
         let mut other = BookmarkStore::default();
         ImportPlan::new(read_import(&json).unwrap(), &other).apply(&mut other);

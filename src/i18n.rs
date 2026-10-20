@@ -278,10 +278,6 @@ const ID: &[(&str, &str)] = &[
         "Permission tidak valid; gunakan oktal seperti 644 atau 755.",
     ),
     ("Keep both", "Simpan keduanya"),
-    (
-        "Key files (such as ~/.ssh/id_ed25519) go along too. On a Mac without the file, the connection keeps the key in the Keychain instead.",
-        "File key (misalnya ~/.ssh/id_ed25519) juga ikut. Di Mac yang tidak punya file itu, key-nya disimpan di Keychain.",
-    ),
     ("Keepalive", "Keepalive"),
     ("Key file", "File key"),
     ("Key passphrase", "Passphrase key"),
@@ -368,7 +364,6 @@ const ID: &[(&str, &str)] = &[
     ("Rename", "Ganti Nama"),
     ("Rename Group", "Ganti Nama Grup"),
     ("Rename…", "Ganti Nama…"),
-    ("Repeat", "Ulangi"),
     ("Replace", "Ganti"),
     ("Replace existing items?", "Ganti item yang sudah ada?"),
     ("Run", "Jalankan"),
@@ -393,11 +388,11 @@ const ID: &[(&str, &str)] = &[
     ),
     ("Scroll back", "Gulir ke atas"),
     ("Scrollback", "Riwayat gulir"),
-    (
-        "Saved passwords, passphrases and keys are exported too, encrypted with this passphrase (Argon2id + XChaCha20-Poly1305). You need it to import them on the other Mac.",
-        "Password, passphrase, dan key yang tersimpan ikut diekspor, dienkripsi dengan passphrase ini (Argon2id + XChaCha20-Poly1305). Passphrase ini diperlukan untuk mengimpornya di Mac lain.",
-    ),
     ("Passwords and keys", "Password dan key"),
+    (
+        "Saved passwords, passphrases and keys (key files too) are written into the file as plain text. Anyone who gets the file can log in to these servers: keep it safe, and delete it once it is imported.",
+        "Password, passphrase, dan key yang tersimpan (termasuk file key) ditulis ke file sebagai teks biasa. Siapa pun yang mendapat file ini bisa masuk ke server-server ini: simpan baik-baik, dan hapus setelah diimpor.",
+    ),
     ("Search connections", "Cari koneksi"),
     (
         "Search connections and connect",
@@ -464,7 +459,6 @@ const ID: &[(&str, &str)] = &[
         "The passphrase must not be empty.",
         "Passphrase tidak boleh kosong.",
     ),
-    ("The passphrases do not match.", "Passphrase tidak sama."),
     (
         "The private key ({}) is protected by a passphrase.",
         "Private key ({}) dilindungi passphrase.",
@@ -483,8 +477,8 @@ const ID: &[(&str, &str)] = &[
         "Belum ada koneksi untuk diekspor.",
     ),
     (
-        "These Electerm settings are not supported and were left out: {}.",
-        "Pengaturan Electerm berikut belum didukung dan tidak diimpor: {}.",
+        "These Electerm settings were not imported: {}.",
+        "Pengaturan Electerm berikut tidak ikut diimpor: {}.",
     ),
     (
         "This file contains encrypted passwords and keys. Enter the export passphrase to import them, or continue without them.",
@@ -523,10 +517,6 @@ const ID: &[(&str, &str)] = &[
     (
         "Use Option as Meta key",
         "Gunakan Option sebagai tombol Meta",
-    ),
-    (
-        "Use a passphrase of at least 8 characters.",
-        "Gunakan passphrase minimal 8 karakter.",
     ),
     ("Username", "Username"),
     ("View", "Tampilan"),
@@ -1020,6 +1010,11 @@ const ID: &[(&str, &str)] = &[
     ("Checking for updates…", "Memeriksa pembaruan…"),
     ("Downloading… {} of {}", "Mengunduh… {} dari {}"),
     ("Hide", "Sembunyikan"),
+    ("Show", "Tampilkan"),
+    (
+        "The private key is not in the Keychain any more.",
+        "Private key-nya sudah tidak ada di Keychain.",
+    ),
     ("Later", "Nanti"),
     ("Open Releases Page", "Buka Halaman Rilis"),
     ("Peler is up to date", "Peler sudah versi terbaru"),

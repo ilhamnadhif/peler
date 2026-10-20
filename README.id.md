@@ -13,7 +13,8 @@ dalam ±0,1 detik, CPU 0% saat diam, dan memakai sekitar 70 MB memori dengan sat
 ## Sorotan
 
 - **Koneksi tersimpan** dalam grup bertingkat, dengan drag and drop, pencarian fuzzy, dan quick connect `⌘K`.
-  Password dan passphrase disimpan di **macOS Keychain**, tidak pernah di file.
+  Password dan passphrase disimpan di **macOS Keychain**, bukan di file Peler. Tombol **Show** di
+  Edit Connection menampilkan yang tersimpan.
 - **Terminal sungguhan** (alacritty_terminal): warna 24-bit, mouse untuk vim/htop/tmux, IME, CJK,
   dan garis kotak yang digambar presisi.
 - **Tab dan split pane** yang memakai satu koneksi SSH bersama.
@@ -25,7 +26,7 @@ dalam ±0,1 detik, CPU 0% saat diam, dan memakai sekitar 70 MB memori dengan sat
   dan perkiraan sisa waktu. Folder ditransfer rekursif dan permission tetap terjaga.
 - **Editor bawaan untuk file remote**: ubah config YAML di server, lalu tekan `⌘S`.
 - **Import** dari Electerm dan `~/.ssh/config`. **Export** ke JSON berversi, termasuk password dan
-  key (terenkripsi), untuk memindahkan semuanya ke Mac lain.
+  key, untuk memindahkan semuanya ke Mac lain.
 - **Hati-hati dengan server Anda**: pemeriksaan host key yang ketat (`known_hosts` ter-hash,
   `@revoked`), penyimpanan yang aman, dan transfer yang tidak pernah meninggalkan file setengah jadi.
 - **Update otomatis** dari rilis GitHub, dipasang dengan satu klik.
@@ -181,11 +182,13 @@ Klik dua kali file remote (atau klik kanan → **Edit**) untuk mengeditnya langs
 
 - **Export** semua koneksi, satu grup, atau pilihan tertentu ke JSON berversi (`schema_version`,
   `exported_at`, `groups`, `bookmarks`).
-- Password, passphrase, dan key ikut diekspor, termasuk isi file key (`~/.ssh/...`). Semuanya
-  dienkripsi dengan passphrase pilihan Anda (Argon2id 64 MiB + XChaCha20-Poly1305) dan terikat ke
-  host, port, dan user-nya. Kalau ada yang mengubah daftar koneksi di file agar menunjuk ke server
-  lain, kredensial itu tidak ikut di-import. Di Mac yang punya file key yang sama di path itu,
-  koneksi tetap memakai file tersebut; di Mac lain key-nya disimpan di Keychain.
+- Password, passphrase, dan key ikut diekspor, termasuk isi file key (`~/.ssh/...`). Semuanya ditulis
+  **sebagai teks biasa** di tiap koneksi (`password`, `passphrase`, `private_key`), seperti
+  Electerm. Siapa pun yang memegang file itu bisa masuk ke server-server tersebut, jadi simpan
+  baik-baik dan hapus setelah diimpor. File hanya bisa dibaca oleh akun user Anda.
+- Saat import, di Mac yang punya file key yang sama di path itu, koneksi tetap memakai file
+  tersebut; di Mac lain key-nya disimpan di Keychain. Export terenkripsi dari Peler 1.2.3 ke bawah
+  tetap bisa diimpor: masukkan passphrase-nya di jendela import.
 - **Import** menampilkan pratinjau apa yang akan ditambah, diperbarui, atau dilewati. Setiap konflik
   bisa dilewati, ditimpa, atau disimpan keduanya. Import file yang sama dua kali tidak mengubah apa
   pun. Startup command dari file hanya ikut bila Anda mencentangnya.

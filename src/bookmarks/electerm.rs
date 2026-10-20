@@ -278,6 +278,16 @@ pub fn read(value: &Value) -> Result<Incoming> {
             Auth::KeychainKey
         } else if !key_path.is_empty() {
             Auth::Key { path: key_path }
+        } else if password.is_empty()
+            && b.get("useSshAgent")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        {
+            // "Use SSH agent" with nothing else saved: the agent is how it logs in. With a
+            // password or key saved too, Electerm only tries the agent first, so those win.
+            Auth::Agent {
+                socket: s(b, "sshAgent").to_string(),
+            }
         } else {
             Auth::Password
         };
@@ -357,7 +367,7 @@ pub fn read(value: &Value) -> Result<Incoming> {
         let mut f: Vec<_> = dropped_features.into_iter().collect();
         f.sort();
         warnings.push(tf(
-            "These Electerm settings are not supported and were left out: {}.",
+            "These Electerm settings were not imported: {}.",
             &[&f.join(", ")],
         ));
     }
@@ -493,6 +503,36 @@ mod tests {
             Some("pw!")
         );
         assert_eq!(legacy_decode(""), "");
+    }
+
+    #[test]
+    fn agent_only_connections_log_in_with_the_agent() {
+        let data = serde_json::json!({
+            "bookmarks": [
+                {"id": "a", "host": "h1", "useSshAgent": true, "sshAgent": "/tmp/agent.sock"},
+                {"id": "b", "host": "h2", "useSshAgent": true, "sshAgent": ""},
+                {"id": "c", "host": "h3", "useSshAgent": true, "authType": "password", "password": "pw"}
+            ],
+            "bookmarkGroups": []
+        });
+        let inc = read(&data).unwrap();
+        assert_eq!(
+            inc.bookmarks[0].auth,
+            Auth::Agent {
+                socket: "/tmp/agent.sock".into()
+            }
+        );
+        assert_eq!(
+            inc.bookmarks[1].auth,
+            Auth::Agent {
+                socket: String::new()
+            }
+        );
+        assert_eq!(inc.bookmarks[2].auth, Auth::Password);
+        assert_eq!(
+            inc.secrets[&inc.bookmarks[2].id].password.as_deref(),
+            Some("pw")
+        );
     }
 
     #[test]

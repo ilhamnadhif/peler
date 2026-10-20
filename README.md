@@ -13,7 +13,8 @@ and uses around 70 MB of memory with a session open.
 ## Highlights
 
 - **Saved connections** in nested groups, with drag and drop, fuzzy search and `⌘K` quick connect.
-  Passwords and passphrases live in the **macOS Keychain**, never in a file.
+  Passwords and passphrases live in the **macOS Keychain**, not in Peler's files. **Show** in Edit
+  Connection reveals a saved one.
 - **A real terminal** (alacritty_terminal): 24-bit colour, mouse reporting for vim/htop/tmux, IME,
   CJK, and box drawing drawn pixel-exact.
 - **Tabs and split panes** that share one SSH connection.
@@ -23,8 +24,8 @@ and uses around 70 MB of memory with a session open.
 - **Dual-pane SFTP**: transfer many files at once in the background, with progress, speed and time
   left. Folders transfer recursively, and permissions are kept.
 - **Built-in editor for remote files**: change a YAML config on the server and press `⌘S`.
-- **Import** from Electerm and `~/.ssh/config`. **Export** to versioned JSON, passwords and keys
-  included (encrypted), to move everything to another Mac.
+- **Import** from Electerm and `~/.ssh/config`. **Export** to versioned JSON with the passwords and
+  keys included, to move everything to another Mac.
 - **Careful with your servers**: strict host-key checking (hashed `known_hosts`, `@revoked`), safe
   saves, and transfers that never leave half-written files behind.
 - **Automatic updates** from GitHub releases, with one click to install.
@@ -181,10 +182,13 @@ Double-click a remote file (or right-click → **Edit**) to edit it in place:
 - **Export** all connections, a group, or a selection to versioned JSON (`schema_version`,
   `exported_at`, `groups`, `bookmarks`).
 - Saved passwords, passphrases and keys are exported too, including the contents of key files
-  (`~/.ssh/...`). They are encrypted with a passphrase you choose (Argon2id 64 MiB +
-  XChaCha20-Poly1305) and bound to their host, port and user. If someone edits the connection list
-  in the file to point elsewhere, the credentials are not imported. A connection keeps its key file
-  on a Mac that has the same file at that path; elsewhere its key is kept in the Keychain.
+  (`~/.ssh/...`). They are written **as plain text**, next to each connection (`password`,
+  `passphrase`, `private_key`), as Electerm does. Anyone with the file can log in to those
+  servers, so keep it safe and delete it once it is imported. The file can only be read by your
+  user account.
+- On import, a connection keeps its key file on a Mac that has the same file at that path;
+  elsewhere its key is kept in the Keychain. Encrypted exports from Peler 1.2.3 and earlier still
+  import: enter their passphrase in the import window.
 - **Import** shows a preview of what will be added, updated or skipped. Each conflict can be
   skipped, overwritten or kept as both. Importing the same file twice changes nothing. Startup
   commands from a file are imported only if you opt in.

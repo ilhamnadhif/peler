@@ -199,10 +199,7 @@ pub enum DialogResult {
     Close,
     Confirmed(ConfirmAction),
     GroupName(GroupTarget, String),
-    Export {
-        scope: ExportScope,
-        passphrase: String,
-    },
+    Export { scope: ExportScope },
     Import(Box<ImportPlan>),
 }
 
@@ -403,8 +400,6 @@ fn shortcuts(ctx: &egui::Context) -> DialogResult {
 
 pub struct ExportDialog {
     pub scope: ExportScope,
-    pass1: String,
-    pass2: String,
     error: Option<String>,
     picked: HashSet<Uuid>,
 }
@@ -417,8 +412,6 @@ impl ExportDialog {
         };
         Self {
             scope,
-            pass1: String::new(),
-            pass2: String::new(),
             error: None,
             picked,
         }
@@ -475,20 +468,11 @@ impl ExportDialog {
                 self.scope = ExportScope::Selected(store.bookmarks.iter().filter(|b| self.picked.contains(&b.id)).map(|b| b.id).collect());
             }
 
-            // Everything a connection needs goes along, so the file opens on another Mac as it
-            // was here; the passwords and keys in it are encrypted with this passphrase.
+            // Everything a connection needs goes along, as it is, so the file opens on another
+            // Mac as it was here.
             ui.add_space(8.0);
             ui.label(RichText::new(t("Passwords and keys")).strong());
-            ui.label(RichText::new(t("Saved passwords, passphrases and keys are exported too, encrypted with this passphrase (Argon2id + XChaCha20-Poly1305). You need it to import them on the other Mac.")).weak().small());
-            egui::Grid::new("export-pass").num_columns(2).show(ui, |ui| {
-                ui.label(t("Passphrase"));
-                ui.add(style::input(&mut self.pass1).password(true).desired_width(240.0));
-                ui.end_row();
-                ui.label(t("Repeat"));
-                ui.add(style::input(&mut self.pass2).password(true).desired_width(240.0));
-                ui.end_row();
-            });
-            ui.label(RichText::new(t("Key files (such as ~/.ssh/id_ed25519) go along too. On a Mac without the file, the connection keeps the key in the Keychain instead.")).weak().small());
+            ui.label(RichText::new(format!("⚠ {}", t("Saved passwords, passphrases and keys (key files too) are written into the file as plain text. Anyone who gets the file can log in to these servers: keep it safe, and delete it once it is imported."))).color(style::warn_text(ui.visuals())));
             if let Some(e) = &self.error {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
@@ -497,14 +481,9 @@ impl ExportDialog {
                 if ui.add(style::primary(t("Export…"))).clicked() {
                     if matches!(&self.scope, ExportScope::Selected(ids) if ids.is_empty()) {
                         self.error = Some(t("Select at least one connection.").into());
-                    } else if self.pass1.len() < 8 {
-                        self.error = Some(t("Use a passphrase of at least 8 characters.").into());
-                    } else if self.pass1 != self.pass2 {
-                        self.error = Some(t("The passphrases do not match.").into());
                     } else {
                         result = DialogResult::Export {
                             scope: self.scope.clone(),
-                            passphrase: self.pass1.clone(),
                         };
                     }
                 }

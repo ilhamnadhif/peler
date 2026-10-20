@@ -346,12 +346,8 @@ impl PelerApp {
             }
             "search" => self.sidebar.search = arg.to_string(),
             "import" => self.import_file(PathBuf::from(arg)),
-            // `export-to <passphrase> <path>`: everything, without the save panel.
-            "export-to" => {
-                if let Some((pass, path)) = arg.split_once(' ') {
-                    self.export_to(std::path::Path::new(path), &ExportScope::All, pass);
-                }
-            }
+            // `export-to <path>`: everything, without the save panel.
+            "export-to" => self.export_to(std::path::Path::new(arg), &ExportScope::All),
             "action" => {
                 let first = self.store.bookmarks.first().map(|b| b.id);
                 let action = match arg {
@@ -1300,7 +1296,7 @@ impl PelerApp {
         }
     }
 
-    fn do_export(&mut self, scope: ExportScope, passphrase: String) {
+    fn do_export(&mut self, scope: ExportScope) {
         let default_name = format!(
             "peler-connections-{}.json",
             chrono::Local::now().format("%Y-%m-%d")
@@ -1313,13 +1309,13 @@ impl PelerApp {
         else {
             return;
         };
-        self.export_to(&path, &scope, &passphrase);
+        self.export_to(&path, &scope);
     }
 
-    fn export_to(&mut self, path: &std::path::Path, scope: &ExportScope, passphrase: &str) {
-        // Key files go along too (encrypted with the rest), for a Mac that doesn't have them.
+    fn export_to(&mut self, path: &std::path::Path, scope: &ExportScope) {
+        // Key files go along too, for a Mac that doesn't have them.
         let mut unreadable = Vec::new();
-        let result = transfer::export(&self.store, scope, Some(passphrase), |id| {
+        let result = transfer::export(&self.store, scope, |id| {
             let mut set = secrets::try_load_set(id)?;
             if let Some(b) = self.store.bookmark(id)
                 && let Auth::Key { path } = &b.auth
@@ -2450,9 +2446,9 @@ impl PelerApp {
                     }
                     self.save_store();
                 }
-                DialogResult::Export { scope, passphrase } => {
+                DialogResult::Export { scope } => {
                     self.dialog = None;
-                    self.do_export(scope, passphrase);
+                    self.do_export(scope);
                 }
                 DialogResult::Import(plan) => {
                     self.dialog = None;
