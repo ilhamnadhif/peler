@@ -30,6 +30,8 @@ enum State {
 
 enum Msg {
     Checked(Result<Option<Release>, String>),
+    /// The download goes for this release instead: it came out after the one offered.
+    Newer(Release),
     Downloaded(Result<Prepared, String>),
 }
 
@@ -107,8 +109,9 @@ impl Updater {
     pub fn check_now(&mut self, ctx: &egui::Context) {
         self.dialog_open = true;
         match self.state {
-            // Already found or downloading: just show it.
-            State::Available(_) | State::Downloading(_) | State::Ready(..) => {}
+            State::Downloading(_) => {}
+            // Shown as it is, while a check looks for an even newer version.
+            State::Available(_) | State::Ready(..) => self.start_check(ctx),
             // An automatic check that is already running answers this one too.
             _ => {
                 self.state = State::Checking;
@@ -182,8 +185,16 @@ impl Updater {
         if let Some(rx) = &self.rx
             && let Ok(msg) = rx.try_recv()
         {
-            self.rx = None;
+            if !matches!(msg, Msg::Newer(_)) {
+                self.rx = None;
+            }
             match msg {
+                Msg::Newer(release) => {
+                    if let State::Downloading(r) = &mut self.state {
+                        self.announced = Some(release.version.clone());
+                        *r = release;
+                    }
+                }
                 Msg::Checked(result) => {
                     // Someone is looking at "Checking for updates…" (whichever check it was).
                     let manual =
@@ -194,11 +205,24 @@ impl Updater {
                         Ok(Some(release)) => {
                             let skipped = settings.skipped_version.as_deref()
                                 == Some(release.version.as_str());
-                            if manual || !skipped {
+                            // A version already offered (or downloaded) is only replaced by a
+                            // newer one.
+                            let held = match &self.state {
+                                State::Available(r)
+                                | State::Downloading(r)
+                                | State::Ready(r, _) => Some(r.version.as_str()),
+                                _ => None,
+                            };
+                            let newer = held.is_none_or(|v| update::is_newer(&release.version, v));
+                            if newer && (manual || !skipped) {
+                                if let State::Ready(_, prepared) = &self.state {
+                                    let dir = prepared.dir.clone();
+                                    std::thread::spawn(move || std::fs::remove_dir_all(dir));
+                                }
                                 if self.announced.as_deref() != Some(&release.version) && !manual {
                                     if at_launch {
                                         self.popup = true;
-                                    } else {
+                                    } else if !self.dialog_open {
                                         toast = Some(tf(
                                             "Peler {} is available. Use the Update button to install it.",
                                             &[&release.version],
@@ -240,10 +264,14 @@ impl Updater {
         }
         // Automatic checks.
         let now = Instant::now();
+        // They go on while an update waits, so a newer release replaces it.
         if settings.check_updates
             && now >= self.next_check
             && !self.busy()
-            && matches!(self.state, State::Idle)
+            && matches!(
+                self.state,
+                State::Idle | State::Available(_) | State::Ready(..)
+            )
         {
             self.next_check = now + CHECK_EVERY;
             self.start_check(ctx);
@@ -293,9 +321,18 @@ impl Updater {
         let stage = self.stage.clone();
         *stage.lock() = Stage::Starting;
         let ctx = ctx.clone();
-        let r = release.clone();
+        let offered = release.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(Msg::Downloaded(update::download(&r, &stage)));
+            // Always the latest: a release that came out since this one was found (Peler
+            // open for days) is installed instead, not after another update.
+            let release = match update::check() {
+                Ok(Some(latest)) if update::is_newer(&latest.version, &offered.version) => {
+                    let _ = tx.send(Msg::Newer(latest.clone()));
+                    latest
+                }
+                _ => offered,
+            };
+            let _ = tx.send(Msg::Downloaded(update::download(&release, &stage)));
             ctx.request_repaint();
         });
         self.rx = Some(rx);
@@ -760,6 +797,68 @@ mod tests {
         tx.send(Msg::Checked(Err("offline".into()))).unwrap();
         assert_eq!(updater.tick(&ctx, &mut settings, true), None);
         assert!(matches!(updater.state, State::Idle) && !updater.dialog_open);
+    }
+
+    fn prepared(version: &str) -> Prepared {
+        Prepared {
+            version: version.into(),
+            dir: std::path::PathBuf::from("/nonexistent/peler-update-test"),
+            app: std::path::PathBuf::new(),
+        }
+    }
+
+    fn version(state: &State) -> Option<(&'static str, &str)> {
+        match state {
+            State::Available(r) => Some(("available", &r.version)),
+            State::Downloading(r) => Some(("downloading", &r.version)),
+            State::Ready(r, _) => Some(("ready", &r.version)),
+            _ => None,
+        }
+    }
+
+    /// Peler stays open while two releases come out: the second replaces the first, even one
+    /// already downloaded, and finding the same version again changes nothing.
+    #[test]
+    fn a_newer_release_replaces_the_one_offered() {
+        let ctx = egui::Context::default();
+        let check = |state: State, found: &str| {
+            let (mut updater, tx) = checking_in_background(false);
+            updater.state = state;
+            tx.send(Msg::Checked(Ok(Some(release(found))))).unwrap();
+            let toast = updater.tick(&ctx, &mut Settings::default(), true);
+            (updater, toast)
+        };
+        let (updater, toast) = check(State::Available(release("9.0.0")), "9.0.1");
+        assert_eq!(version(&updater.state), Some(("available", "9.0.1")));
+        assert!(toast.is_some(), "announced");
+        let (updater, _) = check(State::Ready(release("9.0.0"), prepared("9.0.0")), "9.0.1");
+        assert_eq!(version(&updater.state), Some(("available", "9.0.1")));
+        let (updater, toast) = check(State::Ready(release("9.0.1"), prepared("9.0.1")), "9.0.1");
+        assert_eq!(version(&updater.state), Some(("ready", "9.0.1")));
+        assert_eq!(toast, None);
+        let (updater, _) = check(State::Available(release("9.0.1")), "9.0.0");
+        assert_eq!(
+            version(&updater.state),
+            Some(("available", "9.0.1")),
+            "never older"
+        );
+    }
+
+    /// Installing an update goes for the release that came out after the one offered.
+    #[test]
+    fn the_download_goes_for_the_newest_release() {
+        let ctx = egui::Context::default();
+        let mut settings = Settings::default();
+        let (mut updater, tx) = checking_in_background(false);
+        updater.state = State::Downloading(release("9.0.0"));
+        tx.send(Msg::Newer(release("9.0.1"))).unwrap();
+        updater.tick(&ctx, &mut settings, true);
+        assert!(updater.busy(), "still downloading");
+        assert_eq!(version(&updater.state), Some(("downloading", "9.0.1")));
+        tx.send(Msg::Downloaded(Ok(prepared("9.0.1")))).unwrap();
+        updater.tick(&ctx, &mut settings, true);
+        assert_eq!(version(&updater.state), Some(("ready", "9.0.1")));
+        assert!(updater.dialog_open && !updater.busy());
     }
 
     #[test]
