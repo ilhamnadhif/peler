@@ -1390,19 +1390,17 @@ impl PelerApp {
         let dark = ui.visuals().dark_mode;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
-            let toggle = if self.settings.sidebar_visible {
-                "◧"
-            } else {
-                "▢"
-            };
-            if ui
-                .add(egui::Button::new(toggle).frame(false))
-                .on_hover_text(format!("{} (⌘B)", t("Show/Hide Sidebar")))
-                .clicked()
-            {
-                self.actions.push(Action::ToggleSidebar);
+            // While the sidebar is shown, its toggle sits at the top of the sidebar instead.
+            if !self.settings.sidebar_visible {
+                if ui
+                    .add_sized(vec2(20.0, TAB_H - 6.0), egui::Button::new("▢").frame(false))
+                    .on_hover_text(format!("{} (⌘B)", t("Show/Hide Sidebar")))
+                    .clicked()
+                {
+                    self.actions.push(Action::ToggleSidebar);
+                }
+                ui.add_space(4.0);
             }
-            ui.add_space(4.0);
             let mut drag_target = None;
             egui::ScrollArea::horizontal()
                 .id_salt("tab-strip")
@@ -2766,23 +2764,8 @@ impl PelerApp {
         // restore normal spacing inside each panel.
         let spacing = ui.spacing().item_spacing;
         ui.spacing_mut().item_spacing = egui::Vec2::ZERO;
-        egui::Panel::top("tab-bar")
-            .frame(
-                egui::Frame::NONE
-                    .fill(style::chrome_fill(dark))
-                    .inner_margin(egui::Margin {
-                        left: 8,
-                        right: 8,
-                        top: 4,
-                        bottom: 0,
-                    }),
-            )
-            .exact_size(TAB_H)
-            .show(ui, |ui| {
-                ui.spacing_mut().item_spacing = spacing;
-                self.tab_bar(ui)
-            });
-
+        // The sidebar first, so it runs the full height of the window and the tabs sit over
+        // the terminal only.
         let mut sidebar_visible = self.settings.sidebar_visible;
         let sidebar = egui::Panel::left("sidebar")
             .resizable(true)
@@ -2809,6 +2792,23 @@ impl PelerApp {
             }
         }
         self.settings.sidebar_visible = sidebar_visible;
+
+        egui::Panel::top("tab-bar")
+            .frame(
+                egui::Frame::NONE
+                    .fill(style::chrome_fill(dark))
+                    .inner_margin(egui::Margin {
+                        left: 8,
+                        right: 8,
+                        top: 4,
+                        bottom: 0,
+                    }),
+            )
+            .exact_size(TAB_H)
+            .show(ui, |ui| {
+                ui.spacing_mut().item_spacing = spacing;
+                self.tab_bar(ui)
+            });
 
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.fill(ui.visuals().panel_fill))

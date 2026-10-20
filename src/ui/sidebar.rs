@@ -75,8 +75,17 @@ impl Sidebar {
             moved: None,
         };
 
-        ui.add_space(6.0);
+        // Lined up with the tabs beside it.
+        ui.add_space(2.0);
         ui.horizontal(|ui| {
+            // The same spot as in the tab bar while the sidebar is hidden.
+            if ui
+                .add(egui::Button::new("◧").frame(false))
+                .on_hover_text(format!("{} (⌘B)", t("Show/Hide Sidebar")))
+                .clicked()
+            {
+                cx.actions.push(Action::ToggleSidebar);
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let selected_group = self.selected_group(store);
                 ui.menu_button("+", |ui| {
