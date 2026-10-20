@@ -42,7 +42,8 @@ pub struct Sidebar {
     pub search: String,
     pub selected: Option<Uuid>,
     pub focus_search: bool,
-    collapsed: HashSet<Uuid>,
+    /// Groups opened in this run: every group starts closed when Peler opens.
+    expanded: HashSet<Uuid>,
     search_index: usize,
 }
 
@@ -257,7 +258,7 @@ impl Sidebar {
         let groups: Vec<Uuid> = cx.store.child_groups(parent).map(|g| g.id).collect();
         for gid in groups {
             self.group_row(ui, cx, gid, depth);
-            if !self.collapsed.contains(&gid) {
+            if self.expanded.contains(&gid) {
                 self.tree(ui, cx, Some(gid), depth + 1);
             }
         }
@@ -321,7 +322,7 @@ impl Sidebar {
         };
         let selected = self.selected == Some(gid);
         let (rect, resp) = self.row_frame(ui, egui::Id::new(("group-row", gid)), selected);
-        let expanded = !self.collapsed.contains(&gid);
+        let expanded = self.expanded.contains(&gid);
         let x = rect.left() + 6.0 + depth as f32 * INDENT;
         let color = ui.visuals().text_color();
         let painter = ui.painter();
@@ -363,8 +364,8 @@ impl Sidebar {
 
         if resp.clicked() {
             self.selected = Some(gid);
-            if !self.collapsed.remove(&gid) {
-                self.collapsed.insert(gid);
+            if !self.expanded.remove(&gid) {
+                self.expanded.insert(gid);
             }
         }
         resp.dnd_set_drag_payload(DragItem::Group(gid));
@@ -404,7 +405,9 @@ impl Sidebar {
                         before: Some(gid),
                     },
                 });
-                self.collapsed.remove(&gid);
+                if into {
+                    self.expanded.insert(gid);
+                }
             }
         }
         resp.context_menu(|ui| {
@@ -608,12 +611,15 @@ impl Sidebar {
         });
     }
 
-    /// Selects and reveals a bookmark (expanding its groups).
+    /// Selects and reveals a bookmark or a group (expanding the groups it is in).
     pub fn reveal(&mut self, store: &BookmarkStore, id: Uuid) {
         self.selected = Some(id);
-        let mut g = store.bookmark(id).and_then(|b| b.group);
+        let mut g = match store.bookmark(id) {
+            Some(b) => b.group,
+            None => store.group(id).and_then(|x| x.parent),
+        };
         while let Some(gid) = g {
-            self.collapsed.remove(&gid);
+            self.expanded.insert(gid);
             g = store.group(gid).and_then(|x| x.parent);
         }
     }

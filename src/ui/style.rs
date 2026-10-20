@@ -468,6 +468,27 @@ pub fn chrome_fill(dark: bool) -> Color32 {
     }
 }
 
+/// Tab strip fills: the active tab is raised clearly above the strip (it also gets an accent
+/// underline and bright text), a hovered one only slightly.
+pub struct TabColors {
+    pub active: Color32,
+    pub hover: Color32,
+}
+
+pub fn tab_colors(dark: bool) -> TabColors {
+    if dark {
+        TabColors {
+            active: Color32::from_rgb(0x2c, 0x30, 0x38),
+            hover: Color32::from_rgb(0x22, 0x25, 0x2b),
+        }
+    } else {
+        TabColors {
+            active: Color32::WHITE,
+            hover: Color32::from_rgb(0xf2, 0xf3, 0xf5),
+        }
+    }
+}
+
 /// A small ring that fills clockwise with `fraction`.
 pub fn progress_ring(
     painter: &egui::Painter,

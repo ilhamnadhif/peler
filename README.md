@@ -78,8 +78,9 @@ xattr -dr com.apple.quarantine /Applications/Peler.app   # until releases are no
 Every time Peler starts, it checks GitHub for a new release. When one is out, the update window
 opens with the current and new version and what's new. **Install Update** then:
 
-1. downloads the new version and verifies it (size, the SHA-256 GitHub publishes, bundle id,
-   version and code signature);
+1. downloads the latest version, even one released after the window opened (so 1.2.3 goes
+   straight to the newest, never one version at a time), and verifies it (size, the SHA-256
+   GitHub publishes, bundle id, version and code signature);
 2. quits Peler, replaces the app, and opens the new version.
 
 **Close** asks again at the next start; tick **Don't show again for version …** to skip that
@@ -116,7 +117,7 @@ Saved passwords are Keychain items with the service name `peler`; remove them in
   row. Each hop checks its own host key and logs in with its own method.
 - **Port forwarding** per connection, started when it connects: local (`-L`), remote (`-R`) and a
   SOCKS proxy (`-D`). The toolbar shows the forwards (⇄) and says when a port is already in use.
-- Nested groups; drag and drop to reorder or regroup.
+- Nested groups, closed when Peler opens; drag and drop to reorder or regroup.
 - Fuzzy search over name, host, user, tags and group. Press Enter to connect.
 - `⌘K` opens a command palette. Typing `user@host:port` there (IPv6 as `[::1]:22`) connects without
   a saved connection.

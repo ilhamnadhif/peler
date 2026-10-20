@@ -1440,10 +1440,11 @@ impl PelerApp {
                                 Sense::click_and_drag(),
                             );
                             let painter = ui.painter();
+                            let fills = style::tab_colors(dark);
                             let bg = if active {
-                                ui.visuals().panel_fill
+                                fills.active
                             } else if resp.hovered() {
-                                ui.visuals().widgets.hovered.weak_bg_fill
+                                fills.hover
                             } else {
                                 style::chrome_fill(dark)
                             };
@@ -1457,6 +1458,18 @@ impl PelerApp {
                                 },
                                 bg,
                             );
+                            // The active tab is marked by more than its fill: an accent line
+                            // along its bottom edge, over the terminal.
+                            if active {
+                                painter.rect_filled(
+                                    egui::Rect::from_min_max(
+                                        egui::pos2(rect.left(), rect.bottom() - 2.0),
+                                        rect.right_bottom(),
+                                    ),
+                                    CornerRadius::ZERO,
+                                    style::ACCENT,
+                                );
+                            }
                             let dot_pos = egui::pos2(rect.left() + 12.0, rect.center().y);
                             match tab.transfer_progress() {
                                 // Transfers running: a small progress ring instead of the dot.
@@ -1475,7 +1488,7 @@ impl PelerApp {
                             let text_color = if active {
                                 ui.visuals().strong_text_color()
                             } else {
-                                ui.visuals().text_color()
+                                ui.visuals().weak_text_color()
                             };
                             let label = if waiting {
                                 format!("{title}  •")
@@ -2438,7 +2451,7 @@ impl PelerApp {
                     match target {
                         GroupTarget::New { parent } => {
                             let id = self.store.add_group(name, parent);
-                            self.sidebar.selected = Some(id);
+                            self.sidebar.reveal(&self.store, id);
                         }
                         GroupTarget::Rename(id) => self.store.rename_group(id, name),
                     }

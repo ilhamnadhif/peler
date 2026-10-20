@@ -79,8 +79,9 @@ xattr -dr com.apple.quarantine /Applications/Peler.app   # selama rilis belum di
 Setiap kali dibuka, Peler memeriksa rilis baru di GitHub. Kalau ada versi baru, jendela update
 langsung muncul berisi versi sekarang, versi baru, dan daftar perubahannya. **Install Update** lalu:
 
-1. mengunduh versi baru dan memverifikasinya (ukuran, SHA-256 yang dipublikasikan GitHub, bundle
-   id, versi, dan tanda tangan kode);
+1. mengunduh versi terbaru, termasuk yang rilis setelah jendelanya muncul (jadi 1.2.3 langsung ke
+   versi terbaru, tidak naik satu per satu), lalu memverifikasinya (ukuran, SHA-256 yang
+   dipublikasikan GitHub, bundle id, versi, dan tanda tangan kode);
 2. menutup Peler, mengganti aplikasinya, dan membuka versi baru.
 
 **Close** akan menanyakan lagi saat Peler dibuka berikutnya; centang **Don't show again for
@@ -118,7 +119,7 @@ Password yang tersimpan adalah item Keychain dengan service `peler`; hapus lewat
   berturut-turut. Setiap hop memeriksa host key-nya sendiri dan login dengan metodenya sendiri.
 - **Port forwarding** per koneksi, aktif saat tersambung: lokal (`-L`), remote (`-R`), dan proxy
   SOCKS (`-D`). Toolbar menampilkan forward-nya (⇄) dan memberi tahu kalau port sudah dipakai.
-- Grup bertingkat; drag and drop untuk mengurutkan atau memindah grup.
+- Grup bertingkat, tertutup saat Peler dibuka; drag and drop untuk mengurutkan atau memindah grup.
 - Pencarian fuzzy pada nama, host, user, tag, dan grup. Tekan Enter untuk konek.
 - `⌘K` membuka palet perintah. Mengetik `user@host:port` di sana (IPv6 sebagai `[::1]:22`) langsung
   konek tanpa menyimpan koneksi.
