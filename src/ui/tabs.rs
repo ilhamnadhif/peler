@@ -270,7 +270,7 @@ impl Tab {
             Some(crate::paths::expand_tilde(local).display().to_string())
         };
         SftpPanel::new(
-            self.conn.open_sftp(),
+            self.conn.sftp_opener(),
             &self.bookmark.start_dir,
             local.as_deref(),
         )

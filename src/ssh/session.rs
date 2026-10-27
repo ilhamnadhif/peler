@@ -121,7 +121,14 @@ impl PaneStart {
 
 enum ConnCmd {
     OpenShell(PaneStart),
-    OpenSftp(oneshot::Sender<Result<SftpSession, String>>),
+    OpenSftp {
+        /// Run the session as root through sudo.
+        root: bool,
+        /// The sudo password, for `sudo -S`; `None` means passwordless sudo (or a normal, non-root
+        /// session).
+        password: Option<String>,
+        reply: oneshot::Sender<Result<SftpSession, String>>,
+    },
     /// Check that the server still answers; close the connection if it doesn't.
     Probe(ProbeReason),
     Disconnect,
@@ -177,21 +184,63 @@ impl Connection {
         }
     }
 
-    /// Opens an SFTP session on this connection.
-    pub fn open_sftp(&self) -> oneshot::Receiver<Result<SftpSession, String>> {
-        let (tx, rx) = oneshot::channel();
-        if let Err(mpsc::error::SendError(ConnCmd::OpenSftp(tx))) =
-            self.cmd_tx.send(ConnCmd::OpenSftp(tx))
-        {
-            let _ = tx.send(Err(t("Not connected.").into()));
+    /// A handle for opening SFTP sessions on this connection, as the logged-in user or as root
+    /// through sudo. Cheap to clone, so a panel can reopen its session when switching root on or
+    /// off.
+    pub fn sftp_opener(&self) -> SftpOpener {
+        SftpOpener {
+            cmd_tx: self.cmd_tx.clone(),
         }
-        rx
+    }
+
+    /// Opens a normal SFTP session (as the logged-in user).
+    pub fn open_sftp(&self) -> oneshot::Receiver<Result<SftpSession, String>> {
+        self.sftp_opener().open()
     }
 
     pub fn disconnect(&self) {
         // Dropping a pending prompt's reply sender wakes the task waiting on it.
         self.shared.lock().prompt = None;
         let _ = self.cmd_tx.send(ConnCmd::Disconnect);
+    }
+}
+
+/// Opens SFTP sessions on a connection: as the logged-in user, or as root through sudo.
+#[derive(Clone)]
+pub struct SftpOpener {
+    cmd_tx: mpsc::UnboundedSender<ConnCmd>,
+}
+
+impl SftpOpener {
+    fn send(
+        &self,
+        root: bool,
+        password: Option<String>,
+    ) -> oneshot::Receiver<Result<SftpSession, String>> {
+        let (tx, rx) = oneshot::channel();
+        let cmd = ConnCmd::OpenSftp {
+            root,
+            password,
+            reply: tx,
+        };
+        if let Err(mpsc::error::SendError(ConnCmd::OpenSftp { reply, .. })) = self.cmd_tx.send(cmd)
+        {
+            let _ = reply.send(Err(t("Not connected.").into()));
+        }
+        rx
+    }
+
+    /// A normal SFTP session, as the logged-in user.
+    pub fn open(&self) -> oneshot::Receiver<Result<SftpSession, String>> {
+        self.send(false, None)
+    }
+
+    /// An SFTP session running as root through sudo. `password` is `None` for passwordless sudo.
+    pub fn open_root(
+        &self,
+        password: Option<String>,
+    ) -> oneshot::Receiver<Result<SftpSession, String>> {
+        self.send(true, password)
     }
 }
 
@@ -1318,8 +1367,8 @@ fn fail_all(queued: Vec<ConnCmd>, mut rx: mpsc::UnboundedReceiver<ConnCmd>, reas
     for cmd in queued.into_iter().chain(rest) {
         match cmd {
             ConnCmd::OpenShell(p) => fail_pane(&p, reason),
-            ConnCmd::OpenSftp(tx) => {
-                let _ = tx.send(Err(reason.to_string()));
+            ConnCmd::OpenSftp { reply, .. } => {
+                let _ = reply.send(Err(reason.to_string()));
             }
             ConnCmd::Probe(_) | ConnCmd::Disconnect => {}
         }
@@ -1335,10 +1384,19 @@ fn handle_cmd(cmd: ConnCmd, handle: &Arc<SshHandle>, ctx: &Context) -> bool {
             tokio::spawn(run_shell(handle, pane, ctx));
             false
         }
-        ConnCmd::OpenSftp(reply) => {
+        ConnCmd::OpenSftp {
+            root,
+            password,
+            reply,
+        } => {
             let handle = handle.clone();
             tokio::spawn(async move {
-                let _ = reply.send(open_sftp(&handle).await);
+                let result = if root {
+                    open_sftp_root(&handle, password).await
+                } else {
+                    open_sftp(&handle).await
+                };
+                let _ = reply.send(result);
             });
             false
         }
@@ -1393,6 +1451,21 @@ fn probe(
     });
 }
 
+// Bigger write packets and a deeper write pipeline: with the defaults uploads are capped at
+// 16 x 32 KiB per round trip. More than 16 concurrent reads measured slower, so reads keep the
+// default depth.
+fn sftp_config() -> russh_sftp::client::Config {
+    russh_sftp::client::Config {
+        max_packet_len: 256 * 1024,
+        max_write_packet_len: 255 * 1024,
+        // 16 x 255 KiB in flight: fast on high-latency links without queueing so much that
+        // requests time out on a slow uplink or browsing waits behind an upload.
+        max_concurrent_writes: 16,
+        max_concurrent_reads: 16,
+        request_timeout_secs: 60,
+    }
+}
+
 async fn open_sftp(handle: &SshHandle) -> Result<SftpSession, String> {
     let channel = handle
         .channel_open_session()
@@ -1402,19 +1475,7 @@ async fn open_sftp(handle: &SshHandle) -> Result<SftpSession, String> {
         .request_subsystem(true, "sftp")
         .await
         .map_err(|e| e.to_string())?;
-    // Bigger write packets and a deeper write pipeline: with the defaults uploads are capped at
-    // 16 x 32 KiB per round trip. More than 16 concurrent reads measured slower, so reads keep
-    // the default depth.
-    let config = russh_sftp::client::Config {
-        max_packet_len: 256 * 1024,
-        max_write_packet_len: 255 * 1024,
-        // 16 x 255 KiB in flight: fast on high-latency links without queueing so much that
-        // requests time out on a slow uplink or browsing waits behind an upload.
-        max_concurrent_writes: 16,
-        max_concurrent_reads: 16,
-        request_timeout_secs: 60,
-    };
-    SftpSession::new_with_config(channel.into_stream(), config)
+    SftpSession::new_with_config(channel.into_stream(), sftp_config())
         .await
         .map_err(|e| {
             tf(
@@ -1422,6 +1483,76 @@ async fn open_sftp(handle: &SshHandle) -> Result<SftpSession, String> {
                 &[&e.to_string()],
             )
         })
+}
+
+/// The usual places an OpenSSH `sftp-server` lives, tried in turn. The server runs as root (via
+/// sudo), so the whole SFTP session acts as root.
+const SFTP_SERVER_DISCOVERY: &str = "for p in \
+/usr/lib/openssh/sftp-server \
+/usr/libexec/openssh/sftp-server \
+/usr/libexec/sftp-server \
+/usr/lib/ssh/sftp-server \
+/usr/libexec/ssh/sftp-server \
+/usr/lib/sftp-server; do [ -x \"$p\" ] && exec \"$p\"; done; \
+echo peler: sftp-server not found >&2; exit 127";
+
+/// Opens an SFTP session that runs as root through `sudo`. `password` is written on the channel
+/// for `sudo -S`; `None` uses `sudo -n` (passwordless sudo). The server must allow sudo for this
+/// user, and `sudo` must not need a real terminal (`requiretty` off, the default on modern
+/// systems).
+async fn open_sftp_root(
+    handle: &SshHandle,
+    password: Option<String>,
+) -> Result<SftpSession, String> {
+    let channel = handle
+        .channel_open_session()
+        .await
+        .map_err(|e| e.to_string())?;
+    // `-p ''` silences the prompt; `--` ends sudo's options before the shell command. Debug
+    // builds can swap the whole prefix (tests run the discovery without real sudo).
+    let sudo = if password.is_some() {
+        "sudo -S -p '' --"
+    } else {
+        "sudo -n -p '' --"
+    };
+    let prefix = if cfg!(debug_assertions) {
+        std::env::var("PELER_SFTP_ROOT_PREFIX").unwrap_or_else(|_| sudo.to_string())
+    } else {
+        sudo.to_string()
+    };
+    let command = format!("{prefix} /bin/sh -c '{SFTP_SERVER_DISCOVERY}'");
+    channel
+        .exec(true, command)
+        .await
+        .map_err(|e| e.to_string())?;
+    let mut stream = channel.into_stream();
+    // sudo reads exactly the one password line from stdin, then execs sftp-server, which reads
+    // the SFTP handshake that `new_with_config` sends next. Order on the channel is preserved.
+    if let Some(pw) = password {
+        use tokio::io::AsyncWriteExt;
+        let mut line = pw.into_bytes();
+        line.push(b'\n');
+        stream.write_all(&line).await.map_err(|e| e.to_string())?;
+        stream.flush().await.map_err(|e| e.to_string())?;
+    }
+    // A wrong password (or a sudo that insists on a terminal) can leave the handshake waiting
+    // forever, so bound it: sudo reads the password line, then the SFTP init follows at once.
+    match tokio::time::timeout(
+        Duration::from_secs(20),
+        SftpSession::new_with_config(stream, sftp_config()),
+    )
+    .await
+    {
+        Ok(Ok(session)) => Ok(session),
+        Ok(Err(e)) => Err(tf(
+            "Could not start a root SFTP session ({}). Check that sudo is allowed for this user and that the password is correct.",
+            &[&e.to_string()],
+        )),
+        Err(_) => Err(t(
+            "Timed out starting the root session. Check the sudo password, or that sudo works without a terminal on this server.",
+        )
+        .to_string()),
+    }
 }
 
 // ----- shells ---------------------------------------------------------------------------------

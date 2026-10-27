@@ -304,6 +304,50 @@ const ID: &[(&str, &str)] = &[
     ("New Subgroup", "Subgrup Baru"),
     ("New Tab", "Tab Baru"),
     ("New folder", "Folder baru"),
+    ("Up", "Naik"),
+    ("Home", "Beranda"),
+    ("Hidden", "Tersembunyi"),
+    ("Activity", "Aktivitas"),
+    ("Details", "Detail"),
+    ("Dismiss", "Tutup"),
+    ("Root", "Root"),
+    ("Browse as root", "Jelajahi sebagai root"),
+    (
+        "Browse and transfer as root (sudo)",
+        "Jelajahi & transfer sebagai root (sudo)",
+    ),
+    (
+        "Running as root — click to go back to your user",
+        "Berjalan sebagai root — klik untuk kembali ke user Anda",
+    ),
+    (
+        "Reopen the file panel as root through sudo, to see and transfer files your user has no access to. The terminal stays as your user.",
+        "Buka ulang panel file sebagai root lewat sudo, untuk melihat dan mentransfer file yang tidak bisa diakses user Anda. Terminal tetap sebagai user Anda.",
+    ),
+    (
+        "sudo password (leave empty if not needed)",
+        "Password sudo (kosongkan jika tidak perlu)",
+    ),
+    (
+        "The server must allow sudo for your user. The password is sent only to this server.",
+        "Server harus mengizinkan sudo untuk user Anda. Password hanya dikirim ke server ini.",
+    ),
+    (
+        "Could not switch to root: {}",
+        "Tidak bisa beralih ke root: {}",
+    ),
+    (
+        "Could not switch back to your user: {}",
+        "Tidak bisa kembali ke user Anda: {}",
+    ),
+    (
+        "Could not start a root SFTP session ({}). Check that sudo is allowed for this user and that the password is correct.",
+        "Tidak bisa memulai sesi SFTP root ({}). Pastikan sudo diizinkan untuk user ini dan password-nya benar.",
+    ),
+    (
+        "Timed out starting the root session. Check the sudo password, or that sudo works without a terminal on this server.",
+        "Waktu habis memulai sesi root. Periksa password sudo, atau pastikan sudo bisa jalan tanpa terminal di server ini.",
+    ),
     ("New tab (same server)", "Tab baru (server yang sama)"),
     ("Next Pane", "Panel Berikutnya"),
     ("No connections yet", "Belum ada koneksi"),

@@ -22,7 +22,7 @@ and uses around 70 MB of memory with a session open.
   waking from sleep), or when typed keys get no reply, Peler checks the server. A connection that
   no longer answers says so within seconds and offers **Reconnect**, instead of hanging.
 - **Dual-pane SFTP**: transfer many files at once in the background, with progress, speed and time
-  left. Folders transfer recursively, and permissions are kept.
+  left. Folders transfer recursively, permissions are kept, and you can browse as root over sudo.
 - **Built-in editor for remote files**: change a YAML config on the server and press `⌘S`.
 - **Import** from Electerm and `~/.ssh/config`. **Export** to versioned JSON with the passwords and
   keys included, to move everything to another Mac.
@@ -146,17 +146,23 @@ Saved passwords are Keychain items with the service name `peler`; remove them in
 
 ### SFTP (`⇧⌘F`)
 
-![SFTP panel uploading several files](docs/screenshots/sftp.png)
+![Dual-pane SFTP with labelled toolbars and the transfers popup](docs/screenshots/sftp.png)
 
-- Local and remote lists side by side, over the same SSH connection.
+- Local and remote lists side by side, over the same SSH connection. Each side has a labelled
+  toolbar (**Up**, **Home**, **Refresh**, **New folder**, **Hidden**) and a full-width path field;
+  the lists run to the bottom of the panel.
 - **Upload, download, rename, delete (recursive), new folder, chmod.**
-- **Many files at once**: select with ⌘-click, ⇧-click or `⌘A` over a list, then use
-  **Upload (n)** / **Download (n)** under the lists. **Upload…** opens the macOS file picker, and you
-  can also drag between the lists or drop files from Finder.
-- **Transfers you can follow**: the transfer list (resizable and collapsible) shows the whole batch:
-  files done, percent, size, speed and time left. Each row shows its own progress. While the panel
-  is hidden, the tab shows a progress ring and the toolbar shows **SFTP ⬆ 45%**. A notification tells
-  you when everything has finished or something failed.
+- **Many files at once**: select with ⌘-click, ⇧-click or `⌘A` over a list, then drag between the
+  lists, drop files from Finder, or use the right-click menu. **Upload…** on the remote side opens
+  the macOS file picker.
+- **Browse as root (sudo)**: the **Root** button on the remote side reopens the file panel as root
+  through `sudo`, to see and transfer files your user has no access to. It asks for the sudo password
+  (or leave it empty for passwordless sudo); the terminal stays as your user. The server must allow
+  sudo for your user. Click **Root** again to go back.
+- **Transfers you can follow**: a floating popup (which you can hide or close) shows the whole batch:
+  files done, percent, size, speed and time left, with each row's own progress, and any errors. While
+  the panel is hidden, the tab shows a progress ring and the toolbar shows **SFTP ⬆ 45%**. A
+  notification tells you when everything has finished or something failed.
 - Files are written under a temporary name and renamed into place when complete. Cancelling, closing
   the tab or quitting removes partial files, on the server too. Sizes are verified, and permissions
   and the executable bit are kept.

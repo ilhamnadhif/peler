@@ -23,7 +23,8 @@ dalam ±0,1 detik, CPU 0% saat diam, dan memakai sekitar 70 MB memori dengan sat
   yang tidak menjawab lagi langsung diberi tahu dalam beberapa detik dengan tombol **Reconnect**,
   bukan menggantung.
 - **SFTP dua panel**: transfer banyak file sekaligus di latar belakang, dengan progres, kecepatan,
-  dan perkiraan sisa waktu. Folder ditransfer rekursif dan permission tetap terjaga.
+  dan perkiraan sisa waktu. Folder ditransfer rekursif, permission tetap terjaga, dan bisa menjelajah
+  sebagai root lewat sudo.
 - **Editor bawaan untuk file remote**: ubah config YAML di server, lalu tekan `⌘S`.
 - **Import** dari Electerm dan `~/.ssh/config`. **Export** ke JSON berversi, termasuk password dan
   key, untuk memindahkan semuanya ke Mac lain.
@@ -147,17 +148,23 @@ Password yang tersimpan adalah item Keychain dengan service `peler`; hapus lewat
 
 ### SFTP (`⇧⌘F`)
 
-![Panel SFTP sedang mengunggah beberapa file](docs/screenshots/sftp.png)
+![SFTP dua panel dengan toolbar berlabel dan popup transfer](docs/screenshots/sftp.png)
 
-- Daftar lokal dan remote berdampingan, di atas koneksi SSH yang sama.
+- Daftar lokal dan remote berdampingan, di atas koneksi SSH yang sama. Tiap sisi punya toolbar
+  berlabel (**Naik**, **Beranda**, **Muat ulang**, **Folder baru**, **Tersembunyi**) dan kolom path
+  selebar panel; daftar file memenuhi panel sampai ke bawah.
 - **Upload, download, ganti nama, hapus (rekursif), folder baru, chmod.**
-- **Banyak file sekaligus**: pilih dengan ⌘-klik, ⇧-klik, atau `⌘A` saat kursor di atas daftar,
-  lalu pakai **Unggah (n)** / **Unduh (n)** di bawah daftar. **Unggah…** membuka pemilih file macOS.
-  Bisa juga drag antar daftar, atau drop file dari Finder.
-- **Transfer yang bisa dipantau**: daftar transfer (bisa di-resize dan dilipat) menampilkan seluruh
-  batch: file selesai, persen, ukuran, kecepatan, dan sisa waktu. Tiap baris punya progresnya
-  sendiri. Saat panel disembunyikan, tab menampilkan cincin progres dan toolbar menampilkan
-  **SFTP ⬆ 45%**. Notifikasi muncul saat semuanya selesai atau ada yang gagal.
+- **Banyak file sekaligus**: pilih dengan ⌘-klik, ⇧-klik, atau `⌘A` saat kursor di atas daftar, lalu
+  drag antar daftar, drop file dari Finder, atau pakai menu klik-kanan. **Unggah…** di sisi remote
+  membuka pemilih file macOS.
+- **Jelajahi sebagai root (sudo)**: tombol **Root** di sisi remote membuka ulang panel file sebagai
+  root lewat `sudo`, untuk melihat dan mentransfer file yang tidak bisa diakses user Anda. Peler
+  menanyakan password sudo (atau kosongkan untuk sudo tanpa password); terminal tetap sebagai user
+  Anda. Server harus mengizinkan sudo untuk user Anda. Klik **Root** lagi untuk kembali.
+- **Transfer yang bisa dipantau**: popup mengambang (bisa disembunyikan atau ditutup) menampilkan
+  seluruh batch: file selesai, persen, ukuran, kecepatan, dan sisa waktu, dengan progres tiap baris,
+  dan error bila ada. Saat panel disembunyikan, tab menampilkan cincin progres dan toolbar
+  menampilkan **SFTP ⬆ 45%**. Notifikasi muncul saat semuanya selesai atau ada yang gagal.
 - File ditulis dengan nama sementara, lalu di-rename ke nama aslinya setelah lengkap. Membatalkan,
   menutup tab, atau quit akan menghapus file setengah jadi, termasuk di server. Ukuran diverifikasi,
   dan permission serta bit executable dipertahankan.
