@@ -833,34 +833,43 @@ impl SftpPanel {
         let show_hidden = side.show_hidden;
         let mut path_focused = false;
         ui.vertical(|ui| {
-            // Toolbar: each folder action labelled, so it reads at a glance. Kept compact so both
-            // sides fit on one row (the lists then line up).
+            // Toolbar: flat, labelled actions that only highlight on hover or when active, so the
+            // header reads as a light strip instead of a row of boxes. Spacing groups them:
+            // navigation first, then the folder actions.
             ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-                ui.spacing_mut().button_padding.x = 7.0;
+                ui.spacing_mut().item_spacing.x = 2.0;
+                ui.spacing_mut().button_padding.x = 8.0;
                 ui.label(RichText::new(if is_remote { t("Remote") } else { t("Local") }).strong());
+                ui.add_space(8.0);
                 if ui
-                    .button(format!("⬆ {}", t("Up")))
+                    .selectable_label(false, format!("⬆  {}", t("Up")))
                     .on_hover_text(t("Parent folder"))
                     .clicked()
                 {
                     actions.push(SideAction::Up(is_remote));
                 }
                 if ui
-                    .button(format!("⌂ {}", t("Home")))
+                    .selectable_label(false, format!("⌂  {}", t("Home")))
                     .on_hover_text(t("Home folder"))
                     .clicked()
                 {
                     actions.push(SideAction::Home(is_remote));
                 }
-                if ui.button(format!("⟳ {}", t("Refresh"))).clicked() {
+                if ui
+                    .selectable_label(false, format!("⟳  {}", t("Refresh")))
+                    .clicked()
+                {
                     actions.push(SideAction::Refresh(is_remote));
                 }
-                if ui.button(format!("✚ {}", t("New folder"))).clicked() {
+                ui.add_space(12.0);
+                if ui
+                    .selectable_label(false, format!("+  {}", t("New folder")))
+                    .clicked()
+                {
                     actions.push(SideAction::Mkdir(is_remote));
                 }
                 let hidden_btn = ui
-                    .add(egui::Button::new(format!("• {}", t("Hidden"))).selected(show_hidden))
+                    .selectable_label(show_hidden, t("Hidden"))
                     .on_hover_text(t("Show hidden files"));
                 #[cfg(debug_assertions)]
                 crate::devtest::record(
@@ -875,12 +884,13 @@ impl SftpPanel {
                     actions.push(SideAction::ToggleHidden(is_remote));
                 }
                 if side.loading {
+                    ui.add_space(4.0);
                     ui.spinner();
                 }
             });
-            // Path: a full-width field with a leading folder icon, and on the remote side an
-            // Upload button at the right (so both headers stay the same height and the lists
-            // line up).
+            // Path: a full-width field with a leading folder icon. On the remote side the Root
+            // toggle and the Upload menu sit at the right, so both headers stay one row high and
+            // the two lists line up.
             ui.horizontal(|ui| {
                 let (icon_rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
                 icons::paint(
@@ -893,7 +903,7 @@ impl SftpPanel {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if is_remote {
                         let upload = ui
-                            .menu_button(format!("⇧ {}", t("Upload…")), |ui| {
+                            .menu_button(t("Upload…"), |ui| {
                                 if ui.button(t("Files…")).clicked() {
                                     actions.push(SideAction::PickUpload { folders: false });
                                     ui.close();
@@ -910,12 +920,12 @@ impl SftpPanel {
                         #[cfg(debug_assertions)]
                         crate::devtest::record("upload-button", upload.rect);
                         let _ = upload;
-                        ui.add_space(4.0);
+                        ui.add_space(6.0);
                         // Browse and transfer as root through sudo.
                         let root = ui
                             .add_enabled(
                                 !reopening,
-                                egui::Button::new(format!("⛊ {}", t("Root"))).selected(is_root_now),
+                                egui::Button::new(t("Root")).selected(is_root_now),
                             )
                             .on_hover_text(if is_root_now {
                                 t("Running as root — click to go back to your user")
@@ -927,7 +937,7 @@ impl SftpPanel {
                         if root.clicked() {
                             actions.push(SideAction::Root);
                         }
-                        ui.add_space(4.0);
+                        ui.add_space(6.0);
                     }
                     let edit = ui.add(style::Field(
                         egui::TextEdit::singleline(&mut side.path_edit)
