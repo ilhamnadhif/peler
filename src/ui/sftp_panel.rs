@@ -833,43 +833,37 @@ impl SftpPanel {
         let show_hidden = side.show_hidden;
         let mut path_focused = false;
         ui.vertical(|ui| {
-            // Toolbar: flat, labelled actions that only highlight on hover or when active, so the
-            // header reads as a light strip instead of a row of boxes. Spacing groups them:
+            // Toolbar: each action is a proper button with a hairline border, a clean icon and a
+            // label, matching the Root and Upload buttons on the path row. Spacing groups them:
             // navigation first, then the folder actions.
             ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing.x = 2.0;
-                ui.spacing_mut().button_padding.x = 8.0;
+                ui.spacing_mut().item_spacing.x = 6.0;
+                ui.spacing_mut().button_padding.x = 9.0;
                 ui.label(RichText::new(if is_remote { t("Remote") } else { t("Local") }).strong());
-                ui.add_space(8.0);
+                ui.add_space(2.0);
                 if ui
-                    .selectable_label(false, format!("⬆  {}", t("Up")))
+                    .button(format!("⬆ {}", t("Up")))
                     .on_hover_text(t("Parent folder"))
                     .clicked()
                 {
                     actions.push(SideAction::Up(is_remote));
                 }
                 if ui
-                    .selectable_label(false, format!("⌂  {}", t("Home")))
+                    .button(format!("⌂ {}", t("Home")))
                     .on_hover_text(t("Home folder"))
                     .clicked()
                 {
                     actions.push(SideAction::Home(is_remote));
                 }
-                if ui
-                    .selectable_label(false, format!("⟳  {}", t("Refresh")))
-                    .clicked()
-                {
+                if ui.button(format!("⟳ {}", t("Refresh"))).clicked() {
                     actions.push(SideAction::Refresh(is_remote));
                 }
-                ui.add_space(12.0);
-                if ui
-                    .selectable_label(false, format!("+  {}", t("New folder")))
-                    .clicked()
-                {
+                ui.add_space(6.0);
+                if ui.button(format!("+ {}", t("New folder"))).clicked() {
                     actions.push(SideAction::Mkdir(is_remote));
                 }
                 let hidden_btn = ui
-                    .selectable_label(show_hidden, t("Hidden"))
+                    .add(egui::Button::new(t("Hidden")).selected(show_hidden))
                     .on_hover_text(t("Show hidden files"));
                 #[cfg(debug_assertions)]
                 crate::devtest::record(
