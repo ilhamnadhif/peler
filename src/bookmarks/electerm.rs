@@ -372,9 +372,10 @@ pub fn read(value: &Value) -> Result<Incoming> {
         ));
     }
     if !secrets.is_empty() {
-        warnings.push(
-            t("Passwords and keys from the file will be stored in the macOS Keychain.").into(),
-        );
+        warnings.push(tf(
+            "Passwords and keys from the file will be stored in {}.",
+            &[crate::platform::keychain()],
+        ));
     }
     if bookmarks.is_empty() {
         bail!("{}", t("The Electerm file contains no SSH connections."));

@@ -1,4 +1,4 @@
-//! Peler: a lightweight SSH/SFTP client for macOS.
+//! Peler: a lightweight SSH/SFTP client for macOS, Windows and Linux.
 
 pub mod app;
 pub mod bookmarks;
@@ -9,6 +9,7 @@ pub mod i18n;
 pub mod instance;
 pub mod netwatch;
 pub mod paths;
+pub mod platform;
 pub mod secrets;
 pub mod settings;
 pub mod sftp;

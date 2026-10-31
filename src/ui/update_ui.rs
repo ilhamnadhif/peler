@@ -346,8 +346,7 @@ impl Updater {
         let State::Ready(_, prepared) = &self.state else {
             return Err("no update is ready".into());
         };
-        let bundle = update::installed_bundle().ok_or("Peler is not installed as an app")?;
-        update::launch_installer(prepared, &bundle)
+        update::launch_installer(prepared)
     }
 
     pub fn show_dialog(&mut self, ctx: &egui::Context, settings: &mut Settings) -> UpdateEvent {
@@ -425,17 +424,10 @@ impl Updater {
                     ui.label(RichText::new(t("What's new:")).weak());
                     let notes_h = (screen.height() - 380.0).clamp(140.0, 360.0);
                     release_notes(ui, &release.notes, notes_h);
-                    let installable =
-                        update::installed_bundle().is_some() && release.archive.is_some();
+                    let installable = update::installable(release);
                     if !installable {
                         ui.add_space(6.0);
-                        ui.label(
-                            RichText::new(t(
-                                "Automatic installation needs Peler in the Applications folder. Download the new version from GitHub instead.",
-                            ))
-                            .weak()
-                            .small(),
-                        );
+                        ui.label(RichText::new(update::manual_reason()).weak().small());
                     }
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
@@ -714,7 +706,7 @@ mod tests {
             notes: String::new(),
             date: None,
             page: String::new(),
-            archive: None,
+            download: None,
         }
     }
 
@@ -791,7 +783,7 @@ mod tests {
         Prepared {
             version: version.into(),
             dir: std::path::PathBuf::from("/nonexistent/peler-update-test"),
-            app: std::path::PathBuf::new(),
+            file: std::path::PathBuf::new(),
         }
     }
 

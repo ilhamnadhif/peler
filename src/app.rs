@@ -2,13 +2,14 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use eframe::egui::{
-    self, Color32, CornerRadius, Key, KeyboardShortcut, Modifiers, RichText, Sense, Stroke, Theme,
-    Ui, vec2,
+    self, Color32, CornerRadius, Key, KeyboardShortcut, RichText, Sense, Stroke, Theme, Ui, vec2,
 };
+#[cfg(target_os = "macos")]
 use muda::MenuEvent;
 use uuid::Uuid;
 
@@ -29,11 +30,12 @@ use crate::ui::dialogs::{
 };
 use crate::ui::editor::{Editor, EditorResult};
 use crate::ui::layout::{self, SplitDir};
+#[cfg(target_os = "macos")]
 use crate::ui::menu::{self, AppMenu};
 use crate::ui::sftp_panel::{PanelOutput, SftpPanel};
 use crate::ui::sidebar::{Live, Sidebar, TreeMove};
 use crate::ui::tabs::{Env, Tab};
-use crate::ui::{fonts, icons, kit, style, terminal};
+use crate::ui::{fonts, icons, keys, kit, style, terminal};
 
 /// Settings that need work when they change.
 #[derive(Clone, PartialEq)]
@@ -103,7 +105,9 @@ pub struct PelerApp {
     /// The dialog that was open when ⌘Q asked for confirmation; back if the user cancels.
     dialog_below: Option<Dialog>,
     toasts: Toasts,
+    #[cfg(target_os = "macos")]
     menu: Option<AppMenu>,
+    #[cfg(target_os = "macos")]
     menu_rx: Option<mpsc::Receiver<MenuEvent>>,
     actions: Vec<Action>,
     cell: (FontChoice, f32, egui::Vec2),
@@ -121,6 +125,7 @@ pub struct PelerApp {
     /// auto-repeat must not reach a terminal.
     swallow_repeats: bool,
     /// What Option currently does in the window (Meta or composing), once set.
+    #[cfg(target_os = "macos")]
     option_as_alt: Option<bool>,
     /// Arguments of later launches, forwarded by `crate::instance`.
     instance_rx: Option<std::sync::mpsc::Receiver<Vec<String>>>,
@@ -236,7 +241,9 @@ impl PelerApp {
             o.zoom_with_keyboard = false;
             o.quit_shortcuts.clear();
         });
+        #[cfg(target_os = "macos")]
         let menu = AppMenu::install();
+        #[cfg(target_os = "macos")]
         let menu_rx = menu::event_channel(ctx);
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
@@ -263,7 +270,9 @@ impl PelerApp {
             dialog: None,
             dialog_below: None,
             toasts,
+            #[cfg(target_os = "macos")]
             menu: Some(menu),
+            #[cfg(target_os = "macos")]
             menu_rx: Some(menu_rx),
             actions: Vec::new(),
             cell: (FontChoice::default(), 0.0, vec2(8.0, 16.0)),
@@ -279,6 +288,7 @@ impl PelerApp {
             last_active_tab: None,
             modal_was_open: false,
             swallow_repeats: false,
+            #[cfg(target_os = "macos")]
             option_as_alt: None,
             focus_target: None,
             #[cfg(debug_assertions)]
@@ -608,6 +618,13 @@ impl PelerApp {
             })
     }
 
+    /// Whether the keyboard is in the active tab's focused terminal pane.
+    fn terminal_focused(&self, ctx: &egui::Context) -> bool {
+        self.tabs.get(self.active).is_some_and(|t| {
+            ctx.memory(|m| m.focused()) == Some(terminal::pane_widget_id(t.focused))
+        })
+    }
+
     fn live_map(&self) -> HashMap<Uuid, Live> {
         let mut map = HashMap::new();
         for tab in &self.tabs {
@@ -641,6 +658,12 @@ impl PelerApp {
 
     // ----- input routing ----------------------------------------------------------------------
 
+    /// Clicks in the macOS menu bar (and its key equivalents). Elsewhere there is no menu bar:
+    /// the shortcuts are handled in `handle_shortcuts` and the commands sit in the app menu.
+    #[cfg(not(target_os = "macos"))]
+    fn handle_menu_events(&mut self) {}
+
+    #[cfg(target_os = "macos")]
     fn handle_menu_events(&mut self) {
         let Some(rx) = &self.menu_rx else { return };
         while let Ok(ev) = rx.try_recv() {
@@ -666,10 +689,19 @@ impl PelerApp {
             Key::Num8,
             Key::Num9,
         ];
+        // Without a menu bar (Windows, Linux) the app handles the menu's shortcuts itself.
+        if !cfg!(target_os = "macos") {
+            for shortcut in keys::Shortcut::HANDLED {
+                if ctx.input_mut(|inp| shortcut.consume(inp))
+                    && let Some(action) = shortcut.action()
+                {
+                    self.actions.push(action);
+                }
+            }
+        }
+        let tab_mods = keys::tab_number_modifiers();
         for (i, key) in digits.iter().enumerate() {
-            if ctx.input_mut(|inp| {
-                inp.consume_shortcut(&KeyboardShortcut::new(Modifiers::COMMAND, *key))
-            }) {
+            if ctx.input_mut(|inp| inp.consume_shortcut(&KeyboardShortcut::new(tab_mods, *key))) {
                 let idx = if i == 8 {
                     self.tabs.len().saturating_sub(1)
                 } else {
@@ -764,7 +796,10 @@ impl PelerApp {
         if now != self.applied || self.first_frame {
             if now.language != self.applied.language {
                 i18n::set_language(now.language);
-                self.menu = Some(AppMenu::install());
+                #[cfg(target_os = "macos")]
+                {
+                    self.menu = Some(AppMenu::install());
+                }
             }
             if now.theme != self.applied.theme {
                 style::apply(ctx, now.theme);
@@ -1167,9 +1202,26 @@ impl PelerApp {
                 self.settings.font_size = (self.settings.font_size - 1.0).max(Settings::MIN_FONT)
             }
             Action::FontReset => self.settings.font_size = Settings::default().font_size,
+            // On Windows and Linux a terminal reads a plain Ctrl+C as ^C, so the menu's Copy
+            // copies the terminal's selection itself, and its Paste is marked as a paste.
+            Action::Copy | Action::Cut
+                if !cfg!(target_os = "macos") && self.terminal_focused(ctx) =>
+            {
+                if let Some(p) = self.tabs.get(self.active).and_then(|t| t.focused_pane()) {
+                    terminal::copy_selection(ctx, &p.shared);
+                }
+            }
+            Action::Paste if !cfg!(target_os = "macos") && self.terminal_focused(ctx) => {
+                terminal::request_paste();
+                ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste);
+            }
             Action::Copy => ctx.send_viewport_cmd(egui::ViewportCommand::RequestCopy),
             Action::Paste => ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste),
             Action::Cut => ctx.send_viewport_cmd(egui::ViewportCommand::RequestCut),
+            Action::ToggleFullScreen => {
+                let full = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!full));
+            }
             Action::SelectAll => {
                 if let Some(p) = self.tabs.get(self.active).and_then(|t| t.focused_pane()) {
                     terminal::select_all(&p.shared);
@@ -1368,8 +1420,8 @@ impl PelerApp {
         ));
         if failed > 0 {
             self.toasts.error(tf(
-                "{} credential(s) could not be saved to the Keychain.",
-                &[&failed.to_string()],
+                "{} credential(s) could not be saved to {}.",
+                &[&failed.to_string(), crate::platform::keychain()],
             ));
         }
     }
@@ -1403,8 +1455,11 @@ impl PelerApp {
         let p = style::pal(ui);
         let dark = ui.visuals().dark_mode;
         let bar = ui.max_rect();
-        ui.painter()
-            .hline(bar.x_range(), bar.bottom() - 0.5, Stroke::new(1.0, p.border));
+        ui.painter().hline(
+            bar.x_range(),
+            bar.bottom() - 0.5,
+            Stroke::new(1.0, p.border),
+        );
 
         // The actions on the right first, so the tabs know how much room is left.
         let mut actions = ui.new_child(
@@ -1414,7 +1469,8 @@ impl PelerApp {
         );
         self.tab_actions(&mut actions);
         let actions_left = actions.min_rect().left().min(bar.right());
-        let tabs_rect = egui::Rect::from_min_max(bar.min, egui::pos2(actions_left - 8.0, bar.max.y));
+        let tabs_rect =
+            egui::Rect::from_min_max(bar.min, egui::pos2(actions_left - 8.0, bar.max.y));
         let mut tabs_ui = ui.new_child(
             egui::UiBuilder::new()
                 .max_rect(tabs_rect)
@@ -1453,10 +1509,22 @@ impl PelerApp {
                         let hovered = ui.rect_contains_pointer(rect);
                         let painter = ui.painter();
                         if active {
-                            let body = rect.with_min_y(rect.top() + 5.0).with_max_y(rect.bottom() + 1.0);
-                            let corners = CornerRadius { nw: 8, ne: 8, sw: 0, se: 0 };
+                            let body = rect
+                                .with_min_y(rect.top() + 5.0)
+                                .with_max_y(rect.bottom() + 1.0);
+                            let corners = CornerRadius {
+                                nw: 8,
+                                ne: 8,
+                                sw: 0,
+                                se: 0,
+                            };
                             painter.rect_filled(body, corners, p.canvas);
-                            painter.rect_stroke(body, corners, Stroke::new(1.0, p.border), egui::StrokeKind::Inside);
+                            painter.rect_stroke(
+                                body,
+                                corners,
+                                Stroke::new(1.0, p.border),
+                                egui::StrokeKind::Inside,
+                            );
                             // The selected tab opens onto the terminal below it.
                             painter.hline(
                                 rect.x_range().shrink(1.0),
@@ -1519,17 +1587,26 @@ impl PelerApp {
                             Sense::click(),
                         );
                         if waiting && !hovered {
-                            ui.painter().circle_filled(close_rect.center(), 3.5, p.accent);
+                            ui.painter()
+                                .circle_filled(close_rect.center(), 3.5, p.accent);
                         } else if hovered || active {
                             if close.hovered() {
-                                ui.painter().rect_filled(close_rect, CornerRadius::same(4), p.subtle);
+                                ui.painter().rect_filled(
+                                    close_rect,
+                                    CornerRadius::same(4),
+                                    p.subtle,
+                                );
                             }
                             ui.painter().text(
                                 close_rect.center(),
                                 egui::Align2::CENTER_CENTER,
                                 icons::X,
                                 style::icon_font(12.0),
-                                if close.hovered() { p.text } else { p.text_muted },
+                                if close.hovered() {
+                                    p.text
+                                } else {
+                                    p.text_muted
+                                },
                             );
                         }
                         #[cfg(debug_assertions)]
@@ -1549,22 +1626,34 @@ impl PelerApp {
                             drag_target = Some((*from, tab_id));
                         }
                         resp.context_menu(|ui| {
-                            if ui.button(kit::with_icon(icons::COPY, t("Duplicate Tab"))).clicked() {
+                            if ui
+                                .button(kit::with_icon(icons::COPY, t("Duplicate Tab")))
+                                .clicked()
+                            {
                                 self.actions.push(Action::DuplicateTab(tab_id));
                                 ui.close();
                             }
-                            if ui.button(kit::with_icon(icons::ARROWS_CLOCKWISE, t("Reconnect"))).clicked() {
+                            if ui
+                                .button(kit::with_icon(icons::ARROWS_CLOCKWISE, t("Reconnect")))
+                                .clicked()
+                            {
                                 self.actions.push(Action::SelectTab(i));
                                 self.actions.push(Action::Reconnect);
                                 ui.close();
                             }
-                            if ui.button(kit::with_icon(icons::PENCIL_SIMPLE, t("Edit Connection…"))).clicked() {
+                            if ui
+                                .button(kit::with_icon(icons::PENCIL_SIMPLE, t("Edit Connection…")))
+                                .clicked()
+                            {
                                 self.actions
                                     .push(Action::EditBookmark(self.tabs[i].bookmark.id));
                                 ui.close();
                             }
                             ui.separator();
-                            if ui.button(kit::with_icon(icons::X, t("Close Tab"))).clicked() {
+                            if ui
+                                .button(kit::with_icon(icons::X, t("Close Tab")))
+                                .clicked()
+                            {
                                 self.actions.push(Action::CloseTab(tab_id));
                                 ui.close();
                             }
@@ -1578,7 +1667,11 @@ impl PelerApp {
                             if kit::icon_button(
                                 ui,
                                 icons::PLUS,
-                                &format!("{} (⌘K)", t("Quick Connect…")),
+                                &format!(
+                                    "{} ({})",
+                                    t("Quick Connect…"),
+                                    keys::Shortcut::QuickConnect.label()
+                                ),
                             )
                             .clicked()
                             {
@@ -1619,6 +1712,9 @@ impl PelerApp {
     fn tab_actions(&mut self, ui: &mut Ui) {
         ui.spacing_mut().item_spacing.x = 2.0;
         let has_tab = !self.tabs.is_empty();
+        if !cfg!(target_os = "macos") {
+            self.app_menu(ui);
+        }
         self.theme_button(ui);
         if self.updater.toolbar_button(ui) {
             ui.add_space(4.0);
@@ -1628,7 +1724,11 @@ impl PelerApp {
             if kit::icon_button(
                 ui,
                 icons::SQUARE_SPLIT_HORIZONTAL,
-                &format!("{} (⌘D)", t("Split Right")),
+                &format!(
+                    "{} ({})",
+                    t("Split Right"),
+                    keys::Shortcut::SplitRight.label()
+                ),
             )
             .clicked()
             {
@@ -1657,7 +1757,10 @@ impl PelerApp {
                 }
                 ui.separator();
                 if ui
-                    .button(kit::with_icon(icons::PENCIL_SIMPLE, t("Edit quick commands…")))
+                    .button(kit::with_icon(
+                        icons::PENCIL_SIMPLE,
+                        t("Edit quick commands…"),
+                    ))
                     .clicked()
                 {
                     self.actions.push(Action::Settings);
@@ -1679,7 +1782,7 @@ impl PelerApp {
                     crate::ui::sftp_panel::summary_title(pr),
                     crate::ui::sftp_panel::summary_detail(pr)
                 ),
-                None => format!("{} (⇧⌘F)", t("SFTP Panel")),
+                None => format!("{} ({})", t("SFTP Panel"), keys::Shortcut::Sftp.label()),
             };
             let sftp = kit::button_full(
                 ui,
@@ -1696,6 +1799,257 @@ impl PelerApp {
                 self.actions.push(Action::ToggleSftp);
             }
         });
+    }
+
+    /// The commands of the macOS menu bar, for Windows and Linux (which have none here).
+    fn app_menu(&mut self, ui: &mut Ui) {
+        use keys::Shortcut as S;
+        let button = kit::icon_button(ui, icons::LIST, t("Menu"));
+        #[cfg(debug_assertions)]
+        crate::devtest::record("app-menu", button.rect);
+        let has_tab = !self.tabs.is_empty();
+        let mut chosen = None;
+        egui::Popup::menu(&button).show(|ui| {
+            ui.set_min_width(260.0);
+            let mut item = |ui: &mut Ui,
+                            icon: &str,
+                            label: &str,
+                            shortcut: Option<S>,
+                            action: Action,
+                            enabled: bool| {
+                let mut b = egui::Button::new(kit::with_icon(icon, label));
+                if let Some(s) = shortcut {
+                    b = b.shortcut_text(s.label());
+                }
+                if ui.add_enabled(enabled, b).clicked() {
+                    chosen = Some(action);
+                    ui.close();
+                }
+            };
+            item(
+                ui,
+                icons::PLUS,
+                t("New Connection…"),
+                Some(S::NewConnection),
+                Action::NewBookmark { group: None },
+                true,
+            );
+            item(
+                ui,
+                icons::MAGNIFYING_GLASS,
+                t("Quick Connect…"),
+                Some(S::QuickConnect),
+                Action::QuickConnect,
+                true,
+            );
+            item(
+                ui,
+                icons::TERMINAL_WINDOW,
+                t("New Tab"),
+                Some(S::NewTab),
+                Action::NewTab,
+                has_tab,
+            );
+            item(
+                ui,
+                icons::ARROWS_CLOCKWISE,
+                t("Reconnect"),
+                Some(S::Reconnect),
+                Action::Reconnect,
+                has_tab,
+            );
+            item(
+                ui,
+                icons::X,
+                t("Close"),
+                Some(S::Close),
+                Action::CloseTabOrPane,
+                has_tab,
+            );
+            ui.separator();
+            item(
+                ui,
+                icons::COPY,
+                t("Copy"),
+                Some(S::Copy),
+                Action::Copy,
+                true,
+            );
+            item(
+                ui,
+                icons::CLIPBOARD,
+                t("Paste"),
+                Some(S::Paste),
+                Action::Paste,
+                true,
+            );
+            item(
+                ui,
+                icons::LIST,
+                t("Select All"),
+                None,
+                Action::SelectAll,
+                has_tab,
+            );
+            item(
+                ui,
+                icons::BROOM,
+                t("Clear Scrollback"),
+                Some(S::ClearScrollback),
+                Action::ClearScrollback,
+                has_tab,
+            );
+            ui.separator();
+            ui.menu_button(kit::with_icon(icons::SIDEBAR_SIMPLE, t("View")), |ui| {
+                ui.set_min_width(240.0);
+                item(
+                    ui,
+                    icons::SIDEBAR_SIMPLE,
+                    t("Show/Hide Sidebar"),
+                    Some(S::Sidebar),
+                    Action::ToggleSidebar,
+                    true,
+                );
+                item(
+                    ui,
+                    icons::ARROWS_DOWN_UP,
+                    t("SFTP Panel"),
+                    Some(S::Sftp),
+                    Action::ToggleSftp,
+                    has_tab,
+                );
+                ui.separator();
+                item(
+                    ui,
+                    icons::SQUARE_SPLIT_HORIZONTAL,
+                    t("Split Right"),
+                    Some(S::SplitRight),
+                    Action::SplitRight,
+                    has_tab,
+                );
+                item(
+                    ui,
+                    icons::SQUARE_SPLIT_VERTICAL,
+                    t("Split Down"),
+                    Some(S::SplitDown),
+                    Action::SplitDown,
+                    has_tab,
+                );
+                item(
+                    ui,
+                    icons::ARROW_RIGHT,
+                    t("Next Pane"),
+                    Some(S::NextPane),
+                    Action::NextPane,
+                    has_tab,
+                );
+                item(
+                    ui,
+                    icons::ARROW_LEFT,
+                    t("Previous Pane"),
+                    Some(S::PrevPane),
+                    Action::PrevPane,
+                    has_tab,
+                );
+                ui.separator();
+                item(
+                    ui,
+                    icons::TEXT_AA,
+                    t("Bigger Text"),
+                    Some(S::Bigger),
+                    Action::FontBigger,
+                    true,
+                );
+                item(
+                    ui,
+                    icons::TEXT_AA,
+                    t("Smaller Text"),
+                    Some(S::Smaller),
+                    Action::FontSmaller,
+                    true,
+                );
+                item(
+                    ui,
+                    icons::TEXT_AA,
+                    t("Actual Size"),
+                    Some(S::ActualSize),
+                    Action::FontReset,
+                    true,
+                );
+                item(
+                    ui,
+                    icons::DESKTOP,
+                    t("Full Screen"),
+                    Some(S::FullScreen),
+                    Action::ToggleFullScreen,
+                    true,
+                );
+            });
+            ui.menu_button(kit::with_icon(icons::HARD_DRIVES, t("Connections")), |ui| {
+                ui.set_min_width(240.0);
+                item(
+                    ui,
+                    icons::DOWNLOAD_SIMPLE,
+                    t("Import Connections…"),
+                    None,
+                    Action::Import,
+                    true,
+                );
+                item(
+                    ui,
+                    icons::FILE_CODE,
+                    t("Import from ~/.ssh/config"),
+                    None,
+                    Action::ImportSshConfig,
+                    true,
+                );
+                item(
+                    ui,
+                    icons::EXPORT,
+                    t("Export Connections…"),
+                    Some(S::Export),
+                    Action::Export(ExportScope::All),
+                    true,
+                );
+            });
+            ui.separator();
+            item(
+                ui,
+                icons::GEAR_SIX,
+                t("Settings…"),
+                Some(S::Settings),
+                Action::Settings,
+                true,
+            );
+            item(
+                ui,
+                icons::KEYBOARD,
+                t("Keyboard Shortcuts"),
+                None,
+                Action::Shortcuts,
+                true,
+            );
+            item(
+                ui,
+                icons::ARROW_CIRCLE_UP,
+                t("Check for Updates…"),
+                None,
+                Action::CheckForUpdates,
+                true,
+            );
+            ui.separator();
+            item(
+                ui,
+                icons::SIGN_OUT,
+                t("Quit Peler"),
+                Some(S::Quit),
+                Action::Quit,
+                true,
+            );
+        });
+        if let Some(action) = chosen {
+            self.actions.push(action);
+        }
     }
 
     /// Toolbar button: click toggles dark/light; right-click offers "follow macOS".
@@ -1724,7 +2078,11 @@ impl PelerApp {
             ui.radio_value(
                 &mut self.settings.theme,
                 ThemeMode::System,
-                t("Follow macOS"),
+                if cfg!(target_os = "macos") {
+                    t("Follow macOS")
+                } else {
+                    t("Follow system")
+                },
             );
             ui.radio_value(&mut self.settings.theme, ThemeMode::Light, t("Light"));
             ui.radio_value(&mut self.settings.theme, ThemeMode::Dark, t("Dark"));
@@ -1744,7 +2102,11 @@ impl PelerApp {
             if kit::icon_button_ex(
                 ui,
                 icons::SIDEBAR_SIMPLE,
-                &format!("{} (⌘B)", t("Show/Hide Sidebar")),
+                &format!(
+                    "{} ({})",
+                    t("Show/Hide Sidebar"),
+                    keys::Shortcut::Sidebar.label()
+                ),
                 self.settings.sidebar_visible,
                 22.0,
             )
@@ -1762,8 +2124,7 @@ impl PelerApp {
                     None => tab.bookmark.address(),
                 };
                 ui.add(
-                    egui::Label::new(RichText::new(address).small().color(p.text_muted))
-                        .truncate(),
+                    egui::Label::new(RichText::new(address).small().color(p.text_muted)).truncate(),
                 );
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1805,7 +2166,11 @@ impl PelerApp {
             let (rect, _) = ui.allocate_exact_size(vec2(64.0, 64.0), Sense::hover());
             icons::paint_logo(ui.painter(), rect);
             ui.add_space(14.0);
-            ui.label(RichText::new("Peler").font(style::semibold(24.0)).color(p.text));
+            ui.label(
+                RichText::new("Peler")
+                    .font(style::semibold(24.0))
+                    .color(p.text),
+            );
             ui.add_space(2.0);
             ui.label(RichText::new(t("Lightweight SSH and SFTP client")).color(p.text_muted));
             ui.add_space(22.0);
@@ -1818,7 +2183,8 @@ impl PelerApp {
             let mut quick = false;
             let mut new = false;
             row(ui, 340.0, &mut |ui| {
-                quick = kit::primary_icon(ui, icons::MAGNIFYING_GLASS, t("Quick Connect")).clicked();
+                quick =
+                    kit::primary_icon(ui, icons::MAGNIFYING_GLASS, t("Quick Connect")).clicked();
                 ui.add_space(2.0);
                 new = kit::secondary(ui, Some(icons::PLUS), t("New Connection…")).clicked();
             });
@@ -1832,8 +2198,10 @@ impl PelerApp {
             let mut import = false;
             let mut ssh_config = false;
             row(ui, 360.0, &mut |ui| {
-                import = kit::ghost(ui, Some(icons::DOWNLOAD_SIMPLE), t("Import Connections…")).clicked();
-                ssh_config = kit::ghost(ui, Some(icons::FILE_CODE), t("Import from ~/.ssh/config")).clicked();
+                import = kit::ghost(ui, Some(icons::DOWNLOAD_SIMPLE), t("Import Connections…"))
+                    .clicked();
+                ssh_config = kit::ghost(ui, Some(icons::FILE_CODE), t("Import from ~/.ssh/config"))
+                    .clicked();
             });
             if import {
                 self.actions.push(Action::Import);
@@ -1844,11 +2212,19 @@ impl PelerApp {
             ui.add_space(26.0);
             row(ui, 300.0, &mut |ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-                kit::kbd(ui, "⌘K");
-                ui.label(RichText::new(t("search connections")).small().color(p.text_faint));
+                kit::kbd(ui, &keys::Shortcut::QuickConnect.label());
+                ui.label(
+                    RichText::new(t("search connections"))
+                        .small()
+                        .color(p.text_faint),
+                );
                 ui.add_space(10.0);
-                kit::kbd(ui, "⌘N");
-                ui.label(RichText::new(t("new connection")).small().color(p.text_faint));
+                kit::kbd(ui, &keys::Shortcut::NewConnection.label());
+                ui.label(
+                    RichText::new(t("new connection"))
+                        .small()
+                        .color(p.text_faint),
+                );
             });
             ui.add_space(8.0);
             ui.label(
@@ -1961,14 +2337,22 @@ impl PelerApp {
                                         ui,
                                         kit::Kind::Secondary,
                                         Some(icons::ARROWS_CLOCKWISE),
-                                        &format!("{}   ⌘R", t("Reconnect")),
+                                        &format!(
+                                            "{}   {}",
+                                            t("Reconnect"),
+                                            keys::Shortcut::Reconnect.label()
+                                        ),
                                         true,
                                     );
                                     if reconnect.clicked() {
                                         self.actions.push(Action::Reconnect);
                                     }
-                                    if kit::ghost(ui, Some(icons::PENCIL_SIMPLE), t("Edit Connection…"))
-                                        .clicked()
+                                    if kit::ghost(
+                                        ui,
+                                        Some(icons::PENCIL_SIMPLE),
+                                        t("Edit Connection…"),
+                                    )
+                                    .clicked()
                                     {
                                         self.actions.push(Action::EditBookmark(tab.bookmark.id));
                                     }
@@ -2103,7 +2487,11 @@ impl PelerApp {
                         egui::Id::new(("pane-close", tab_id, pane_id)),
                         Sense::click(),
                     )
-                    .on_hover_text(format!("{} (⌘W)", t("Close pane")));
+                    .on_hover_text(format!(
+                        "{} ({})",
+                        t("Close pane"),
+                        keys::Shortcut::Close.label()
+                    ));
                 if close.hovered() || ui.rect_contains_pointer(rect) {
                     let bg = if close.hovered() { p.hover } else { p.surface };
                     ui.painter().circle(
@@ -2117,7 +2505,11 @@ impl PelerApp {
                         egui::Align2::CENTER_CENTER,
                         icons::X,
                         style::icon_font(12.0),
-                        if close.hovered() { p.text } else { p.text_muted },
+                        if close.hovered() {
+                            p.text
+                        } else {
+                            p.text_muted
+                        },
                     );
                 }
                 #[cfg(debug_assertions)]
@@ -2159,15 +2551,22 @@ impl PelerApp {
             } else {
                 p.border
             };
-            ui.painter().rect_filled(d.rect, CornerRadius::ZERO, p.canvas);
+            ui.painter()
+                .rect_filled(d.rect, CornerRadius::ZERO, p.canvas);
             match d.dir {
                 SplitDir::Horizontal => {
-                    ui.painter()
-                        .vline(d.rect.center().x, d.rect.y_range(), Stroke::new(1.0, color));
+                    ui.painter().vline(
+                        d.rect.center().x,
+                        d.rect.y_range(),
+                        Stroke::new(1.0, color),
+                    );
                 }
                 SplitDir::Vertical => {
-                    ui.painter()
-                        .hline(d.rect.x_range(), d.rect.center().y, Stroke::new(1.0, color));
+                    ui.painter().hline(
+                        d.rect.x_range(),
+                        d.rect.center().y,
+                        Stroke::new(1.0, color),
+                    );
                 }
             }
             if resp.hovered() || resp.dragged() {
@@ -2196,7 +2595,11 @@ impl PelerApp {
                 div.x_range(),
                 div.center().y,
                 Stroke::new(
-                    if resp.hovered() || resp.dragged() { 2.0 } else { 1.0 },
+                    if resp.hovered() || resp.dragged() {
+                        2.0
+                    } else {
+                        1.0
+                    },
                     if resp.hovered() || resp.dragged() {
                         p.accent
                     } else {
@@ -2410,7 +2813,7 @@ impl PelerApp {
                         ui.colored_label(pal.err, if *kind == SecretPromptKind::Passphrase { t("Wrong passphrase, try again.") } else { t("Wrong password, try again.") });
                     }
                     let r = ui.add(style::input(&mut tab.prompt.text).password(!echo));
-                    if *can_save && style::checkbox(ui, &mut tab.prompt.save, t("Save in Keychain")).changed() {
+                    if *can_save && style::checkbox(ui, &mut tab.prompt.save, tf("Save in {}", &[crate::platform::keychain()])).changed() {
                         // Back to the field, so Enter submits instead of toggling the box.
                         r.request_focus();
                     }
@@ -2485,7 +2888,10 @@ impl PelerApp {
                     // login method anyway would leave a connection that can't log in.
                     if let Err(e) = secrets::store_set(id, &set) {
                         let message = format!("{e:#}");
-                        editor.set_error(tf("Could not save to the Keychain: {}", &[&message]));
+                        editor.set_error(tf(
+                            "Could not save to {}: {}",
+                            &[crate::platform::keychain(), &message],
+                        ));
                     } else {
                         self.save_bookmark(ctx, bookmark, clear, connect);
                     }
@@ -2711,6 +3117,9 @@ impl PelerApp {
                 ctx.memory(|m| m.focused()) == Some(terminal::pane_widget_id(t.focused))
             });
         let want = self.settings.option_as_meta && terminal_focused;
+        // On macOS, Option has to be told to act as Alt (it composes characters otherwise);
+        // Windows and Linux deliver Alt as it is.
+        #[cfg(target_os = "macos")]
         if self.option_as_alt != Some(want)
             && let Some(w) = frame.winit_window()
         {
@@ -2722,6 +3131,8 @@ impl PelerApp {
             });
             self.option_as_alt = Some(want);
         }
+        #[cfg(not(target_os = "macos"))]
+        let _ = (want, frame);
     }
 
     /// Keeps the window frame in the settings (saved with them), and on the first frame moves a
@@ -2842,8 +3253,9 @@ impl eframe::App for PelerApp {
                 .last_recovered_panic
                 .is_none_or(|t| now.duration_since(t) > Duration::from_secs(10))
             {
-                self.toasts.error(t(
-                    "Something went wrong and Peler recovered. A report was saved in ~/Library/Logs/Peler.",
+                self.toasts.error(tf(
+                    "Something went wrong and Peler recovered. A report was saved in {}.",
+                    &[&paths::contract_tilde(&paths::logs_dir())],
                 ));
             }
             self.last_recovered_panic = Some(now);
@@ -2853,7 +3265,14 @@ impl eframe::App for PelerApp {
         self.first_frame = false;
     }
 
+    #[cfg(target_os = "macos")]
     fn on_exit(&mut self) {
+        self.exit();
+    }
+
+    // With OpenGL (Windows and Linux) eframe passes its context along.
+    #[cfg(not(target_os = "macos"))]
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.exit();
     }
 }
@@ -2930,16 +3349,12 @@ impl PelerApp {
             .resizable(true)
             .default_size(self.settings.sidebar_width)
             .size_range(200.0..=480.0)
-            .frame(
-                egui::Frame::NONE
-                    .fill(p.chrome)
-                    .inner_margin(egui::Margin {
-                        left: 10,
-                        right: 10,
-                        top: 0,
-                        bottom: 6,
-                    }),
-            )
+            .frame(egui::Frame::NONE.fill(p.chrome).inner_margin(egui::Margin {
+                left: 10,
+                right: 10,
+                top: 0,
+                bottom: 6,
+            }))
             .show_collapsible(ui, &mut sidebar_visible, |ui| {
                 ui.spacing_mut().item_spacing = spacing;
                 let live = self.live_map();

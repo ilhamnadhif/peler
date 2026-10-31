@@ -55,7 +55,6 @@ pub fn sort_entries(entries: &mut [FileEntry], key: SortKey, descending: bool) {
 
 /// Lists a local directory (not recursive). Unreadable entries are skipped.
 pub fn list_local(dir: &Path) -> std::io::Result<Vec<FileEntry>> {
-    use std::os::unix::fs::PermissionsExt;
     let mut out = Vec::new();
     for entry in std::fs::read_dir(dir)? {
         let Ok(entry) = entry else { continue };
@@ -75,10 +74,24 @@ pub fn list_local(dir: &Path) -> std::io::Result<Vec<FileEntry>> {
             is_symlink,
             size: if meta.is_dir() { 0 } else { meta.len() },
             modified: meta.modified().ok().and_then(unix_secs),
-            mode: Some(meta.permissions().mode() & 0o7777),
+            mode: local_mode(&meta),
         });
     }
     Ok(out)
+}
+
+/// The permission bits of a local file (Windows files have none).
+pub fn local_mode(meta: &std::fs::Metadata) -> Option<u32> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        Some(meta.permissions().mode() & 0o7777)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = meta;
+        None
+    }
 }
 
 pub fn unix_secs(t: SystemTime) -> Option<i64> {

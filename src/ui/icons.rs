@@ -85,7 +85,8 @@ fn gradient_fill(painter: &Painter, pts: &[Pos2], top: Color32, bottom: Color32)
     let (y0, y1) = pts
         .iter()
         .fold((f32::MAX, f32::MIN), |(a, b), p| (a.min(p.y), b.max(p.y)));
-    let color_at = |y: f32| top.lerp_to_gamma(bottom, ((y - y0) / (y1 - y0).max(1.0)).clamp(0.0, 1.0));
+    let color_at =
+        |y: f32| top.lerp_to_gamma(bottom, ((y - y0) / (y1 - y0).max(1.0)).clamp(0.0, 1.0));
     let center = pts.iter().fold(Pos2::ZERO, |acc, p| acc + p.to_vec2()) / pts.len() as f32;
     let mut mesh = egui::Mesh::default();
     mesh.colored_vertex(center, color_at(center.y));
@@ -106,11 +107,17 @@ pub fn paint_logo(painter: &Painter, rect: Rect) {
     const K: f32 = 1.08;
     let g = |v: f32| 512.0 + (v - 512.0) * K;
     let at = |x: f32, y: f32| rect.min + vec2((g(x) - 100.0) * s, (g(y) - 100.0) * s);
-    let r = |x: f32, y: f32, w: f32, h: f32| Rect::from_min_size(at(x, y), vec2(w * s * K, h * s * K));
+    let r =
+        |x: f32, y: f32, w: f32, h: f32| Rect::from_min_size(at(x, y), vec2(w * s * K, h * s * K));
     let s_glyph = s * K;
     let small = rect.width() < 40.0;
 
-    gradient_fill(painter, &rounded_points(rect, 185.0 * s, 10), LOGO_TOP, LOGO_BOTTOM);
+    gradient_fill(
+        painter,
+        &rounded_points(rect, 185.0 * s, 10),
+        LOGO_TOP,
+        LOGO_BOTTOM,
+    );
     for (i, top) in [297.0, 537.0].into_iter().enumerate() {
         let unit = r(232.0, top, 560.0, 190.0);
         gradient_fill(

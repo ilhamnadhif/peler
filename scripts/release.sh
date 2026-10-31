@@ -9,8 +9,10 @@
 # publish Developer ID signed, notarized builds that open without any warning.
 #
 # Steps: checks → version bump in Cargo.toml → tests → build (.app, .dmg, .pkg, .zip, cask) →
-# commit + tag → push the commit → draft GitHub release with the files attached → push the tag
-# → publish the release. Users see nothing before the last step. If a step fails, run the same
+# commit + tag → push the commit → draft GitHub release with the macOS files → push the tag.
+# The tag starts CI (.github/workflows/ci.yml), which tests on Linux and Windows, builds their
+# packages, adds them to the draft and publishes it (scripts/ci-publish.sh); this script waits
+# for that. Users see nothing before the release is published. If a step fails, run the same
 # command again: it continues where it stopped (a failure before the commit restores Cargo.toml
 # and Cargo.lock).
 set -euo pipefail
@@ -119,11 +121,19 @@ cat >> "$BODY" <<'INSTALL'
 
 ## Install
 
+**macOS**: run this in Terminal, or download the `.pkg` or `.dmg` below.
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/peler/master/scripts/install.sh | bash
 ```
 
-Or download the `.pkg` or `.dmg` below. Peler 1.1.0 and later update themselves from the app.
+**Windows**: run `Peler-<version>-windows-x64-setup.exe` (no administrator rights needed), or
+unpack the portable `.zip`.
+
+**Linux**: the `.deb` (Debian, Ubuntu, Mint), the `.rpm` (Fedora, RHEL, openSUSE), or the
+`.AppImage` and the `.tar.gz` for any distribution, for x86_64 and aarch64 (arm64).
+
+Installed copies update themselves from the app (the `.deb` and `.rpm` through a new package).
 INSTALL
 if [ -z "${PELER_NOTARY_PROFILE:-}" ]; then
     cat >> "$BODY" <<'GATEKEEPER'
@@ -155,8 +165,19 @@ fi
 echo "==> Pushing the tag"
 git push --quiet origin "refs/tags/$TAG"
 
-echo "==> Publishing"
-gh release edit "$TAG" --draft=false --latest
-
+# CI adds the Windows and Linux files and publishes the release.
+REPO_URL="$(gh repo view --json url --jq .url)"
+echo "==> CI builds Windows and Linux and publishes $TAG ($REPO_URL/actions)"
+run=""
+for _ in $(seq 1 30); do
+    run="$(gh run list --workflow ci.yml --branch "$TAG" --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)"
+    [ -n "$run" ] && break
+    sleep 5
+done
+if [ -n "$run" ]; then
+    gh run watch "$run" --exit-status --interval 30 >/dev/null ||
+        fail "CI failed for $TAG: $REPO_URL/actions/runs/$run (fix it and push the tag again, or run this script again)"
+fi
+[ "$(release_state)" = "published" ] || fail "$TAG is not published yet: see $REPO_URL/actions"
 echo
-echo "Released $TAG. Installed copies of Peler will offer the update on their next check."
+echo "Released $TAG on macOS, Windows and Linux. Installed copies of Peler will offer the update on their next check."

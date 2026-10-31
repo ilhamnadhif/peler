@@ -157,8 +157,12 @@ pub fn export(
             anyhow!(
                 "{}",
                 tf(
-                    "Could not read the saved credentials of {} from the Keychain: {}",
-                    &[&b.display_name(), &format!("{e:#}")]
+                    "Could not read the saved credentials of {} from {}: {}",
+                    &[
+                        &b.display_name(),
+                        crate::platform::keychain(),
+                        &format!("{e:#}")
+                    ]
                 )
             )
         })?;
@@ -352,9 +356,10 @@ fn read_peler(value: serde_json::Value) -> Result<Incoming> {
         bookmarks.push(e.bookmark);
     }
     if !secrets.is_empty() {
-        warnings.push(
-            t("Passwords and keys from the file will be stored in the macOS Keychain.").into(),
-        );
+        warnings.push(tf(
+            "Passwords and keys from the file will be stored in {}.",
+            &[crate::platform::keychain()],
+        ));
     }
     Ok(Incoming {
         kind: SourceKind::Peler,

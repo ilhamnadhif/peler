@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Peler
+GenericName=SSH Client
+Comment=Lightweight SSH and SFTP client
+Exec=peler %U
+Icon=peler
+StartupWMClass=peler
+Terminal=false
+Categories=Network;RemoteAccess;System;
+Keywords=SSH;SFTP;terminal;remote;server;

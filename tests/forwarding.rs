@@ -1,5 +1,8 @@
 //! Jump hosts, port forwarding and SSH agent logins against a real OpenSSH server.
 
+// Against a local OpenSSH server (`/usr/sbin/sshd`): macOS and Linux.
+#![cfg(unix)]
+
 mod common;
 
 use std::io::{Read, Write};

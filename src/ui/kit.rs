@@ -146,11 +146,7 @@ pub fn button_full(
         }
         let mut x = rect.center().x - content_w / 2.0;
         let fade = |c: Color32| {
-            if enabled {
-                c
-            } else {
-                c.gamma_multiply(0.45)
-            }
+            if enabled { c } else { c.gamma_multiply(0.45) }
         };
         if let Some(g) = icon_galley {
             let pos = egui::pos2(x, rect.center().y - g.size().y / 2.0);
@@ -312,7 +308,12 @@ pub fn button_group(ui: &mut Ui, segments: &[Segment]) -> Vec<Response> {
             );
         }
         if resp.has_focus() {
-            painter.rect_stroke(r.shrink(1.0), corners, Stroke::new(1.5, p.accent), StrokeKind::Inside);
+            painter.rect_stroke(
+                r.shrink(1.0),
+                corners,
+                Stroke::new(1.5, p.accent),
+                StrokeKind::Inside,
+            );
         }
         out.push(resp);
     }
@@ -332,7 +333,11 @@ pub fn button_group(ui: &mut Ui, segments: &[Segment]) -> Vec<Response> {
 
 /// A row of tabs with an underline under the selected one and a hairline under the whole
 /// row. Returns each tab's response.
-pub fn tab_strip<T: PartialEq + Copy>(ui: &mut Ui, current: &mut T, items: &[(T, &str)]) -> Vec<Response> {
+pub fn tab_strip<T: PartialEq + Copy>(
+    ui: &mut Ui,
+    current: &mut T,
+    items: &[(T, &str)],
+) -> Vec<Response> {
     let p = style::pal(ui);
     let start_x = ui.cursor().min.x;
     let right = ui.max_rect().right();
@@ -350,7 +355,9 @@ pub fn tab_strip<T: PartialEq + Copy>(ui: &mut Ui, current: &mut T, items: &[(T,
                 );
                 let (rect, resp) =
                     ui.allocate_exact_size(vec2(galley.size().x + 2.0 * pad, 34.0), Sense::click());
-                resp.widget_info(|| WidgetInfo::selected(WidgetType::SelectableLabel, true, selected, *label));
+                resp.widget_info(|| {
+                    WidgetInfo::selected(WidgetType::SelectableLabel, true, selected, *label)
+                });
                 if resp.clicked() {
                     *current = *value;
                 }
@@ -478,7 +485,8 @@ pub fn combo_caret(ui: &Ui, rect: Rect, visuals: &egui::style::WidgetVisuals, op
         egui::pos2(c.x, c.y + h),
         egui::pos2(c.x + w, c.y - h),
     ];
-    ui.painter().add(egui::Shape::line(points, Stroke::new(1.4, color)));
+    ui.painter()
+        .add(egui::Shape::line(points, Stroke::new(1.4, color)));
 }
 
 /// A thin vertical divider between toolbar groups.
@@ -496,7 +504,14 @@ pub fn section_title(text: &str) -> RichText {
 
 /// An icon on its own, as a label.
 pub fn icon(ui: &mut Ui, icon: &str, size: f32, color: Color32) -> Response {
-    ui.add(egui::Label::new(RichText::new(icon).font(style::icon_font(size)).color(color)).selectable(false))
+    ui.add(
+        egui::Label::new(
+            RichText::new(icon)
+                .font(style::icon_font(size))
+                .color(color),
+        )
+        .selectable(false),
+    )
 }
 
 /// A bordered card.
@@ -530,7 +545,13 @@ pub fn icon_badge(ui: &mut Ui, icon: &str, color: Color32, diameter: f32) -> Res
 
 /// A centered empty state: an icon in a soft circle, a title, a line of explanation, then
 /// whatever `actions` adds (buttons, shortcut hints).
-pub fn empty_state(ui: &mut Ui, icon: &str, title: &str, body: &str, actions: impl FnOnce(&mut Ui)) {
+pub fn empty_state(
+    ui: &mut Ui,
+    icon: &str,
+    title: &str,
+    body: &str,
+    actions: impl FnOnce(&mut Ui),
+) {
     let p = style::pal(ui);
     ui.vertical_centered(|ui| {
         ui.add_space((ui.available_height() * 0.22).clamp(12.0, 140.0));
@@ -544,7 +565,11 @@ pub fn empty_state(ui: &mut Ui, icon: &str, title: &str, body: &str, actions: im
             p.text_muted,
         );
         ui.add_space(10.0);
-        ui.label(RichText::new(title).font(style::semibold(15.0)).color(p.text));
+        ui.label(
+            RichText::new(title)
+                .font(style::semibold(15.0))
+                .color(p.text),
+        );
         ui.add_space(2.0);
         ui.label(RichText::new(body).color(p.text_muted));
         ui.add_space(12.0);
@@ -553,8 +578,22 @@ pub fn empty_state(ui: &mut Ui, icon: &str, title: &str, body: &str, actions: im
 }
 
 /// A single-line search field with a magnifier inside and a clear button.
-pub fn search_field(ui: &mut Ui, id: egui::Id, text: &mut String, hint_text: &str, width: f32) -> Response {
-    field_with_icon(ui, id, text, hint_text, width, super::icons::MAGNIFYING_GLASS, true)
+pub fn search_field(
+    ui: &mut Ui,
+    id: egui::Id,
+    text: &mut String,
+    hint_text: &str,
+    width: f32,
+) -> Response {
+    field_with_icon(
+        ui,
+        id,
+        text,
+        hint_text,
+        width,
+        super::icons::MAGNIFYING_GLASS,
+        true,
+    )
 }
 
 /// A single-line field with `icon` inside on the left (and, with `clear`, a button that
@@ -592,7 +631,10 @@ pub fn field_with_icon(
         p.text_faint,
     );
     if clear && !text.is_empty() {
-        let x_rect = Rect::from_center_size(egui::pos2(r.right() - 13.0, r.center().y), Vec2::splat(16.0));
+        let x_rect = Rect::from_center_size(
+            egui::pos2(r.right() - 13.0, r.center().y),
+            Vec2::splat(16.0),
+        );
         let x = ui.interact(x_rect, resp.id.with("clear"), Sense::click());
         let color = if x.hovered() { p.text } else { p.text_faint };
         ui.painter().text(

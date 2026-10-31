@@ -1,6 +1,9 @@
 //! A connection whose server stops answering (as after turning a VPN on: the socket stays
 //! open, nothing comes back) is noticed by the connection check and closed with a reason.
 
+// Against a local OpenSSH server (`/usr/sbin/sshd`): macOS and Linux.
+#![cfg(unix)]
+
 mod common;
 
 use std::process::Command;

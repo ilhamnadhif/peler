@@ -76,8 +76,8 @@ impl Status {
 fn bind_error(port: u16, e: &std::io::Error) -> String {
     if e.kind() == std::io::ErrorKind::AddrInUse {
         tf(
-            "port {} is already in use on this Mac",
-            &[&port.to_string()],
+            "port {} is already in use on {}",
+            &[&port.to_string(), crate::platform::this_computer()],
         )
     } else {
         tf(

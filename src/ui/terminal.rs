@@ -535,8 +535,10 @@ pub fn show(
                     modifiers,
                     ..
                 } => {
-                    if modifiers.command {
-                        continue; // app shortcuts
+                    // ⌘ combinations are the app's (macOS). On Windows and Linux Ctrl goes to the
+                    // remote program; the app's own shortcuts were taken out before.
+                    if modifiers.mac_cmd {
+                        continue;
                     }
                     let mods = mods_of(modifiers);
                     if modifiers.shift && !mode.contains(TermMode::ALT_SCREEN) {
@@ -571,15 +573,38 @@ pub fn show(
                     }
                     typed.extend_from_slice(text.as_bytes());
                 }
+                // On Windows and Linux egui turns Ctrl+C, Ctrl+X and Ctrl+V into these events, but
+                // in a terminal plain Ctrl+C belongs to the remote program: only Ctrl+Shift+C
+                // and Ctrl+Shift+V (and the menu) copy and paste, as in other terminals there.
+                // Windows Terminal's habits also work there: Ctrl+C copies while text is
+                // selected, and Ctrl+V pastes.
                 Event::Paste(text) if alive => {
-                    typed.extend(input::encode_paste(
-                        &text,
-                        mode.contains(TermMode::BRACKETED_PASTE),
-                    ));
+                    let requested =
+                        PASTE_REQUESTED.swap(false, std::sync::atomic::Ordering::Relaxed);
+                    let shift = ui.input(|i| i.modifiers.shift);
+                    if cfg!(target_os = "macos") || cfg!(windows) || shift || requested {
+                        typed.extend(input::encode_paste(
+                            &text,
+                            mode.contains(TermMode::BRACKETED_PASTE),
+                        ));
+                    } else {
+                        typed.push(0x16); // Ctrl+V
+                    }
                 }
                 Event::Copy | Event::Cut => {
-                    if let Some(text) = term.selection_to_string() {
-                        ui.ctx().copy_text(text);
+                    let shift = ui.input(|i| i.modifiers.shift);
+                    let selected = term.selection_to_string().filter(|s| !s.is_empty());
+                    let copies =
+                        cfg!(target_os = "macos") || shift || (cfg!(windows) && selected.is_some());
+                    if copies {
+                        if let Some(text) = selected {
+                            ui.ctx().copy_text(text);
+                            if !cfg!(target_os = "macos") {
+                                term.selection = None;
+                            }
+                        }
+                    } else if alive {
+                        typed.push(if event == Event::Copy { 0x03 } else { 0x18 }); // Ctrl+C / Ctrl+X
                     }
                 }
                 Event::Ime(ImeEvent::Preedit { text, .. }) => view.preedit = text,
@@ -1176,6 +1201,14 @@ fn on_terminal_layer(ui: &Ui, pos: Pos2) -> bool {
     ui.ctx()
         .layer_id_at(pos)
         .is_none_or(|layer| layer == ui.layer_id())
+}
+
+/// Set by the menu's Paste (Windows and Linux): the next paste event is a paste, not a typed
+/// Ctrl+V.
+static PASTE_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn request_paste() {
+    PASTE_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 pub fn select_all(shared: &TermShared) {

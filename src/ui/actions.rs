@@ -47,6 +47,8 @@ pub enum Action {
     FontBigger,
     FontSmaller,
     FontReset,
+    /// Windows and Linux (macOS has it in the menu bar's View menu).
+    ToggleFullScreen,
     // edit
     Copy,
     Paste,

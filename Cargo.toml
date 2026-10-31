@@ -15,15 +15,15 @@ base64 = "0.23.1"
 chacha20poly1305 = "0.11.0"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde", "std"] }
 dirs = "7.0.0"
-eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts", "wgpu"] }
+# The renderer is chosen per system below: Metal (wgpu) on macOS, OpenGL elsewhere (it starts
+# faster and keeps the binary small), with Direct3D 12 as the fallback on Windows.
+eframe = { version = "0.36.2", default-features = false, features = ["accesskit", "default_fonts"] }
 egui_extras = { version = "0.36.2", default-features = false }
 getrandom = "0.4.3"
 hmac = "0.13.0"
 keyring = { version = "4.2.0", default-features = false, features = ["apple-native-keyring-store", "v1"] }
-libc = "0.2.190"
 log = "0.4.34"
 memmap2 = "0.9.11"
-muda = "0.21.2"
 parking_lot = "0.12.5"
 rfd = "0.17.2"
 # RSA logins are signed with ring (constant time); see src/ssh/rsa_sign.rs. Both are already
@@ -42,14 +42,37 @@ tokio-util = "0.7.20"
 skrifa = "0.44.0"
 sha2 = "0.11.1"
 uuid = { version = "1.28.0", features = ["v4", "serde", "v5"] }
-winit = "0.30"
 
-# AppKit bindings (already in the dependency tree via winit): used by the debug-only
-# end-to-end test driver that injects real keyboard and mouse events.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2.190"
+
+# The menu bar and window details exist on macOS only. The AppKit bindings (already in the
+# dependency tree via winit) are used by the debug-only end-to-end test driver, which injects
+# real keyboard and mouse events.
 [target.'cfg(target_os = "macos")'.dependencies]
+eframe = { version = "0.36.2", default-features = false, features = ["wgpu"] }
+muda = "0.21.2"
+winit = "0.30"
 objc2 = "0.6.5"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSGeometry", "NSArray"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSEvent", "NSApplication", "NSResponder", "NSWindow", "NSView", "NSGraphicsContext"] }
+
+# OpenGL, on X11 or Wayland, whichever the session runs (both are loaded at run time, so the
+# binary links neither).
+[target.'cfg(target_os = "linux")'.dependencies]
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "x11", "wayland"] }
+
+# OpenGL, and Direct3D 12 (only that wgpu backend) for machines without OpenGL 2 (virtual
+# machines, Remote Desktop, no graphics driver). windows-sys lists the network interfaces, for
+# noticing network changes (already in the dependency tree).
+[target.'cfg(windows)'.dependencies]
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "wgpu_no_default_features"] }
+wgpu = { version = "30", default-features = false, features = ["std", "parking_lot", "dx12"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
+
+# The icon and version information of peler.exe (Explorer, the taskbar, Start menu shortcuts).
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
 
 [dev-dependencies]
 signature = "3.0.0"

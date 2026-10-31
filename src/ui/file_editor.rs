@@ -299,11 +299,19 @@ impl FileEditor {
                 ui.set_height(style::CONTROL_H);
                 let (icon, color) = super::icons::file_icon(self.name(), false, false, &p);
                 super::kit::icon(ui, icon, 16.0, color);
-                ui.label(RichText::new(self.name()).font(style::semibold(14.0)).color(p.text));
+                ui.label(
+                    RichText::new(self.name())
+                        .font(style::semibold(14.0))
+                        .color(p.text),
+                );
                 if self.is_dirty() {
                     super::kit::dot(ui, p.accent, 3.5).on_hover_text(t("Unsaved changes"));
                 }
-                ui.label(RichText::new(remote_parent(&self.path)).small().color(p.text_faint));
+                ui.label(
+                    RichText::new(remote_parent(&self.path))
+                        .small()
+                        .color(p.text_faint),
+                );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button(t("Close")).clicked() {
                         close_clicked = true;
@@ -316,7 +324,7 @@ impl FileEditor {
                                 ui,
                                 super::kit::Kind::Primary,
                                 Some(super::icons::FLOPPY_DISK),
-                                &format!("{}   ⌘S", t("Save")),
+                                &format!("{}   {}", t("Save"), super::keys::Shortcut::Save.label()),
                                 false,
                             )
                         })
@@ -331,7 +339,10 @@ impl FileEditor {
                     if matches!(self.state, State::Ready)
                         && ui
                             .button(t("Save a Copy…"))
-                            .on_hover_text(t("Save the text to a file on this Mac"))
+                            .on_hover_text(tf(
+                                "Save the text to a file on {}",
+                                &[crate::platform::this_computer()],
+                            ))
                             .clicked()
                     {
                         copy_clicked = true;

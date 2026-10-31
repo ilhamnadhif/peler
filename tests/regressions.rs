@@ -1,5 +1,8 @@
 //! Regression tests for review findings: host keys in the user's known_hosts, and reconnect.
 
+// Against a local OpenSSH server (`/usr/sbin/sshd`): macOS and Linux.
+#![cfg(unix)]
+
 mod common;
 
 use std::time::Duration;

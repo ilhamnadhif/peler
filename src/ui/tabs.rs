@@ -314,7 +314,10 @@ impl Tab {
             *pane.status.lock() = PaneStatus::Failed(crate::i18n::t("Not connected.").into());
             tcore::end_session(
                 &mut pane.feeder.lock(),
-                crate::i18n::t("[Connection closed. Press Enter or ⌘R to reconnect.]"),
+                &crate::i18n::tf(
+                    "[Connection closed. Press Enter or {} to reconnect.]",
+                    &[&super::keys::Shortcut::Reconnect.label()],
+                ),
             );
         } else {
             self.conn

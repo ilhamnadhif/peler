@@ -517,12 +517,12 @@ async fn upload_file(
     remote_path: &str,
     size: u64,
 ) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
     let local_mode = src
         .metadata()
         .await
-        .map(|m| m.permissions().mode() & 0o777)
-        .ok();
+        .ok()
+        .and_then(|m| crate::sftp::entry::local_mode(&m))
+        .map(|m| m & 0o777);
     // Through a symlink, the file it points to is replaced and the link stays.
     let dest = remote::link_target(sftp, remote_path).await;
     let existing = sftp.metadata(dest.as_str()).await.ok();
@@ -745,7 +745,6 @@ async fn download_file(
     size: u64,
     mode: Option<u32>,
 ) -> Result<(), String> {
-    use std::os::unix::fs::PermissionsExt;
     let file_name = local
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -797,10 +796,15 @@ async fn download_file(
         let _ = tokio::fs::remove_file(&partial).await;
         return Err(e);
     }
+    // The remote file's permissions (and its executable bit) carry over; Windows files have none.
+    #[cfg(unix)]
     if let Some(mode) = mode {
+        use std::os::unix::fs::PermissionsExt;
         let _ = tokio::fs::set_permissions(&partial, std::fs::Permissions::from_mode(mode & 0o777))
             .await;
     }
+    #[cfg(not(unix))]
+    let _ = mode;
     tokio::fs::rename(&partial, local).await.map_err(|e| {
         let _ = std::fs::remove_file(&partial);
         format!("{}: {e}", local.display())

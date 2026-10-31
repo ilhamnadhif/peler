@@ -7,8 +7,10 @@ pub mod file_editor;
 pub mod fonts;
 pub mod icon_codes;
 pub mod icons;
+pub mod keys;
 pub mod kit;
 pub mod layout;
+#[cfg(target_os = "macos")]
 pub mod menu;
 pub mod sftp_panel;
 pub mod sidebar;

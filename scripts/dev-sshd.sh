@@ -18,7 +18,7 @@ UsePAM no
 StrictModes no
 PasswordAuthentication no
 KbdInteractiveAuthentication no
-Subsystem sftp /usr/libexec/sftp-server
+Subsystem sftp internal-sftp
 LogLevel ERROR
 AcceptEnv LANG LC_*
 EOF

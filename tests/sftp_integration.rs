@@ -1,5 +1,8 @@
 //! SFTP over a real OpenSSH server: listing, file operations, transfers with verification.
 
+// Against a local OpenSSH server (`/usr/sbin/sshd`): macOS and Linux.
+#![cfg(unix)]
+
 mod common;
 
 use std::io::{Read, Write};

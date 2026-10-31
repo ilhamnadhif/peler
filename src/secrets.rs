@@ -1,4 +1,5 @@
-//! Credentials in the macOS Keychain.
+//! Credentials in the system's secret store: the Keychain on macOS, Credential Manager on
+//! Windows, the Secret Service (GNOME Keyring, KWallet, KeePassXC …) on Linux.
 //!
 //! Each bookmark can have up to three secrets, stored as separate generic-password items under
 //! service `peler`, account `<bookmark-id>/<kind>`. Nothing secret is ever written to the
@@ -103,7 +104,11 @@ fn backend() -> &'static Backend {
 }
 
 fn entry(id: Uuid, kind: SecretKind) -> anyhow::Result<keyring::Entry> {
-    keyring::Entry::new(SERVICE, &account(id, kind)).map_err(|e| anyhow::anyhow!("Keychain: {e}"))
+    keyring::Entry::new(SERVICE, &account(id, kind)).map_err(store_error)
+}
+
+fn store_error(e: impl std::fmt::Display) -> anyhow::Error {
+    anyhow::anyhow!("{}: {e}", crate::platform::SECRET_STORE)
 }
 
 /// Reads one secret. A missing item is `Ok(None)`. Blocking: keep off the UI thread when the
@@ -114,7 +119,7 @@ pub fn get(id: Uuid, kind: SecretKind) -> anyhow::Result<Option<String>> {
         Backend::Keychain => match entry(id, kind)?.get_password() {
             Ok(v) => Ok(Some(v)),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(anyhow::anyhow!("Keychain: {e}")),
+            Err(e) => Err(store_error(e)),
         },
     }
 }
@@ -140,7 +145,7 @@ pub fn set(id: Uuid, kind: SecretKind, value: Option<&str>) -> anyhow::Result<()
                     other => other,
                 },
             };
-            res.map_err(|e| anyhow::anyhow!("Keychain: {e}"))
+            res.map_err(store_error)
         }
     }
 }

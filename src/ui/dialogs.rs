@@ -68,7 +68,9 @@ impl Palette {
                                         .color(p.text_faint),
                                 )
                                 .font(egui::FontId::proportional(16.0))
-                                .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 10)))
+                                .frame(
+                                    egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 10)),
+                                )
                                 .desired_width(f32::INFINITY),
                         )
                     })
@@ -119,8 +121,15 @@ impl Palette {
                     };
                 }
                 if let Some(a) = &address {
-                    if palette_row(ui, true, icons::ARROW_RIGHT, &tf("Connect to {}", &[a]), "", "")
-                        .clicked()
+                    if palette_row(
+                        ui,
+                        true,
+                        icons::ARROW_RIGHT,
+                        &tf("Connect to {}", &[a]),
+                        "",
+                        "",
+                    )
+                    .clicked()
                     {
                         result = PaletteResult::ConnectTo(a.clone());
                     }
@@ -175,7 +184,11 @@ impl Palette {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 6.0;
-                    for (keys, what) in [("↑↓", t("navigate")), ("↩", t("connect")), ("esc", t("close"))] {
+                    for (keys, what) in [
+                        ("↑↓", t("navigate")),
+                        ("↩", t("connect")),
+                        ("esc", t("close")),
+                    ] {
                         kit::kbd(ui, keys);
                         ui.label(RichText::new(what).small().color(p.text_faint));
                         ui.add_space(8.0);
@@ -199,7 +212,8 @@ fn palette_row(
     group: &str,
 ) -> egui::Response {
     let p = style::pal(ui);
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), egui::Sense::click());
+    let (rect, resp) =
+        ui.allocate_exact_size(vec2(ui.available_width(), 38.0), egui::Sense::click());
     let painter = ui.painter();
     if selected {
         painter.rect_filled(rect, egui::CornerRadius::same(7), p.accent_soft);
@@ -212,11 +226,19 @@ fn palette_row(
         Align2::CENTER_CENTER,
         icon,
         style::icon_font(16.0),
-        if selected { p.accent_text } else { p.text_muted },
+        if selected {
+            p.accent_text
+        } else {
+            p.text_muted
+        },
     );
     let name_g = painter.layout_no_wrap(name.to_string(), style::medium(14.0), p.text);
     let x = rect.left() + 36.0;
-    let group_g = painter.layout_no_wrap(group.to_string(), egui::FontId::proportional(12.0), p.text_faint);
+    let group_g = painter.layout_no_wrap(
+        group.to_string(),
+        egui::FontId::proportional(12.0),
+        p.text_faint,
+    );
     let right = rect.right() - 12.0 - group_g.size().x - 12.0;
     let clip = egui::Rect::from_min_max(rect.min, egui::pos2(right, rect.bottom()));
     let name_w = name_g.size().x;
@@ -233,11 +255,16 @@ fn palette_row(
         );
     }
     painter.galley(
-        egui::pos2(rect.right() - 12.0 - group_g.size().x, cy - group_g.size().y / 2.0),
+        egui::pos2(
+            rect.right() - 12.0 - group_g.size().x,
+            cy - group_g.size().y / 2.0,
+        ),
         group_g,
         p.text_faint,
     );
-    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, name));
+    resp.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, name)
+    });
     resp
 }
 
@@ -386,7 +413,12 @@ impl Dialog {
                             (icons::QUESTION, p.accent)
                         };
                         kit::icon_badge(ui, icon, color, 40.0);
-                        ui.add(egui::Label::new(RichText::new(title.as_str()).font(style::semibold(17.0))).wrap());
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(title.as_str()).font(style::semibold(17.0)),
+                            )
+                            .wrap(),
+                        );
                     });
                     ui.add_space(6.0);
                     ui.label(RichText::new(message.as_str()).color(p.text_muted));
@@ -486,26 +518,48 @@ fn shortcuts(ctx: &egui::Context) -> DialogResult {
             .num_columns(2)
             .spacing([24.0, 8.0])
             .show(ui, |ui| {
-                for (keys, what) in [
-                    ("⌘K", t("Search connections and connect")),
-                    ("⌘T", t("New tab (same server)")),
-                    ("⌘W", t("Close pane or tab")),
-                    ("⌘1 … ⌘9", t("Switch to tab")),
-                    ("⇧⌘[  ⇧⌘]", t("Previous / next tab")),
-                    ("⌘R", t("Reconnect")),
-                    ("⌘D  ⇧⌘D", t("Split right / down")),
-                    ("⌘[  ⌘]", t("Previous / next pane")),
-                    ("⌘B", t("Show/Hide Sidebar")),
-                    ("⇧⌘F", t("SFTP Panel")),
-                    ("⌘N", t("New Connection…")),
-                    ("⌘=  ⌘-  ⌘0", t("Text size")),
-                    ("⌥⌘K", t("Clear Scrollback")),
-                    ("⇧PageUp / ⇧PageDown", t("Scroll back")),
-                    ("⌘,", t("Settings…")),
-                ] {
+                use super::keys::Shortcut as S;
+                let rows: Vec<(Vec<String>, &str)> = vec![
+                    (
+                        vec![S::QuickConnect.label()],
+                        t("Search connections and connect"),
+                    ),
+                    (vec![S::NewTab.label()], t("New tab (same server)")),
+                    (vec![S::Close.label()], t("Close pane or tab")),
+                    (
+                        vec![super::keys::tab_number_label().to_string()],
+                        t("Switch to tab"),
+                    ),
+                    (
+                        vec![S::PrevTab.label(), S::NextTab.label()],
+                        t("Previous / next tab"),
+                    ),
+                    (vec![S::Reconnect.label()], t("Reconnect")),
+                    (
+                        vec![S::SplitRight.label(), S::SplitDown.label()],
+                        t("Split right / down"),
+                    ),
+                    (
+                        vec![S::PrevPane.label(), S::NextPane.label()],
+                        t("Previous / next pane"),
+                    ),
+                    (vec![S::Copy.label(), S::Paste.label()], t("Copy / paste")),
+                    (vec![S::Sidebar.label()], t("Show/Hide Sidebar")),
+                    (vec![S::Sftp.label()], t("SFTP Panel")),
+                    (vec![S::NewConnection.label()], t("New Connection…")),
+                    (
+                        vec![S::Bigger.label(), S::Smaller.label(), S::ActualSize.label()],
+                        t("Text size"),
+                    ),
+                    (vec![S::ClearScrollback.label()], t("Clear Scrollback")),
+                    (vec!["⇧PageUp / ⇧PageDown".to_string()], t("Scroll back")),
+                    (vec![S::FullScreen.label()], t("Full Screen")),
+                    (vec![S::Settings.label()], t("Settings…")),
+                ];
+                for (keys, what) in rows {
                     ui.horizontal(|ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
-                        for key in keys.split("  ") {
+                        for key in &keys {
                             kit::kbd(ui, key);
                         }
                     });
@@ -911,7 +965,8 @@ impl SettingsDialog {
 fn general(ui: &mut egui::Ui, s: &mut Settings) {
     style::section(ui, t("Appearance"));
     style::row(ui, t("Language"), |ui| {
-        egui::ComboBox::from_id_salt("lang").icon(super::kit::combo_caret)
+        egui::ComboBox::from_id_salt("lang")
+            .icon(super::kit::combo_caret)
             .width(220.0)
             .selected_text(match s.language {
                 Language::System => t("System"),
@@ -968,10 +1023,8 @@ fn general(ui: &mut egui::Ui, s: &mut Settings) {
         ));
     });
     style::row(ui, t("Data folder"), |ui| {
-        if ui.button(t("Show in Finder")).clicked() {
-            let _ = std::process::Command::new("open")
-                .arg(crate::paths::data_dir())
-                .spawn();
+        if ui.button(crate::platform::reveal_label()).clicked() {
+            crate::platform::open(crate::paths::data_dir());
         }
     });
 }
@@ -981,7 +1034,8 @@ fn terminal(ui: &mut egui::Ui, s: &mut Settings) {
     style::row(ui, t("Font"), |ui| {
         ui.horizontal(|ui| {
             let current = fonts::effective_choice(&s.font);
-            egui::ComboBox::from_id_salt("font").icon(super::kit::combo_caret)
+            egui::ComboBox::from_id_salt("font")
+                .icon(super::kit::combo_caret)
                 .selected_text(current.name.clone())
                 .width(220.0)
                 .show_ui(ui, |ui| {
@@ -1040,7 +1094,8 @@ fn terminal(ui: &mut egui::Ui, s: &mut Settings) {
         (t("Colors (light)"), &mut s.scheme_light, false),
     ] {
         style::row(ui, label, |ui| {
-            egui::ComboBox::from_id_salt(("scheme", dark)).icon(super::kit::combo_caret)
+            egui::ComboBox::from_id_salt(("scheme", dark))
+                .icon(super::kit::combo_caret)
                 .selected_text(value.clone())
                 .width(220.0)
                 .show_ui(ui, |ui| {
@@ -1096,7 +1151,12 @@ fn terminal(ui: &mut egui::Ui, s: &mut Settings) {
         );
     });
     style::row(ui, t("Keyboard"), |ui| {
-        style::checkbox(ui, &mut s.option_as_meta, t("Use Option as Meta key"));
+        let meta = if cfg!(target_os = "macos") {
+            t("Use Option as Meta key")
+        } else {
+            t("Use Alt as Meta key")
+        };
+        style::checkbox(ui, &mut s.option_as_meta, meta);
     });
     style::row(ui, t("Selection"), |ui| {
         style::checkbox(ui, &mut s.copy_on_select, t("Copy text when selected"));
@@ -1120,9 +1180,21 @@ fn quick_commands(ui: &mut egui::Ui, s: &mut Settings) {
         .spacing([8.0, 6.0])
         .show(ui, |ui| {
             let muted = style::pal(ui).text_muted;
-            ui.label(RichText::new(t("Name")).font(style::medium(12.0)).color(muted));
-            ui.label(RichText::new(t("Command")).font(style::medium(12.0)).color(muted));
-            ui.label(RichText::new(t("Run")).font(style::medium(12.0)).color(muted));
+            ui.label(
+                RichText::new(t("Name"))
+                    .font(style::medium(12.0))
+                    .color(muted),
+            );
+            ui.label(
+                RichText::new(t("Command"))
+                    .font(style::medium(12.0))
+                    .color(muted),
+            );
+            ui.label(
+                RichText::new(t("Run"))
+                    .font(style::medium(12.0))
+                    .color(muted),
+            );
             ui.label("");
             ui.label("");
             ui.end_row();
@@ -1137,7 +1209,9 @@ fn quick_commands(ui: &mut egui::Ui, s: &mut Settings) {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     let up = ui
-                        .add_enabled_ui(i > 0, |ui| kit::icon_button_ex(ui, icons::CARET_UP, t("Move up"), false, 24.0))
+                        .add_enabled_ui(i > 0, |ui| {
+                            kit::icon_button_ex(ui, icons::CARET_UP, t("Move up"), false, 24.0)
+                        })
                         .inner;
                     if up.clicked() {
                         swap = Some((i, i - 1));
@@ -1222,7 +1296,9 @@ impl Toasts {
                                 };
                                 kit::icon(ui, icon, 17.0, color);
                                 ui.add(egui::Label::new(RichText::new(msg).color(p.text)).wrap());
-                                if kit::icon_button_ex(ui, icons::X, t("Dismiss"), false, 20.0).clicked() {
+                                if kit::icon_button_ex(ui, icons::X, t("Dismiss"), false, 20.0)
+                                    .clicked()
+                                {
                                     dismiss = Some(i);
                                 }
                             });

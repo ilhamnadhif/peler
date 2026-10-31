@@ -1,5 +1,8 @@
-//! Renders the app icon: `cargo run --example make_icon -- <out-dir>`.
-//! Writes `icon_1024.png` and a macOS `.iconset` folder (turn it into `.icns` with `iconutil`).
+//! Renders the app icon: `cargo run --example make_icon -- assets`.
+//! Writes `icon_1024.png`, `icon_256.png` and a macOS `.iconset` folder into the given folder
+//! (turn the iconset into `.icns` with `iconutil`), plus the Windows icon
+//! (`packaging/windows/peler.ico`) and the Linux icon theme sizes
+//! (`packaging/linux/icons/hicolor/<size>/apps/peler.png`). Each size is drawn at that size.
 
 #![allow(clippy::field_reassign_with_default)]
 
@@ -99,14 +102,27 @@ fn render(size: u32) -> Pixmap {
 
     // The glyph is drawn a little larger than its nominal geometry, around the center.
     let k = GLYPH_SCALE;
-    let tg = t.pre_concat(Transform::from_row(k, 0.0, 0.0, k, 512.0 * (1.0 - k), 512.0 * (1.0 - k)));
+    let tg = t.pre_concat(Transform::from_row(
+        k,
+        0.0,
+        0.0,
+        k,
+        512.0 * (1.0 - k),
+        512.0 * (1.0 - k),
+    ));
     let ink = (0x55, 0x45, 0xd2);
     for (i, top) in [297.0f32, 537.0].into_iter().enumerate() {
         let cy = top + 95.0;
         // A soft shadow lifts the unit off the tile.
         for k in 0..6 {
             let g = 4.0 + k as f32 * 3.0;
-            let sh = rounded_rect(232.0 - g / 2.0, top + 10.0 - g / 2.0, 560.0 + g, 190.0 + g, 48.0 + g / 2.0);
+            let sh = rounded_rect(
+                232.0 - g / 2.0,
+                top + 10.0 - g / 2.0,
+                560.0 + g,
+                190.0 + g,
+                48.0 + g / 2.0,
+            );
             fill(&mut pm, &sh, &solid(0x22, 0x16, 0x80, 12), tg);
         }
         // The unit: white, a touch of lavender at the bottom.
@@ -126,10 +142,25 @@ fn render(size: u32) -> Pixmap {
         // Status light: green, with a faint glow.
         let led_r = if small { 26.0 } else { 19.0 };
         if !small {
-            fill(&mut pm, &circle(730.0, cy, 34.0), &solid(0x4a, 0xde, 0x80, 50), tg);
-            fill(&mut pm, &circle(672.0, cy, 15.0), &solid(0xd4, 0xd0, 0xf2, 255), tg);
+            fill(
+                &mut pm,
+                &circle(730.0, cy, 34.0),
+                &solid(0x4a, 0xde, 0x80, 50),
+                tg,
+            );
+            fill(
+                &mut pm,
+                &circle(672.0, cy, 15.0),
+                &solid(0xd4, 0xd0, 0xf2, 255),
+                tg,
+            );
         }
-        fill(&mut pm, &circle(730.0, cy, led_r), &solid(0x4a, 0xde, 0x80, 255), tg);
+        fill(
+            &mut pm,
+            &circle(730.0, cy, led_r),
+            &solid(0x4a, 0xde, 0x80, 255),
+            tg,
+        );
 
         if i == 0 {
             // The prompt: ">_".
@@ -144,7 +175,13 @@ fn render(size: u32) -> Pixmap {
                 line_join: LineJoin::Round,
                 ..Stroke::default()
             };
-            pm.stroke_path(&chevron, &solid(ink.0, ink.1, ink.2, 255), &stroke, tg, None);
+            pm.stroke_path(
+                &chevron,
+                &solid(ink.0, ink.1, ink.2, 255),
+                &stroke,
+                tg,
+                None,
+            );
             let bar = if small {
                 rounded_rect(384.0, cy + 18.0, 96.0, 34.0, 17.0)
             } else {
@@ -181,5 +218,40 @@ fn main() {
     ] {
         render(size).save_png(set.join(name)).unwrap();
     }
-    println!("wrote {}", out.display());
+
+    // Windows: one .ico with PNG images (ICONDIR, an ICONDIRENTRY per image, then the data).
+    let sizes = [16u32, 20, 24, 32, 40, 48, 64, 128, 256];
+    let images: Vec<(u32, Vec<u8>)> = sizes
+        .iter()
+        .map(|&s| (s, render(s).encode_png().unwrap()))
+        .collect();
+    let mut ico = Vec::new();
+    ico.extend_from_slice(&[0, 0, 1, 0]);
+    ico.extend_from_slice(&(images.len() as u16).to_le_bytes());
+    let mut offset = 6 + 16 * images.len() as u32;
+    for (size, png) in &images {
+        let dim = if *size >= 256 { 0 } else { *size as u8 }; // 0 means 256
+        ico.extend_from_slice(&[dim, dim, 0, 0]);
+        ico.extend_from_slice(&1u16.to_le_bytes()); // planes
+        ico.extend_from_slice(&32u16.to_le_bytes()); // bits per pixel
+        ico.extend_from_slice(&(png.len() as u32).to_le_bytes());
+        ico.extend_from_slice(&offset.to_le_bytes());
+        offset += png.len() as u32;
+    }
+    for (_, png) in &images {
+        ico.extend_from_slice(png);
+    }
+    std::fs::create_dir_all("packaging/windows").unwrap();
+    std::fs::write("packaging/windows/peler.ico", ico).unwrap();
+
+    // Linux: the hicolor icon theme sizes.
+    for size in [16u32, 24, 32, 48, 64, 128, 256, 512] {
+        let dir = PathBuf::from(format!("packaging/linux/icons/hicolor/{size}x{size}/apps"));
+        std::fs::create_dir_all(&dir).unwrap();
+        render(size).save_png(dir.join("peler.png")).unwrap();
+    }
+    println!(
+        "wrote {}, packaging/windows and packaging/linux",
+        out.display()
+    );
 }

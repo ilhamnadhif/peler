@@ -3,8 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use eframe::egui::{
-    self, CornerRadius, FontId, Key, LayerId, Order, RichText, Sense, Stroke, Ui, pos2,
-    vec2,
+    self, CornerRadius, FontId, Key, LayerId, Order, RichText, Sense, Stroke, Ui, pos2, vec2,
 };
 
 use super::{icons, kit, style};
@@ -82,7 +81,8 @@ impl Sidebar {
         let p = style::pal(ui);
 
         // Header: the title and the "new" menu, over the same hairline as the tab strip.
-        let (header, _) = ui.allocate_exact_size(vec2(ui.available_width(), header_h), Sense::hover());
+        let (header, _) =
+            ui.allocate_exact_size(vec2(ui.available_width(), header_h), Sense::hover());
         let edge = ui.clip_rect().x_range();
         ui.painter()
             .hline(edge, header.bottom() - 0.5, Stroke::new(1.0, p.border));
@@ -92,7 +92,11 @@ impl Sidebar {
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
         header_ui.spacing_mut().item_spacing.x = 6.0;
-        header_ui.label(RichText::new(t("Connections")).font(style::semibold(14.0)).color(p.text));
+        header_ui.label(
+            RichText::new(t("Connections"))
+                .font(style::semibold(14.0))
+                .color(p.text),
+        );
         if !store.bookmarks.is_empty() {
             header_ui.label(
                 RichText::new(store.bookmarks.len().to_string())
@@ -107,26 +111,47 @@ impl Sidebar {
             crate::devtest::record("sidebar-new", new.rect);
             egui::Popup::menu(&new).show(|ui| {
                 ui.set_min_width(230.0);
-                if ui.button(kit::with_icon(icons::HARD_DRIVES, t("New Connection…"))).clicked() {
+                if ui
+                    .button(kit::with_icon(icons::HARD_DRIVES, t("New Connection…")))
+                    .clicked()
+                {
                     cx.actions.push(Action::NewBookmark {
                         group: selected_group,
                     });
                     ui.close();
                 }
-                if ui.button(kit::with_icon(icons::FOLDER_PLUS, t("New Group"))).clicked() {
+                if ui
+                    .button(kit::with_icon(icons::FOLDER_PLUS, t("New Group")))
+                    .clicked()
+                {
                     cx.actions.push(Action::NewGroup { parent: None });
                     ui.close();
                 }
                 ui.separator();
-                if ui.button(kit::with_icon(icons::DOWNLOAD_SIMPLE, t("Import Connections…"))).clicked() {
+                if ui
+                    .button(kit::with_icon(
+                        icons::DOWNLOAD_SIMPLE,
+                        t("Import Connections…"),
+                    ))
+                    .clicked()
+                {
                     cx.actions.push(Action::Import);
                     ui.close();
                 }
-                if ui.button(kit::with_icon(icons::FILE_CODE, t("Import from ~/.ssh/config"))).clicked() {
+                if ui
+                    .button(kit::with_icon(
+                        icons::FILE_CODE,
+                        t("Import from ~/.ssh/config"),
+                    ))
+                    .clicked()
+                {
                     cx.actions.push(Action::ImportSshConfig);
                     ui.close();
                 }
-                if ui.button(kit::with_icon(icons::EXPORT, t("Export Connections…"))).clicked() {
+                if ui
+                    .button(kit::with_icon(icons::EXPORT, t("Export Connections…")))
+                    .clicked()
+                {
                     cx.actions.push(Action::Export(ExportScope::All));
                     ui.close();
                 }
@@ -136,7 +161,13 @@ impl Sidebar {
 
         let search_id = egui::Id::new("sidebar-search");
         let width = ui.available_width();
-        let resp = kit::search_field(ui, search_id, &mut self.search, t("Filter connections"), width);
+        let resp = kit::search_field(
+            ui,
+            search_id,
+            &mut self.search,
+            t("Filter connections"),
+            width,
+        );
         if std::mem::take(&mut self.focus_search) {
             resp.request_focus();
         }
@@ -146,7 +177,8 @@ impl Sidebar {
             self.search_index = 0;
         }
         if resp.has_focus() {
-            let (down, up) = ui.input(|i| (i.key_pressed(Key::ArrowDown), i.key_pressed(Key::ArrowUp)));
+            let (down, up) =
+                ui.input(|i| (i.key_pressed(Key::ArrowDown), i.key_pressed(Key::ArrowUp)));
             if down {
                 self.search_index += 1;
             }
@@ -154,7 +186,10 @@ impl Sidebar {
                 self.search_index = self.search_index.saturating_sub(1);
             }
         }
-        if resp.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) && !self.search.trim().is_empty() {
+        if resp.lost_focus()
+            && ui.input(|i| i.key_pressed(Key::Enter))
+            && !self.search.trim().is_empty()
+        {
             let hits = search::search(store, &self.search);
             if let Some(id) = hits.get(self.search_index.min(hits.len().saturating_sub(1))) {
                 cx.actions.push(Action::Connect(*id));
@@ -179,15 +214,27 @@ impl Sidebar {
                             t("Add a server, or bring yours in."),
                             |ui| {
                                 ui.spacing_mut().item_spacing.y = 6.0;
-                                if kit::primary_icon(ui, icons::PLUS, t("New Connection…")).clicked() {
+                                if kit::primary_icon(ui, icons::PLUS, t("New Connection…"))
+                                    .clicked()
+                                {
                                     cx.actions.push(Action::NewBookmark { group: None });
                                 }
-                                if kit::secondary(ui, Some(icons::FILE_CODE), t("Import from ~/.ssh/config"))
-                                    .clicked()
+                                if kit::secondary(
+                                    ui,
+                                    Some(icons::FILE_CODE),
+                                    t("Import from ~/.ssh/config"),
+                                )
+                                .clicked()
                                 {
                                     cx.actions.push(Action::ImportSshConfig);
                                 }
-                                if kit::ghost(ui, Some(icons::DOWNLOAD_SIMPLE), t("Import Connections…")).clicked() {
+                                if kit::ghost(
+                                    ui,
+                                    Some(icons::DOWNLOAD_SIMPLE),
+                                    t("Import Connections…"),
+                                )
+                                .clicked()
+                                {
                                     cx.actions.push(Action::Import);
                                 }
                             },
@@ -225,11 +272,17 @@ impl Sidebar {
                         self.selected = None;
                     }
                     resp.context_menu(|ui| {
-                        if ui.button(kit::with_icon(icons::HARD_DRIVES, t("New Connection…"))).clicked() {
+                        if ui
+                            .button(kit::with_icon(icons::HARD_DRIVES, t("New Connection…")))
+                            .clicked()
+                        {
                             cx.actions.push(Action::NewBookmark { group: None });
                             ui.close();
                         }
-                        if ui.button(kit::with_icon(icons::FOLDER_PLUS, t("New Group"))).clicked() {
+                        if ui
+                            .button(kit::with_icon(icons::FOLDER_PLUS, t("New Group")))
+                            .clicked()
+                        {
                             cx.actions.push(Action::NewGroup { parent: None });
                             ui.close();
                         }
@@ -284,7 +337,13 @@ impl Sidebar {
         }
     }
 
-    fn row_frame(&self, ui: &mut Ui, id: egui::Id, selected: bool, height: f32) -> (egui::Rect, egui::Response) {
+    fn row_frame(
+        &self,
+        ui: &mut Ui,
+        id: egui::Id,
+        selected: bool,
+        height: f32,
+    ) -> (egui::Rect, egui::Response) {
         let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
         let resp = ui.interact(rect, id, Sense::click_and_drag());
         let p = style::pal(ui);
@@ -321,7 +380,8 @@ impl Sidebar {
                 .layer_painter(LayerId::new(Order::Tooltip, egui::Id::new("sidebar-drag")));
             let pal = style::pal(ui);
             let galley = painter.layout_no_wrap(label.to_string(), style::medium(13.0), pal.text);
-            let r = egui::Rect::from_min_size(p + vec2(12.0, 4.0), galley.size() + vec2(16.0, 10.0));
+            let r =
+                egui::Rect::from_min_size(p + vec2(12.0, 4.0), galley.size() + vec2(16.0, 10.0));
             painter.add(ui.visuals().popup_shadow.as_shape(r, CornerRadius::same(6)));
             painter.rect(
                 r,
@@ -349,38 +409,60 @@ impl Sidebar {
         painter.text(
             pos2(x + 9.0, cy),
             egui::Align2::CENTER_CENTER,
-            if expanded { icons::CARET_DOWN } else { icons::CARET_RIGHT },
+            if expanded {
+                icons::CARET_DOWN
+            } else {
+                icons::CARET_RIGHT
+            },
             style::icon_font(11.0),
             p.text_faint,
         );
         painter.text(
             pos2(x + 27.0, cy),
             egui::Align2::CENTER_CENTER,
-            if expanded { icons::FOLDER_OPEN } else { icons::FOLDER_SIMPLE },
+            if expanded {
+                icons::FOLDER_OPEN
+            } else {
+                icons::FOLDER_SIMPLE
+            },
             style::icon_font(15.0),
             p.folder,
         );
         let count = cx.store.bookmarks_in(Some(gid)).count();
         let name_x = x + 42.0;
-        let count_galley = (count > 0).then(|| {
-            painter.layout_no_wrap(count.to_string(), style::medium(10.5), p.text_muted)
-        });
+        let count_galley = (count > 0)
+            .then(|| painter.layout_no_wrap(count.to_string(), style::medium(10.5), p.text_muted));
         let count_w = count_galley.as_ref().map_or(0.0, |g| g.size().x + 18.0);
         let name_galley = painter.layout_no_wrap(group.name.clone(), style::medium(13.5), p.text);
-        let name_w = name_galley.size().x.min(rect.right() - 6.0 - count_w - name_x);
+        let name_w = name_galley
+            .size()
+            .x
+            .min(rect.right() - 6.0 - count_w - name_x);
         painter
             .with_clip_rect(egui::Rect::from_min_max(
                 pos2(name_x, rect.top()),
                 pos2(name_x + name_w.max(0.0), rect.bottom()),
             ))
-            .galley(pos2(name_x, cy - name_galley.size().y / 2.0), name_galley, p.text);
+            .galley(
+                pos2(name_x, cy - name_galley.size().y / 2.0),
+                name_galley,
+                p.text,
+            );
         if let Some(g) = count_galley {
             let pill = egui::Rect::from_min_size(
                 pos2(name_x + name_w + 8.0, cy - 8.0),
                 vec2(g.size().x + 10.0, 16.0),
             );
-            painter.rect_filled(pill, CornerRadius::same(8), if selected { p.surface } else { p.subtle });
-            painter.galley(pos2(pill.left() + 5.0, pill.center().y - g.size().y / 2.0), g, p.text_muted);
+            painter.rect_filled(
+                pill,
+                CornerRadius::same(8),
+                if selected { p.surface } else { p.subtle },
+            );
+            painter.galley(
+                pos2(pill.left() + 5.0, pill.center().y - g.size().y / 2.0),
+                g,
+                p.text_muted,
+            );
         }
 
         if resp.clicked() {
@@ -432,26 +514,41 @@ impl Sidebar {
             }
         }
         resp.context_menu(|ui| {
-            if ui.button(kit::with_icon(icons::HARD_DRIVES, t("New Connection…"))).clicked() {
+            if ui
+                .button(kit::with_icon(icons::HARD_DRIVES, t("New Connection…")))
+                .clicked()
+            {
                 cx.actions.push(Action::NewBookmark { group: Some(gid) });
                 ui.close();
             }
-            if ui.button(kit::with_icon(icons::FOLDER_PLUS, t("New Subgroup"))).clicked() {
+            if ui
+                .button(kit::with_icon(icons::FOLDER_PLUS, t("New Subgroup")))
+                .clicked()
+            {
                 cx.actions.push(Action::NewGroup { parent: Some(gid) });
                 ui.close();
             }
             ui.separator();
-            if ui.button(kit::with_icon(icons::PENCIL_SIMPLE, t("Rename…"))).clicked() {
+            if ui
+                .button(kit::with_icon(icons::PENCIL_SIMPLE, t("Rename…")))
+                .clicked()
+            {
                 cx.actions.push(Action::RenameGroup(gid));
                 ui.close();
             }
-            if ui.button(kit::with_icon(icons::EXPORT, t("Export Group…"))).clicked() {
+            if ui
+                .button(kit::with_icon(icons::EXPORT, t("Export Group…")))
+                .clicked()
+            {
                 cx.actions.push(Action::Export(ExportScope::Group(gid)));
                 ui.close();
             }
             ui.separator();
             if ui
-                .button(RichText::new(kit::with_icon(icons::TRASH, t("Delete Group…"))).color(style::pal(ui).err))
+                .button(
+                    RichText::new(kit::with_icon(icons::TRASH, t("Delete Group…")))
+                        .color(style::pal(ui).err),
+                )
                 .clicked()
             {
                 cx.actions.push(Action::DeleteGroup(gid));
@@ -473,8 +570,13 @@ impl Sidebar {
             return;
         };
         let selected = self.selected == Some(id) || highlighted;
-        let height = if subtitle.is_some() { ROW_H + 16.0 } else { ROW_H };
-        let (rect, resp) = self.row_frame(ui, egui::Id::new(("bookmark-row", id)), selected, height);
+        let height = if subtitle.is_some() {
+            ROW_H + 16.0
+        } else {
+            ROW_H
+        };
+        let (rect, resp) =
+            self.row_frame(ui, egui::Id::new(("bookmark-row", id)), selected, height);
         Self::indent_guides(ui, rect, depth);
         let p = style::pal(ui);
         let x = rect.left() + 4.0 + depth as f32 * INDENT;
@@ -490,7 +592,11 @@ impl Sidebar {
             egui::Align2::CENTER_CENTER,
             icons::HARD_DRIVES,
             style::icon_font(15.0),
-            if live == Some(Live::Connected) { p.text } else { p.text_muted },
+            if live == Some(Live::Connected) {
+                p.text
+            } else {
+                p.text_muted
+            },
         );
         let dot = match live {
             Some(Live::Connected) => Some(p.ok),
@@ -512,7 +618,11 @@ impl Sidebar {
             pos2(x + 42.0, top_line_y),
             egui::Align2::LEFT_CENTER,
             &name,
-            if selected { style::medium(13.5) } else { FontId::proportional(13.5) },
+            if selected {
+                style::medium(13.5)
+            } else {
+                FontId::proportional(13.5)
+            },
             p.text,
         );
         if let Some(sub) = &subtitle {
@@ -579,30 +689,48 @@ impl Sidebar {
         }
         resp.context_menu(|ui| {
             self.selected = Some(id);
-            if ui.button(kit::with_icon(icons::PLUGS_CONNECTED, t("Connect"))).clicked() {
+            if ui
+                .button(kit::with_icon(icons::PLUGS_CONNECTED, t("Connect")))
+                .clicked()
+            {
                 cx.actions.push(Action::Connect(id));
                 ui.close();
             }
-            if ui.button(kit::with_icon(icons::PENCIL_SIMPLE, t("Edit…"))).clicked() {
+            if ui
+                .button(kit::with_icon(icons::PENCIL_SIMPLE, t("Edit…")))
+                .clicked()
+            {
                 cx.actions.push(Action::EditBookmark(id));
                 ui.close();
             }
-            if ui.button(kit::with_icon(icons::COPY, t("Duplicate"))).clicked() {
+            if ui
+                .button(kit::with_icon(icons::COPY, t("Duplicate")))
+                .clicked()
+            {
                 cx.actions.push(Action::DuplicateBookmark(id));
                 ui.close();
             }
-            if ui.button(kit::with_icon(icons::CLIPBOARD, t("Copy Address"))).clicked() {
+            if ui
+                .button(kit::with_icon(icons::CLIPBOARD, t("Copy Address")))
+                .clicked()
+            {
                 ui.ctx().copy_text(b.address());
                 ui.close();
             }
-            if ui.button(kit::with_icon(icons::EXPORT, t("Export…"))).clicked() {
+            if ui
+                .button(kit::with_icon(icons::EXPORT, t("Export…")))
+                .clicked()
+            {
                 cx.actions
                     .push(Action::Export(ExportScope::Selected(vec![id])));
                 ui.close();
             }
             ui.separator();
             if ui
-                .button(RichText::new(kit::with_icon(icons::TRASH, t("Delete…"))).color(style::pal(ui).err))
+                .button(
+                    RichText::new(kit::with_icon(icons::TRASH, t("Delete…")))
+                        .color(style::pal(ui).err),
+                )
                 .clicked()
             {
                 cx.actions.push(Action::DeleteBookmark(id));

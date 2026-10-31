@@ -10,10 +10,6 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Rect};
-use objc2::MainThreadMarker;
-use objc2::rc::Retained;
-use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSWindow};
-use objc2_foundation::{NSPoint, NSString};
 
 // ----- script ---------------------------------------------------------------------------------
 
@@ -104,212 +100,251 @@ pub fn rect_of(name: &str) -> Option<Rect> {
 }
 
 // ----- event injection --------------------------------------------------------------------------
+// Real AppKit events on macOS. Elsewhere the steps that inject input only report that they
+// were skipped; the rest of the script (actions, checks) runs everywhere.
 
-fn window() -> Option<Retained<NSWindow>> {
-    let mtm = MainThreadMarker::new()?;
-    let app = NSApplication::sharedApplication(mtm);
-    let windows = app.windows();
-    (0..windows.count())
-        .map(|i| windows.objectAtIndex(i))
-        .max_by(|a, b| {
-            let (ra, rb) = (a.contentLayoutRect(), b.contentLayoutRect());
-            (ra.size.width * ra.size.height).total_cmp(&(rb.size.width * rb.size.height))
-        })
-}
+#[cfg(target_os = "macos")]
+pub use native::{click, key, mouse, type_text};
 
-fn key_event(
-    down: bool,
-    flags: NSEventModifierFlags,
-    chars: &str,
-    unmod: &str,
-    code: u16,
-    wn: isize,
-) -> Option<Retained<NSEvent>> {
-    NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
-        if down { NSEventType::KeyDown } else { NSEventType::KeyUp },
-        NSPoint::new(0.0, 0.0),
-        flags,
-        0.0,
-        wn,
-        None,
-        &NSString::from_str(chars),
-        &NSString::from_str(unmod),
-        false,
-        code,
-    )
-}
+#[cfg(target_os = "macos")]
+mod native {
+    use eframe::egui;
+    use objc2::MainThreadMarker;
+    use objc2::rc::Retained;
+    use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSWindow};
+    use objc2_foundation::{NSPoint, NSString};
 
-/// US-layout key code for a character, and whether Shift is needed.
-fn key_code(c: char) -> (u16, bool) {
-    // Index = macOS virtual key code ('§'/'±' fill code 10, unused here).
-    const PLAIN: &str = "asdfhgzxcv§bqweryt123465=97-80]ou[ip\nlj'k;\\,/nm.\t `";
-    const SHIFTED: &str = "ASDFHGZXCV±BQWERYT!@#$^%+(&_*)}OU{IP\nLJ\"K:|<?NM>\t ~";
-    if let Some(i) = PLAIN.chars().position(|x| x == c) {
-        return (i as u16, false);
+    fn window() -> Option<Retained<NSWindow>> {
+        let mtm = MainThreadMarker::new()?;
+        let app = NSApplication::sharedApplication(mtm);
+        let windows = app.windows();
+        (0..windows.count())
+            .map(|i| windows.objectAtIndex(i))
+            .max_by(|a, b| {
+                let (ra, rb) = (a.contentLayoutRect(), b.contentLayoutRect());
+                (ra.size.width * ra.size.height).total_cmp(&(rb.size.width * rb.size.height))
+            })
     }
-    if let Some(i) = SHIFTED.chars().position(|x| x == c) {
-        return (i as u16, true);
-    }
-    match c {
-        '\r' => (36, false),
-        '\x1b' => (53, false),
-        _ => (0, false),
-    }
-}
 
-/// Sends a key press. Command shortcuts go through the main menu first, like real key presses.
-fn press(flags: NSEventModifierFlags, chars: &str, unmod: &str, code: u16) {
-    let Some(w) = window() else { return };
-    let wn = w.windowNumber();
-    let (Some(down), Some(up)) = (
-        key_event(true, flags, chars, unmod, code, wn),
-        key_event(false, flags, chars, unmod, code, wn),
-    ) else {
-        return;
-    };
-    if flags.contains(NSEventModifierFlags::Command)
-        && let Some(mtm) = MainThreadMarker::new()
-        && let Some(menu) = NSApplication::sharedApplication(mtm).mainMenu()
-        && menu.performKeyEquivalent(&down)
-    {
-        return;
-    }
-    w.sendEvent(&down);
-    w.sendEvent(&up);
-}
-
-/// Types text as individual key presses.
-pub fn type_text(text: &str) {
-    for c in text.chars() {
-        let (code, shift) = key_code(c);
-        let flags = if shift {
-            NSEventModifierFlags::Shift
-        } else {
-            NSEventModifierFlags::empty()
-        };
-        let s = c.to_string();
-        press(flags, &s, &s.to_lowercase(), code);
-    }
-}
-
-/// A key combination such as `cmd+shift+d`, `ctrl+c`, `enter`, `esc`, `up`, `cmd+1`.
-pub fn key(spec: &str) {
-    let mut flags = NSEventModifierFlags::empty();
-    let mut name = "";
-    for part in spec.split('+') {
-        match part {
-            "cmd" => flags |= NSEventModifierFlags::Command,
-            "shift" => flags |= NSEventModifierFlags::Shift,
-            "alt" | "opt" => flags |= NSEventModifierFlags::Option,
-            "ctrl" => flags |= NSEventModifierFlags::Control,
-            other => name = other,
-        }
-    }
-    let arrow = |code: u16, ch: u32| (code, char::from_u32(ch).unwrap().to_string());
-    let (code, chars) = match name {
-        "enter" | "return" => (36, "\r".to_string()),
-        "tab" => (48, "\t".to_string()),
-        "esc" | "escape" => (53, "\x1b".to_string()),
-        "backspace" => (51, "\x7f".to_string()),
-        "space" => (49, " ".to_string()),
-        "up" => arrow(126, 0xF700),
-        "down" => arrow(125, 0xF701),
-        "left" => arrow(123, 0xF702),
-        "right" => arrow(124, 0xF703),
-        "home" => arrow(115, 0xF729),
-        "end" => arrow(119, 0xF72B),
-        "pageup" => arrow(116, 0xF72C),
-        "pagedown" => arrow(121, 0xF72D),
-        "delete" => arrow(117, 0xF728),
-        n if n.chars().count() == 1 => {
-            let c = n.chars().next().unwrap();
-            (key_code(c).0, n.to_string())
-        }
-        _ => return,
-    };
-    let unmod = chars.clone();
-    let chars = if flags.contains(NSEventModifierFlags::Control)
-        && chars.len() == 1
-        && chars.as_bytes()[0].is_ascii_alphabetic()
-    {
-        ((chars.as_bytes()[0].to_ascii_lowercase() - b'a' + 1) as char).to_string()
-    } else {
-        chars
-    };
-    press(flags, &chars, &unmod, code);
-}
-
-/// Clicks at a point in egui coordinates (points from the content's top-left).
-pub fn click(pos: egui::Pos2, count: isize, right: bool) {
-    let Some(w) = window() else { return };
-    let height = w.contentLayoutRect().size.height;
-    let loc = NSPoint::new(pos.x as f64, height - pos.y as f64);
-    let wn = w.windowNumber();
-    let mk = |ty, clicks| {
-        NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
-            ty,
-            loc,
-            NSEventModifierFlags::empty(),
+    fn key_event(
+        down: bool,
+        flags: NSEventModifierFlags,
+        chars: &str,
+        unmod: &str,
+        code: u16,
+        wn: isize,
+    ) -> Option<Retained<NSEvent>> {
+        NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+            if down { NSEventType::KeyDown } else { NSEventType::KeyUp },
+            NSPoint::new(0.0, 0.0),
+            flags,
             0.0,
             wn,
             None,
-            0,
-            clicks,
-            1.0,
+            &NSString::from_str(chars),
+            &NSString::from_str(unmod),
+            false,
+            code,
         )
-    };
-    if let Some(m) = mk(NSEventType::MouseMoved, 0) {
-        w.sendEvent(&m);
     }
-    let (down, up) = if right {
-        (NSEventType::RightMouseDown, NSEventType::RightMouseUp)
-    } else {
-        (NSEventType::LeftMouseDown, NSEventType::LeftMouseUp)
-    };
-    for n in 1..=count {
-        if let (Some(d), Some(u)) = (mk(down, n), mk(up, n)) {
-            w.sendEvent(&d);
-            w.sendEvent(&u);
+
+    /// US-layout key code for a character, and whether Shift is needed.
+    pub(super) fn key_code(c: char) -> (u16, bool) {
+        // Index = macOS virtual key code ('§'/'±' fill code 10, unused here).
+        const PLAIN: &str = "asdfhgzxcv§bqweryt123465=97-80]ou[ip\nlj'k;\\,/nm.\t `";
+        const SHIFTED: &str = "ASDFHGZXCV±BQWERYT!@#$^%+(&_*)}OU{IP\nLJ\"K:|<?NM>\t ~";
+        if let Some(i) = PLAIN.chars().position(|x| x == c) {
+            return (i as u16, false);
+        }
+        if let Some(i) = SHIFTED.chars().position(|x| x == c) {
+            return (i as u16, true);
+        }
+        match c {
+            '\r' => (36, false),
+            '\x1b' => (53, false),
+            _ => (0, false),
+        }
+    }
+
+    /// Sends a key press. Command shortcuts go through the main menu first, like real key presses.
+    fn press(flags: NSEventModifierFlags, chars: &str, unmod: &str, code: u16) {
+        let Some(w) = window() else { return };
+        let wn = w.windowNumber();
+        let (Some(down), Some(up)) = (
+            key_event(true, flags, chars, unmod, code, wn),
+            key_event(false, flags, chars, unmod, code, wn),
+        ) else {
+            return;
+        };
+        if flags.contains(NSEventModifierFlags::Command)
+            && let Some(mtm) = MainThreadMarker::new()
+            && let Some(menu) = NSApplication::sharedApplication(mtm).mainMenu()
+            && menu.performKeyEquivalent(&down)
+        {
+            return;
+        }
+        w.sendEvent(&down);
+        w.sendEvent(&up);
+    }
+
+    /// Types text as individual key presses.
+    pub fn type_text(text: &str) {
+        for c in text.chars() {
+            let (code, shift) = key_code(c);
+            let flags = if shift {
+                NSEventModifierFlags::Shift
+            } else {
+                NSEventModifierFlags::empty()
+            };
+            let s = c.to_string();
+            press(flags, &s, &s.to_lowercase(), code);
+        }
+    }
+
+    /// A key combination such as `cmd+shift+d`, `ctrl+c`, `enter`, `esc`, `up`, `cmd+1`.
+    pub fn key(spec: &str) {
+        let mut flags = NSEventModifierFlags::empty();
+        let mut name = "";
+        for part in spec.split('+') {
+            match part {
+                "cmd" => flags |= NSEventModifierFlags::Command,
+                "shift" => flags |= NSEventModifierFlags::Shift,
+                "alt" | "opt" => flags |= NSEventModifierFlags::Option,
+                "ctrl" => flags |= NSEventModifierFlags::Control,
+                other => name = other,
+            }
+        }
+        let arrow = |code: u16, ch: u32| (code, char::from_u32(ch).unwrap().to_string());
+        let (code, chars) = match name {
+            "enter" | "return" => (36, "\r".to_string()),
+            "tab" => (48, "\t".to_string()),
+            "esc" | "escape" => (53, "\x1b".to_string()),
+            "backspace" => (51, "\x7f".to_string()),
+            "space" => (49, " ".to_string()),
+            "up" => arrow(126, 0xF700),
+            "down" => arrow(125, 0xF701),
+            "left" => arrow(123, 0xF702),
+            "right" => arrow(124, 0xF703),
+            "home" => arrow(115, 0xF729),
+            "end" => arrow(119, 0xF72B),
+            "pageup" => arrow(116, 0xF72C),
+            "pagedown" => arrow(121, 0xF72D),
+            "delete" => arrow(117, 0xF728),
+            n if n.chars().count() == 1 => {
+                let c = n.chars().next().unwrap();
+                (key_code(c).0, n.to_string())
+            }
+            _ => return,
+        };
+        let unmod = chars.clone();
+        let chars = if flags.contains(NSEventModifierFlags::Control)
+            && chars.len() == 1
+            && chars.as_bytes()[0].is_ascii_alphabetic()
+        {
+            ((chars.as_bytes()[0].to_ascii_lowercase() - b'a' + 1) as char).to_string()
+        } else {
+            chars
+        };
+        press(flags, &chars, &unmod, code);
+    }
+
+    /// Clicks at a point in egui coordinates (points from the content's top-left).
+    pub fn click(pos: egui::Pos2, count: isize, right: bool) {
+        let Some(w) = window() else { return };
+        let height = w.contentLayoutRect().size.height;
+        let loc = NSPoint::new(pos.x as f64, height - pos.y as f64);
+        let wn = w.windowNumber();
+        let mk = |ty, clicks| {
+            NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+                ty,
+                loc,
+                NSEventModifierFlags::empty(),
+                0.0,
+                wn,
+                None,
+                0,
+                clicks,
+                1.0,
+            )
+        };
+        if let Some(m) = mk(NSEventType::MouseMoved, 0) {
+            w.sendEvent(&m);
+        }
+        let (down, up) = if right {
+            (NSEventType::RightMouseDown, NSEventType::RightMouseUp)
+        } else {
+            (NSEventType::LeftMouseDown, NSEventType::LeftMouseUp)
+        };
+        for n in 1..=count {
+            if let (Some(d), Some(u)) = (mk(down, n), mk(up, n)) {
+                w.sendEvent(&d);
+                w.sendEvent(&u);
+            }
+        }
+    }
+
+    /// One left-button mouse event (`down`, `drag` or `up`) at a point in egui coordinates. A drag
+    /// is a series of these in separate frames, as with a real mouse.
+    pub fn mouse(kind: &str, pos: egui::Pos2) {
+        let Some(w) = window() else { return };
+        let height = w.contentLayoutRect().size.height;
+        let ty = match kind {
+            "down" => NSEventType::LeftMouseDown,
+            "drag" => NSEventType::LeftMouseDragged,
+            _ => NSEventType::LeftMouseUp,
+        };
+        if let Some(e) =
+            NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+                ty,
+                NSPoint::new(pos.x as f64, height - pos.y as f64),
+                NSEventModifierFlags::empty(),
+                0.0,
+                w.windowNumber(),
+                None,
+                0,
+                1,
+                1.0,
+            )
+        {
+            w.sendEvent(&e);
         }
     }
 }
 
-/// One left-button mouse event (`down`, `drag` or `up`) at a point in egui coordinates. A drag
-/// is a series of these in separate frames, as with a real mouse.
-pub fn mouse(kind: &str, pos: egui::Pos2) {
-    let Some(w) = window() else { return };
-    let height = w.contentLayoutRect().size.height;
-    let ty = match kind {
-        "down" => NSEventType::LeftMouseDown,
-        "drag" => NSEventType::LeftMouseDragged,
-        _ => NSEventType::LeftMouseUp,
-    };
-    if let Some(e) =
-        NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
-            ty,
-            NSPoint::new(pos.x as f64, height - pos.y as f64),
-            NSEventModifierFlags::empty(),
-            0.0,
-            w.windowNumber(),
-            None,
-            0,
-            1,
-            1.0,
-        )
-    {
-        w.sendEvent(&e);
-    }
+#[cfg(not(target_os = "macos"))]
+fn skipped(step: &str) {
+    eprintln!("DEVTEST LOG: {step}: input injection is macOS-only, skipped");
 }
 
-#[cfg(test)]
+#[cfg(not(target_os = "macos"))]
+pub fn type_text(_text: &str) {
+    skipped("keys");
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn key(_spec: &str) {
+    skipped("key");
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn click(_pos: egui::Pos2, _count: isize, _right: bool) {
+    skipped("click");
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn mouse(_kind: &str, _pos: egui::Pos2) {
+    skipped("mouse");
+}
+
+#[cfg(all(test, target_os = "macos"))]
 mod tests {
     #[test]
     fn key_codes() {
-        assert_eq!(super::key_code('a'), (0, false));
-        assert_eq!(super::key_code('t'), (17, false));
-        assert_eq!(super::key_code(' '), (49, false));
-        assert_eq!(super::key_code('\n'), (36, false));
-        assert_eq!(super::key_code('L'), (37, true));
-        assert_eq!(super::key_code('~'), (50, true));
+        assert_eq!(super::native::key_code('a'), (0, false));
+        assert_eq!(super::native::key_code('t'), (17, false));
+        assert_eq!(super::native::key_code(' '), (49, false));
+        assert_eq!(super::native::key_code('\n'), (36, false));
+        assert_eq!(super::native::key_code('L'), (37, true));
+        assert_eq!(super::native::key_code('~'), (50, true));
     }
 }

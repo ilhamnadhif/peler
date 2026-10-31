@@ -1,0 +1,136 @@
+name: CI
+
+# Every push and pull request: tests and lints on Linux and Windows (macOS is tested by
+# scripts/release.sh, which builds it). A pushed `v*` tag (scripts/release.sh) also builds the
+# Windows and Linux packages, adds them to the release scripts/release.sh drafted with the macOS
+# files, and publishes it once everything passed.
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  # A runner's DNS or the crates.io index failing for a moment does not fail the run.
+  CARGO_NET_RETRY: 10
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+        if: runner.os == 'Linux'
+      # The integration tests run their own unprivileged OpenSSH server.
+      - name: OpenSSH server
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openssh-server >/dev/null
+          sudo systemctl disable --now ssh.socket ssh.service 2>/dev/null || true
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked
+
+  # Packages: for a tag, or when run by hand (Actions → CI → Run workflow) to try them out.
+  bundle-linux:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    # Built against glibc 2.28 (the manylinux_2_28 image, AlmaLinux 8), so it runs on older
+    # distributions too; packaged and install-checked on the Ubuntu host.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: x86_64 }
+          - { runner: ubuntu-24.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (glibc 2.28)
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp/home -v "$PWD:/src" -w /src \
+            quay.io/pypa/manylinux_2_28_${{ matrix.arch }} bash -ec '
+              curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable >/dev/null
+              . "$HOME/.cargo/env"
+              cargo build --release --locked'
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq dpkg-dev rpm >/dev/null
+      - name: Package (.tar.gz, .deb, .rpm, .AppImage)
+        run: scripts/package-linux.sh
+      - name: Install and run on other distributions
+        run: |
+          cd dist
+          deb=$(ls *.deb); rpm=$(ls *.rpm); appimage=$(ls *.AppImage)
+          check='peler --version && if ldd /usr/bin/peler | grep "not found"; then exit 1; fi'
+          for image in ubuntu:22.04 ubuntu:24.04 debian:12; do
+            echo "== $image"
+            docker run --rm -v "$PWD:/pkg:ro" "$image" bash -ec \
+              "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends /pkg/$deb >/dev/null && $check"
+          done
+          for image in fedora:41 rockylinux:8; do
+            echo "== $image"
+            docker run --rm -v "$PWD:/pkg:ro" "$image" bash -ec "dnf install -y -q --setopt=install_weak_deps=False /pkg/$rpm >/dev/null && $check"
+          done
+          echo "== AppImage"
+          chmod +x "$appimage"
+          (mkdir -p /tmp/ai && cd /tmp/ai && "$OLDPWD/$appimage" --appimage-extract >/dev/null && squashfs-root/usr/bin/peler --version)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.arch }}
+          if-no-files-found: error
+          path: dist/Peler-*-linux-*
+
+  bundle-windows:
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: scripts/package-windows.ps1
+        shell: pwsh
+      - name: Install, run and uninstall
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem dist/Peler-*-windows-x64-setup.exe).FullName
+          Start-Process -Wait -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER'
+          $dir = "$env:LOCALAPPDATA\Programs\Peler"
+          if (-not (Test-Path "$dir\peler.exe") -or -not (Test-Path "$dir\unins000.exe")) { throw "not installed" }
+          $out = Join-Path $env:TEMP 'peler-version.txt'
+          Start-Process -Wait -NoNewWindow -FilePath "$dir\peler.exe" -ArgumentList '--version' -RedirectStandardOutput $out
+          Get-Content $out
+          Start-Process -Wait -FilePath "$dir\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          if-no-files-found: error
+          path: |
+            dist/Peler-*-windows-x64-setup.exe
+            dist/Peler-*-windows-x64.zip
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, bundle-linux, bundle-windows]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Add the Windows and Linux files to the release and publish it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/ci-publish.sh

@@ -379,8 +379,8 @@ const ID: &[(&str, &str)] = &[
     ("Password", "Password"),
     ("Password for {}", "Password untuk {}"),
     (
-        "Passwords and keys from the file will be stored in the macOS Keychain.",
-        "Password dan key dari file ini akan disimpan di Keychain macOS.",
+        "Passwords and keys from the file will be stored in {}.",
+        "Password dan key dari file ini akan disimpan di {}.",
     ),
     ("Paste", "Tempel"),
     ("Permissions", "Permission"),
@@ -425,10 +425,10 @@ const ID: &[(&str, &str)] = &[
     ("SFTP unavailable: {}", "SFTP tidak tersedia: {}"),
     ("Save", "Simpan"),
     ("Save & Connect", "Simpan & Konek"),
-    ("Save in Keychain", "Simpan di Keychain"),
+    ("Save in {}", "Simpan di {}"),
     (
-        "Saved in Keychain — type to replace",
-        "Tersimpan di Keychain — ketik untuk mengganti",
+        "Saved in {} — type to replace",
+        "Tersimpan di {} — ketik untuk mengganti",
     ),
     ("Scroll back", "Gulir ke atas"),
     ("Scrollback", "Riwayat gulir"),
@@ -583,18 +583,18 @@ const ID: &[(&str, &str)] = &[
     ("Wrong password, try again.", "Password salah, coba lagi."),
     ("Zoom", "Perbesar"),
     (
-        "[Connection closed. Press Enter or ⌘R to reconnect.]",
-        "[Koneksi ditutup. Tekan Enter atau ⌘R untuk konek ulang.]",
+        "[Connection closed. Press Enter or {} to reconnect.]",
+        "[Koneksi ditutup. Tekan Enter atau {} untuk konek ulang.]",
     ),
     (
-        "[Session ended, exit code {}. Press Enter or ⌘R to reconnect.]",
-        "[Sesi berakhir, kode keluar {}. Tekan Enter atau ⌘R untuk konek ulang.]",
+        "[Session ended, exit code {}. Press Enter or {} to reconnect.]",
+        "[Sesi berakhir, kode keluar {}. Tekan Enter atau {} untuk konek ulang.]",
     ),
     ("comma separated", "pisahkan dengan koma"),
     ("e.g. Production web", "mis. Web produksi"),
     ("jump hosts", "jump host"),
     ("on the server", "di server"),
-    ("on this Mac", "di Mac ini"),
+    ("on {}", "di {}"),
     (
         "password login is not allowed for {} (server accepts: {})",
         "login dengan password tidak diizinkan untuk {} (server menerima: {})",
@@ -609,8 +609,8 @@ const ID: &[(&str, &str)] = &[
         "key terenkripsi dan memerlukan passphrase",
     ),
     (
-        "this Mac has no saved copy of the pasted key. Paste it again in Edit Connection, or choose a key file.",
-        "key yang di-paste tidak tersimpan di Mac ini. Paste lagi di Edit Koneksi, atau pilih file key.",
+        "{} has no saved copy of the pasted key. Paste it again in Edit Connection, or choose a key file.",
+        "key yang di-paste tidak tersimpan di {}. Paste lagi di Edit Koneksi, atau pilih file key.",
     ),
     (
         "the server closed the connection during the handshake",
@@ -638,8 +638,8 @@ const ID: &[(&str, &str)] = &[
         "{} koneksi terbuka dan akan ditutup.",
     ),
     (
-        "{} credential(s) could not be saved to the Keychain.",
-        "{} kredensial tidak bisa disimpan ke Keychain.",
+        "{} credential(s) could not be saved to {}.",
+        "{} kredensial tidak bisa disimpan ke {}.",
     ),
     (
         "{} did not answer as an SSH server.",
@@ -667,8 +667,8 @@ const ID: &[(&str, &str)] = &[
         "Tidak bisa membuka {} ({}); menampilkan folder home.",
     ),
     (
-        "Could not read the saved credentials of {} from the Keychain: {}",
-        "Tidak bisa membaca kredensial tersimpan milik {} dari Keychain: {}",
+        "Could not read the saved credentials of {} from {}: {}",
+        "Tidak bisa membaca kredensial tersimpan milik {} dari {}: {}",
     ),
     (
         "Could not read the settings ({}). The file was kept as {}.",
@@ -757,8 +757,8 @@ const ID: &[(&str, &str)] = &[
         "Upload akan dimulai saat SFTP siap.",
     ),
     (
-        "[Session ended by signal {}. Press Enter or ⌘R to reconnect.]",
-        "[Sesi berakhir karena sinyal {}. Tekan Enter atau ⌘R untuk menghubungkan ulang.]",
+        "[Session ended by signal {}. Press Enter or {} to reconnect.]",
+        "[Sesi berakhir karena sinyal {}. Tekan Enter atau {} untuk menghubungkan ulang.]",
     ),
     (
         "the server only accepts RSA keys with SHA-1 signatures. Enable legacy algorithms for this connection to allow it.",
@@ -845,8 +845,8 @@ const ID: &[(&str, &str)] = &[
         "Port forwarding: isi tujuan port {} (host dan port).",
     ),
     (
-        "Port {} on the server reaches {}:{} as seen from this Mac.",
-        "Port {} di server menuju {}:{} dilihat dari Mac ini.",
+        "Port {} on the server reaches {}:{} as seen from {}.",
+        "Port {} di server menuju {}:{} dilihat dari {}.",
     ),
     (
         "Reach this server through another saved connection (ssh -J).",
@@ -878,8 +878,8 @@ const ID: &[(&str, &str)] = &[
         "tidak bisa menghubungi SSH agent di {} ({})",
     ),
     (
-        "localhost:{} on this Mac reaches {}:{} as seen from the server.",
-        "localhost:{} di Mac ini menuju {}:{} dilihat dari server.",
+        "localhost:{} on {} reaches {}:{} as seen from the server.",
+        "localhost:{} di {} menuju {}:{} dilihat dari server.",
     ),
     (
         "no SSH agent is running (SSH_AUTH_SOCK is not set). Set the agent's socket in the connection's settings.",
@@ -890,8 +890,8 @@ const ID: &[(&str, &str)] = &[
         "port {} tidak bisa dibuka ({})",
     ),
     (
-        "port {} is already in use on this Mac",
-        "port {} sudah dipakai di Mac ini",
+        "port {} is already in use on {}",
+        "port {} sudah dipakai di {}",
     ),
     (
         "the SSH agent could not sign ({})",
@@ -951,16 +951,10 @@ const ID: &[(&str, &str)] = &[
         "You can turn it back on in Settings.",
         "Bisa dinyalakan lagi di Pengaturan.",
     ),
-    (
-        "Could not save to the Keychain: {}",
-        "Tidak bisa menyimpan ke Keychain: {}",
-    ),
+    ("Could not save to {}: {}", "Tidak bisa menyimpan ke {}: {}"),
     ("Save a Copy", "Simpan Salinan"),
     ("Save a Copy…", "Simpan Salinan…"),
-    (
-        "Save the text to a file on this Mac",
-        "Simpan teks ke file di Mac ini",
-    ),
+    ("Save the text to a file on {}", "Simpan teks ke file di {}"),
     ("Saved a copy to {}.", "Salinan disimpan ke {}."),
     (
         "The file was deleted on the server",
@@ -1005,8 +999,8 @@ const ID: &[(&str, &str)] = &[
     ),
     ("Cancel all", "Batalkan semua"),
     (
-        "Choose files on this Mac to upload into this folder",
-        "Pilih file di Mac ini untuk di-upload ke folder ini",
+        "Choose files on {} to upload into this folder",
+        "Pilih file di {} untuk di-upload ke folder ini",
     ),
     ("Downloaded {} file(s).", "{} file selesai di-download."),
     ("Downloading {} file(s)", "Mengunduh {} file"),
@@ -1056,8 +1050,8 @@ const ID: &[(&str, &str)] = &[
     ("Hide", "Sembunyikan"),
     ("Show", "Tampilkan"),
     (
-        "The private key is not in the Keychain any more.",
-        "Private key-nya sudah tidak ada di Keychain.",
+        "The private key is not in {} any more.",
+        "Private key-nya sudah tidak ada di {}.",
     ),
     ("Later", "Nanti"),
     ("Open Releases Page", "Buka Halaman Rilis"),
@@ -1103,8 +1097,8 @@ const ID: &[(&str, &str)] = &[
     ),
     ("You have version {}.", "Versi Anda saat ini {}."),
     (
-        "A private key is saved in the Keychain.",
-        "Private key tersimpan di Keychain.",
+        "A private key is saved in {}.",
+        "Private key tersimpan di {}.",
     ),
     ("Import from file…", "Ambil dari file…"),
     ("Keep the saved key", "Pakai key yang tersimpan"),
@@ -1112,8 +1106,8 @@ const ID: &[(&str, &str)] = &[
     ("Paste the private key.", "Paste private key-nya."),
     ("Replace…", "Ganti…"),
     (
-        "Stored in the macOS Keychain, not in the connections file.",
-        "Disimpan di macOS Keychain, bukan di file koneksi.",
+        "Stored in {}, not in the connections file.",
+        "Disimpan di {}, bukan di file koneksi.",
     ),
     (
         "This does not look like a private key.",
@@ -1128,7 +1122,10 @@ const ID: &[(&str, &str)] = &[
         "Private key terenkripsi: isi passphrase-nya di bawah (atau saat konek).",
     ),
     ("{} private key", "Private key {}"),
-    ("Add a server, or bring yours in.", "Tambahkan server, atau impor yang sudah ada."),
+    (
+        "Add a server, or bring yours in.",
+        "Tambahkan server, atau impor yang sudah ada.",
+    ),
     ("Filter connections", "Saring koneksi"),
     ("Move down", "Pindah ke bawah"),
     ("Move up", "Pindah ke atas"),
@@ -1141,8 +1138,46 @@ const ID: &[(&str, &str)] = &[
     ("search connections", "cari koneksi"),
     ("via", "lewat"),
     (
-        "Something went wrong and Peler recovered. A report was saved in ~/Library/Logs/Peler.",
-        "Terjadi kesalahan dan Peler berhasil pulih. Laporannya disimpan di ~/Library/Logs/Peler.",
+        "Peler was installed from a package (or where you can't change it). Download the new version from GitHub and install it the same way.",
+        "Peler dipasang dari paket (atau di tempat yang tidak bisa Anda ubah). Unduh versi baru dari GitHub dan pasang dengan cara yang sama.",
+    ),
+    ("Show in Explorer", "Tampilkan di Explorer"),
+    ("Show in Folder", "Tampilkan di Folder"),
+    (
+        "This copy of Peler was not installed with its setup. Download the new version from GitHub instead.",
+        "Peler ini tidak dipasang dengan installer-nya. Unduh versi baru dari GitHub saja.",
+    ),
+    ("the installer did not finish", "installer tidak selesai"),
+    ("the Keychain", "Keychain"),
+    ("Credential Manager", "Credential Manager"),
+    ("the system keyring", "keyring sistem"),
+    ("this Mac", "Mac ini"),
+    ("this computer", "komputer ini"),
+    ("Follow system", "Ikuti sistem"),
+    ("Use Alt as Meta key", "Gunakan Alt sebagai tombol Meta"),
+    (
+        "OpenSSH agent, a pipe, or \"pageant\"",
+        "OpenSSH agent, pipe, atau \"pageant\"",
+    ),
+    (
+        "Uses the Windows OpenSSH agent (keys added with ssh-add).",
+        "Memakai OpenSSH agent Windows (key yang ditambahkan dengan ssh-add).",
+    ),
+    (
+        "Uses Pageant (PuTTY, KeePass and others).",
+        "Memakai Pageant (PuTTY, KeePass, dan lainnya).",
+    ),
+    ("Uses the agent at this pipe.", "Memakai agent di pipe ini."),
+    ("Copy / paste", "Salin / tempel"),
+    ("Full Screen", "Layar Penuh"),
+    ("Menu", "Menu"),
+    (
+        "Uses your session's SSH agent (keys added with ssh-add).",
+        "Memakai SSH agent sesi Anda (key yang ditambahkan dengan ssh-add).",
+    ),
+    (
+        "Something went wrong and Peler recovered. A report was saved in {}.",
+        "Terjadi kesalahan dan Peler berhasil pulih. Laporannya disimpan di {}.",
     ),
 ];
 

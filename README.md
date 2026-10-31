@@ -1,10 +1,10 @@
 # Peler
 
-**A lightweight SSH & SFTP client for macOS, written entirely in Rust.**
+**A lightweight SSH & SFTP client for macOS, Windows and Linux, written entirely in Rust.**
 
-Peler is a native replacement for Electron-based SSH clients such as Electerm: one small universal
-binary (Apple Silicon + Intel), no Chromium, no Node.js. It starts in about 0.1 s, idles at 0 % CPU
-and uses around 70 MB of memory with a session open.
+Peler is a native replacement for Electron-based SSH clients such as Electerm: one small binary,
+no Chromium, no Node.js. It starts in about 0.1 s, idles at 0 % CPU and uses around 70 MB of
+memory with a session open.
 
 [Bahasa Indonesia](README.id.md)
 
@@ -12,8 +12,10 @@ and uses around 70 MB of memory with a session open.
 
 ## Highlights
 
-- **Saved connections** in nested groups, with drag and drop, fuzzy search and `⌘K` quick connect.
-  Passwords and passphrases live in the **macOS Keychain**, not in Peler's files. **Show** in Edit
+- **Saved connections** in nested groups, with drag and drop, fuzzy search and quick connect
+  (`⌘K`, `Ctrl+Shift+K` on Windows and Linux). Passwords and passphrases live in the system's
+  keychain (the macOS Keychain, Windows Credential Manager, the Secret Service on Linux), not in
+  Peler's files. **Show** in Edit
   Connection reveals a saved one.
 - **A real terminal** (alacritty_terminal): 24-bit colour, mouse reporting for vim/htop/tmux, IME,
   CJK, and box drawing drawn pixel-exact.
@@ -23,19 +25,30 @@ and uses around 70 MB of memory with a session open.
   no longer answers says so within seconds and offers **Reconnect**, instead of hanging.
 - **Dual-pane SFTP**: transfer many files at once in the background, with progress, speed and time
   left. Folders transfer recursively, permissions are kept, and you can browse as root over sudo.
-- **Built-in editor for remote files**: change a YAML config on the server and press `⌘S`.
+- **Built-in editor for remote files**: change a YAML config on the server and press `⌘S` (`Ctrl+S`).
 - **Import** from Electerm and `~/.ssh/config`. **Export** to versioned JSON with the passwords and
-  keys included, to move everything to another Mac.
+  keys included, to move everything to another computer, on any of the three systems.
 - **Careful with your servers**: strict host-key checking (hashed `known_hosts`, `@revoked`), safe
   saves, and transfers that never leave half-written files behind.
 - **Automatic updates** from GitHub releases, with one click to install.
+- **macOS, Windows and Linux**, each with its own installers and shortcuts.
 - English and Indonesian UI, light and dark themes, no telemetry.
 
 ## Install
 
-Requires macOS 12 Monterey or later, on Apple Silicon or Intel.
+Download from the [latest release](https://github.com/ilhamnadhif/peler/releases/latest):
 
-### One-line installer (recommended)
+| System | Download |
+| --- | --- |
+| macOS 12 Monterey or later (Apple Silicon, Intel) | one-line installer below, `Peler-<version>.pkg` or `.dmg` |
+| Windows 10 (1809) or later, x64 | `Peler-<version>-windows-x64-setup.exe`, or the portable `-windows-x64.zip` |
+| Debian, Ubuntu, Mint, Pop!_OS | `Peler-<version>-linux-amd64.deb` (`-arm64.deb` on ARM) |
+| Fedora, RHEL, Rocky, AlmaLinux, openSUSE | `Peler-<version>-linux-x86_64.rpm` (`-aarch64.rpm`) |
+| Any Linux (Arch, Manjaro …) | `Peler-<version>-linux-x86_64.AppImage` or `.tar.gz` (`-aarch64` on ARM) |
+
+### macOS
+
+#### One-line installer (recommended)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/peler/master/scripts/install.sh | bash
@@ -45,7 +58,7 @@ The script downloads the latest release, installs `Peler.app` into `/Application
 Run it again to update. To install a specific version, pass it as an argument:
 `… | bash -s -- v1.0.0`.
 
-### Installer package or disk image
+#### Installer package or disk image
 
 Download one of these from the [latest release](https://github.com/ilhamnadhif/peler/releases/latest):
 
@@ -63,7 +76,7 @@ Download one of these from the [latest release](https://github.com/ilhamnadhif/p
 > - **Or in Terminal**, after dragging the app to Applications:
 >   `xattr -dr com.apple.quarantine /Applications/Peler.app`
 
-### Homebrew
+#### Homebrew
 
 Each release includes a cask file, `peler.rb`:
 
@@ -73,33 +86,64 @@ brew install --cask ./peler.rb
 xattr -dr com.apple.quarantine /Applications/Peler.app   # until releases are notarized
 ```
 
+### Windows
+
+Run **`Peler-<version>-windows-x64-setup.exe`**. It installs for your user, without administrator
+rights (choose **Install for all users** in its first window to put Peler in Program Files), adds
+Peler to the Start menu, and can put `peler` on the PATH so `peler web-01` opens a saved connection
+from a terminal. Or unpack the portable **`.zip`** anywhere and run `peler.exe`.
+
+> **“Windows protected your PC”?** The builds are not code-signed yet, so SmartScreen warns about a
+> new download. Click **More info**, then **Run anyway**.
+
+### Linux
+
+Peler runs on X11 and Wayland with OpenGL (a software renderer is fine) and needs glibc 2.28 or
+later (RHEL 8, Debian 10, Ubuntu 18.10 and newer). Saved passwords go to the Secret Service
+(GNOME Keyring, KWallet, KeePassXC); file dialogs use the desktop portal.
+
+```sh
+sudo apt install ./Peler-<version>-linux-amd64.deb              # Debian, Ubuntu, Mint, Pop!_OS
+sudo dnf install ./Peler-<version>-linux-x86_64.rpm             # Fedora, RHEL, Rocky, AlmaLinux
+sudo zypper install --allow-unsigned-rpm ./Peler-<version>-linux-x86_64.rpm   # openSUSE
+chmod +x Peler-<version>-linux-x86_64.AppImage && ./Peler-<version>-linux-x86_64.AppImage
+tar -xzf Peler-<version>-linux-x86_64.tar.gz -C ~/.local --strip-components=1   # then run: peler
+```
+
+The `.tar.gz` unpacks into `~/.local` as it is (`bin/peler`, its menu entry and icons).
+
 ### Automatic updates
 
 Every time Peler starts, it checks GitHub for a new release. When one is out, the update window
-opens with the current and new version and what's new. **Install Update** then:
+opens with the current and new version and what's new. **Install Update** then downloads the
+latest version, even one released after the window opened (so 1.2.3 goes straight to the newest,
+never one version at a time), verifies it (its size and the SHA-256 GitHub publishes, plus what
+each system allows), quits Peler and installs it:
 
-1. downloads the latest version, even one released after the window opened (so 1.2.3 goes
-   straight to the newest, never one version at a time), and verifies it (size, the SHA-256
-   GitHub publishes, bundle id, version and code signature);
-2. quits Peler, replaces the app, and opens the new version.
+- **macOS**: checks the bundle id, version and code signature, replaces the app and opens the new
+  version. If Peler was installed with the `.pkg` (the app is then owned by root), macOS asks for
+  an administrator password.
+- **Windows** (installed with the setup): runs the new setup silently over the installed version,
+  then opens Peler again. An installation for all users asks for administrator rights.
+- **Linux AppImage and `.tar.gz`**: checks that the new version runs, puts it in place and opens it.
+- **The `.deb`, `.rpm` and the portable Windows `.zip`** are updated by downloading the new
+  package from GitHub (the update window says so and opens the page).
 
 **Close** asks again at the next start; tick **Don't show again for version …** to skip that
 version. While Peler stays open it checks again every 6 hours and shows an **Update** button in
-the toolbar instead of interrupting you. If Peler was installed with the `.pkg` (the app is then
-owned by root), macOS asks for an administrator password. You can also use **Peler → Check for
-Updates…**, or turn automatic checks off in **Settings → General**. The update check is the only connection Peler
-makes besides your own servers.
-
-Version 1.0.0 has no updater; install the next version by hand once.
+the toolbar instead of interrupting you. You can also use **Check for Updates…** (in the **Peler**
+menu on macOS, in the **☰** menu elsewhere), or turn automatic checks off in **Settings → General**.
+The update check is the only connection Peler makes besides your own servers.
 
 ### Uninstall
 
-```sh
-rm -rf /Applications/Peler.app
-rm -rf ~/Library/Application\ Support/peler      # connections, settings, known hosts
-```
+| System | Remove |
+| --- | --- |
+| macOS | `rm -rf /Applications/Peler.app ~/Library/Application\ Support/peler`; saved passwords are Keychain items named `peler` |
+| Windows | **Settings → Apps → Peler → Uninstall**; then delete `%APPDATA%\peler`; saved passwords are in Credential Manager (`peler`) |
+| Linux | `sudo apt remove peler` / `sudo dnf remove peler`, or delete the AppImage or `~/.local/bin/peler`; then `rm -rf ~/.local/share/peler` |
 
-Saved passwords are Keychain items with the service name `peler`; remove them in Keychain Access.
+The data folder holds the connections, settings and known hosts.
 
 ## Features
 
@@ -108,18 +152,18 @@ Saved passwords are Keychain items with the service name `peler`; remove them in
 - Name, host, port, user, group, tags, notes, remote and local start folders, startup commands, and
   legacy algorithms per server.
 - Log in with a password or a private key. **Paste the key** (OpenSSH or PEM; RSA, ECDSA or
-  Ed25519, encrypted or not), and Peler checks it as you paste and keeps it in the Keychain. Or
+  Ed25519, encrypted or not), and Peler checks it as you paste and keeps it in the system's keychain. Or
   point to a key file in `~/.ssh`.
-- **SSH agent**: log in with the keys of the macOS agent (`ssh-add`), 1Password, Secretive or a
-  YubiKey agent. The agent signs; the keys never leave it. Peler finds 1Password and Secretive by
-  itself.
+- **SSH agent**: log in with the keys of the system agent (`ssh-add`), 1Password, Secretive,
+  Bitwarden, GNOME Keyring or a YubiKey agent; on Windows the OpenSSH agent or Pageant. The agent
+  signs; the keys never leave it. Peler finds the usual agents by itself.
 - **Jump hosts** (`ssh -J`): reach a server through another saved connection, also several in a
   row. Each hop checks its own host key and logs in with its own method.
 - **Port forwarding** per connection, started when it connects: local (`-L`), remote (`-R`) and a
   SOCKS proxy (`-D`). The status bar shows the forwards and says when a port is already in use.
 - Nested groups, closed when Peler opens; drag and drop to reorder or regroup.
 - Fuzzy search over name, host, user, tags and group. Press Enter to connect.
-- `⌘K` opens a command palette. Typing `user@host:port` there (IPv6 as `[::1]:22`) connects without
+- `⌘K` (`Ctrl+Shift+K`) opens a command palette. Typing `user@host:port` there (IPv6 as `[::1]:22`) connects without
   a saved connection.
 - Open from the command line: `open -a Peler --args web-01` or `--args deploy@10.0.0.5:2222`.
   Peler runs as a single instance: launching it again opens the tab in the window that is already
@@ -129,23 +173,23 @@ Saved passwords are Keychain items with the service name `peler`; remove them in
 
 - xterm-256color emulation, 24-bit colour, scrollback (10,000 lines by default), alternate screen,
   bracketed paste, mouse reporting, focus events, and DEC 2026 synchronized output.
-- Selection: double-click selects a word, triple-click a line, Option-drag a block. Copy on select is
+- Selection: double-click selects a word, triple-click a line, Option-drag (Alt-drag) a block. Copy on select is
   optional.
 - Box drawing and block characters are drawn as shapes, so lines join seamlessly. CJK fallback fonts
   are memory-mapped.
 - IME composition, with the candidate window at the cursor.
 - Password, keyboard-interactive (one-time codes) and Ed25519 / ECDSA / RSA key authentication,
   including encrypted keys.
-- Tabs and split panes (`⌘D`, `⇧⌘D`) over one connection. A split opens in the current remote
+- Tabs and split panes (`⌘D`, `⇧⌘D`; `Ctrl+Shift+D`, `Ctrl+Alt+Shift+D`) over one connection. A split opens in the current remote
   folder when the shell reports it.
-- Enter in an ended pane starts a new shell there; `⌘R` reconnects the whole tab and keeps its
+- Enter in an ended pane starts a new shell there; `⌘R` (`Ctrl+Shift+R`) reconnects the whole tab and keeps its
   scrollback.
-- Option as Meta (optional) for readline and Emacs. It works with any keyboard layout, and only
+- Option as Meta on macOS (optional) and Alt as Meta on Windows and Linux, for readline and Emacs. It works with any keyboard layout, and only
   while a terminal has focus.
 - Quick commands (the lightning button), nine colour schemes, and a choice of fonts (or your own
   font file).
 
-### SFTP (`⇧⌘F`)
+### SFTP (`⇧⌘F`, `Ctrl+Shift+F`)
 
 ![Dual-pane SFTP with grouped toolbar buttons and the transfers popup](docs/screenshots/sftp.png)
 
@@ -153,9 +197,9 @@ Saved passwords are Keychain items with the service name `peler`; remove them in
   groups (**Up**, **Home**, **Refresh**, then **New folder** and **Show hidden files**) and a
   full-width path field; the lists run to the bottom of the panel.
 - **Upload, download, rename, delete (recursive), new folder, chmod.**
-- **Many files at once**: select with ⌘-click, ⇧-click or `⌘A` over a list, then drag between the
-  lists, drop files from Finder, or use the right-click menu. **Upload…** on the remote side opens
-  the macOS file picker.
+- **Many files at once**: select with ⌘-click (Ctrl-click), ⇧-click or `⌘A` (`Ctrl+A`) over a list,
+  then drag between the lists, drop files from Finder or Explorer, or use the right-click menu.
+  **Upload…** on the remote side opens the system's file picker.
 - **Browse as root (sudo)**: the **Root** button on the remote side reopens the file panel as root
   through `sudo`, to see and transfer files your user has no access to. It asks for the sudo password
   (or leave it empty for passwordless sudo); the terminal stays as your user. The server must allow
@@ -175,7 +219,7 @@ Saved passwords are Keychain items with the service name `peler`; remove them in
 
 Double-click a remote file (or right-click → **Edit**) to edit it in place:
 
-- Line numbers, cursor position, `⌘S` to save, `Esc` to close.
+- Line numbers, cursor position, `⌘S` (`Ctrl+S`) to save, `Esc` to close.
 - Tab inserts spaces (YAML does not allow tabs), and Enter keeps the indentation.
 - CRLF/LF line endings, a UTF-8 BOM and file permissions are preserved.
 - **Safe saves**: the new content is written next to the file and swapped in, so a dropped
@@ -206,28 +250,40 @@ Double-click a remote file (or right-click → **Edit**) to edit it in place:
 
 ## Keyboard shortcuts
 
-| Action | Shortcut |
-| --- | --- |
-| Quick connect / search connections | `⌘K` |
-| New connection | `⌘N` |
-| New tab (same server) | `⌘T` |
-| Close pane / tab | `⌘W` |
-| Switch tab | `⌘1`–`⌘9`, `⇧⌘[` / `⇧⌘]` |
-| Reconnect | `⌘R` |
-| Split right / down | `⌘D` / `⇧⌘D` |
-| Previous / next pane | `⌘[` / `⌘]` |
-| Sidebar | `⌘B` |
-| SFTP panel | `⇧⌘F` |
-| Text size | `⌘=` / `⌘-` / `⌘0` |
-| Clear scrollback | `⌥⌘K` |
-| Scroll history | `⇧PageUp` / `⇧PageDown` / `⇧Home` / `⇧End` |
-| Export connections | `⇧⌘E` |
-| Settings | `⌘,` |
-| Save (remote file editor) | `⌘S` |
+On Windows and Linux the app's shortcuts use **Ctrl+Shift**, as GNOME Terminal and Windows
+Terminal do, so Ctrl+C, Ctrl+D, Ctrl+R, Ctrl+W and every other Ctrl+letter still reach the
+remote shell. Alt sends Meta (Esc +) there by default; on macOS Option does so when **Use Option
+as Meta key** is on in Settings. Every command is also in the menu: the menu bar on macOS, the
+**☰** button at the right of the tab bar on Windows and Linux.
+
+| Action | macOS | Windows and Linux |
+| --- | --- | --- |
+| Quick connect / search connections | `⌘K` | `Ctrl+Shift+K` |
+| New connection | `⌘N` | `Ctrl+Shift+N` |
+| New tab (same server) | `⌘T` | `Ctrl+Shift+T` |
+| Close pane / tab | `⌘W` | `Ctrl+Shift+W` |
+| Switch tab | `⌘1`–`⌘9`, `⇧⌘[` / `⇧⌘]` | `Alt+1`–`Alt+9`, `Ctrl+Shift+Tab` / `Ctrl+Tab` (or `Ctrl+PageUp` / `Ctrl+PageDown`) |
+| Reconnect | `⌘R` | `Ctrl+Shift+R` |
+| Copy / paste | `⌘C` / `⌘V` | `Ctrl+Shift+C` / `Ctrl+Shift+V`; on Windows also `Ctrl+C` while text is selected, and `Ctrl+V` |
+| Split right / down | `⌘D` / `⇧⌘D` | `Ctrl+Shift+D` / `Ctrl+Alt+Shift+D` |
+| Previous / next pane | `⌘[` / `⌘]` | `Ctrl+Shift+[` / `Ctrl+Shift+]` |
+| Sidebar | `⌘B` | `Ctrl+Shift+B` |
+| SFTP panel | `⇧⌘F` | `Ctrl+Shift+F` |
+| Text size | `⌘=` / `⌘-` / `⌘0` | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` |
+| Clear scrollback | `⌥⌘K` | `Ctrl+Shift+L` |
+| Scroll history | `⇧PageUp` / `⇧PageDown` / `⇧Home` / `⇧End` | the same |
+| Export connections | `⇧⌘E` | `Ctrl+Shift+E` |
+| Full screen | `⌃⌘F` | `F11` |
+| Settings | `⌘,` | `Ctrl+,` |
+| Quit | `⌘Q` | `Ctrl+Shift+Q` |
+| Save (remote file editor) | `⌘S` | `Ctrl+S` |
 
 ## Performance
 
-Measured on an Apple Silicon MacBook running macOS 14.6, with the release build:
+Measured on an Apple Silicon MacBook running macOS 14.6, with the release build. On Windows and
+Linux Peler draws with OpenGL, which opens a window faster and keeps the binary smaller than
+Vulkan or Direct3D (Windows falls back to Direct3D 12 where OpenGL is missing); the Linux binary
+is about 16 MB and its packages about 8 MB.
 
 | | Result |
 | --- | --- |
@@ -243,13 +299,14 @@ history, add up to about 210 MB. Lower **Scrollback** in Settings if you keep ma
 
 ## Security and data
 
-| What | Where |
-| --- | --- |
-| Connections | `~/Library/Application Support/peler/bookmarks.json` (mode 0600) |
-| Settings (including window size and position) | `~/Library/Application Support/peler/settings.json` |
-| Trusted host keys | `~/Library/Application Support/peler/known_hosts` |
-| Passwords, passphrases, imported keys | macOS Keychain, service `peler` |
-| Crash reports | `~/Library/Logs/Peler/panic-*.log` |
+| What | macOS | Windows | Linux |
+| --- | --- | --- | --- |
+| Data folder: connections (`bookmarks.json`), settings, trusted host keys (`known_hosts`) | `~/Library/Application Support/peler` | `%APPDATA%\peler` | `~/.local/share/peler` |
+| Passwords, passphrases, imported keys (service `peler`) | Keychain | Credential Manager | Secret Service (GNOME Keyring, KWallet …) |
+| Crash reports (`panic-*.log`) | `~/Library/Logs/Peler` | `%LOCALAPPDATA%\Peler\Logs` | `~/.local/state/peler/logs` |
+
+Files in the data folder are private to your user (mode 0600 on macOS and Linux; Windows keeps the
+user's AppData private).
 
 - **Host keys**: Peler checks the app's own `known_hosts` and, read-only, `~/.ssh/known_hosts`,
   including hashed entries, wildcards, negation and `@revoked`.
@@ -268,15 +325,18 @@ history, add up to about 210 MB. Lower **Scrollback** in Settings if you keep ma
 
 ## Building from source
 
-Requires the Rust stable toolchain (via [rustup](https://rustup.rs)) and the Xcode Command Line
-Tools.
+Requires the Rust stable toolchain (via [rustup](https://rustup.rs)) and a C compiler: the Xcode
+Command Line Tools on macOS, the MSVC build tools on Windows, `gcc` on Linux (no other libraries:
+X11, Wayland and OpenGL are loaded at run time).
 
 ```sh
 git clone https://github.com/ilhamnadhif/peler.git && cd peler
 cargo run --release                       # build and run
 cargo run --release -- web-01             # open a saved connection (or user@host[:port])
-scripts/package.sh                        # universal Peler.app, .dmg, .pkg and Homebrew cask in dist/
-PELER_ARCHS=aarch64 scripts/package.sh    # Apple Silicon only (faster)
+scripts/package.sh                        # macOS: universal Peler.app, .dmg, .pkg and Homebrew cask in dist/
+PELER_ARCHS=aarch64 scripts/package.sh    # macOS: Apple Silicon only (faster)
+scripts/package-linux.sh                  # Linux: .tar.gz, .deb, .rpm and .AppImage in dist/
+pwsh scripts/package-windows.ps1          # Windows: setup (Inno Setup 6) and portable .zip in dist/
 ```
 
 ### Releasing a new version
@@ -290,12 +350,14 @@ The script runs these steps in order:
 
 1. bumps the version in `Cargo.toml`;
 2. runs the tests;
-3. builds the universal app with its `.dmg`, `.pkg`, `.zip` and Homebrew cask;
-4. commits and tags `v1.1.0`, and pushes;
-5. publishes the GitHub release with the files attached.
+3. builds the universal macOS app with its `.dmg`, `.pkg`, `.zip` and Homebrew cask;
+4. commits, pushes, drafts the GitHub release with the macOS files, and pushes the tag `v1.1.0`;
+5. waits while CI (`.github/workflows/ci.yml`) tests on Linux and Windows, builds their packages
+   (Linux for x86_64 and aarch64, in an old-glibc build image), installs them on several
+   distributions and on Windows, adds them to the release and publishes it.
 
 Installed copies pick it up on their next check. It needs the GitHub CLI (`gh auth login`) and a
-clean working tree.
+clean working tree. CI also runs the tests and lints on Linux and Windows for every push.
 
 ### Signing and notarization
 
@@ -319,7 +381,8 @@ cargo test --release --test sftp_integration -- --ignored    # 1 GiB round trip 
 cargo audit                                                  # dependency advisories
 ```
 
-The integration tests start macOS's own OpenSSH `sshd` unprivileged on a random port. They cover:
+The integration tests start the system's OpenSSH `sshd` (macOS and Linux) unprivileged on a
+random port. They cover:
 
 - key authentication, and host keys that are new, changed or revoked;
 - shells, resizing and several panes;
@@ -327,8 +390,9 @@ The integration tests start macOS's own OpenSSH `sshd` unprivileged on a random 
 
 An in-process SSH server covers the password and keyboard-interactive flows.
 
-Debug builds include an end-to-end driver. It sends real keyboard and mouse events to the window,
-through the same path as user input (menu, winit, egui):
+Debug builds include an end-to-end driver. On macOS it sends real keyboard and mouse events to the
+window, through the same path as user input (menu, winit, egui); elsewhere it runs the actions and
+checks only:
 
 ```sh
 PELER_DATA_DIR=/tmp/peler-e2e PELER_SECRETS=memory \
@@ -348,28 +412,37 @@ src/
   ssh/                russh connection, authentication, known_hosts, shells
   sftp/               remote operations, background transfers, editor load/save
   term/               terminal core (alacritty_terminal), key/mouse encoding, colour schemes
-  ui/                 terminal widget, sidebar, editors, dialogs, SFTP panel, menu, fonts,
-                      design tokens (style.rs) and shared components (kit.rs)
+  ui/                 terminal widget, sidebar, editors, dialogs, SFTP panel, macOS menu bar,
+                      shortcuts (keys.rs), fonts, design tokens (style.rs), components (kit.rs)
   crypto.rs           export encryption
-  secrets.rs          Keychain
+  platform.rs         what differs between macOS, Windows and Linux (opening files, names)
+  secrets.rs          Keychain, Credential Manager, Secret Service
   i18n.rs             English/Indonesian strings (a test checks every UI string is translated)
   instance.rs         single instance and argument forwarding
   netwatch.rs         notices network changes (VPN, Wi-Fi, sleep) so connections get checked
   update.rs           update check, download, verification and install
 tests/                integration tests (local sshd, in-process server, 1 GiB SFTP)
-scripts/              package.sh, release.sh, install.sh, dev-sshd.sh, build-fonts.py
+scripts/              package.sh (macOS), package-linux.sh, package-windows.ps1, release.sh,
+                      ci-publish.sh, install.sh, dev-sshd.sh, build-fonts.py
+packaging/            Windows installer (Inno Setup) and icon, Linux desktop entry and icons
+.github/workflows/    CI: tests on Linux and Windows, packages and publishing for releases
 vendor/ssh-key/       ssh-key with a fix for some ECDSA keys (see PELER-PATCH.md there)
 ```
 
-Built with [egui](https://github.com/emilk/egui) (wgpu/Metal),
+Built with [egui](https://github.com/emilk/egui) (Metal through wgpu on macOS, OpenGL on Windows and
+Linux),
 [alacritty_terminal](https://github.com/alacritty/alacritty),
 [russh](https://github.com/Eugeny/russh) and russh-sftp, [tokio](https://tokio.rs) and
 [keyring](https://github.com/hwchen/keyring-rs).
 
 ## Known limitations
 
-- Release builds are not signed and notarized with an Apple Developer ID yet, so macOS warns when
-  they are downloaded with a browser; see the note under *Install*.
+- Release builds are not signed and notarized with an Apple Developer ID, nor code-signed for
+  Windows, yet: macOS and SmartScreen warn when they are downloaded with a browser; see *Install*.
+- On Windows, Peler is built and tested by CI (unit tests, the installer); the end-to-end driver and
+  the OpenSSH integration tests run on macOS and Linux.
+- Files dragged from the file manager onto the window work on macOS, Windows and X11, not on
+  Wayland (not supported by the windowing library yet).
 - Not covered by the automated tests, so worth a manual check: IME composition, reordering connections
   by drag and drop, and files dropped from Finder.
 - Files dropped from Finder upload to the remote folder that is open; macOS does not report where
@@ -378,7 +451,7 @@ Built with [egui](https://github.com/emilk/egui) (wgpu/Metal),
   channel (RUSTSEC-2023-0071, ignored in `.cargo/audit.toml` with the reasons). The `rsa` crate
   still signs in two rare cases: SHA-1 signatures for servers older than 2016 (only with legacy
   algorithms on) and RSA keys shorter than 2048 bits.
-- Not yet available: agent forwarding, X11 forwarding, and Linux/Windows builds.
+- Not yet available: agent forwarding and X11 forwarding.
 
 ## License
 

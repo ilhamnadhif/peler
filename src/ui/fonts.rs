@@ -15,7 +15,9 @@ pub const TERM_BOLD: &str = "term-bold";
 pub const TERM_ITALIC: &str = "term-italic";
 pub const TERM_BOLD_ITALIC: &str = "term-bold-italic";
 
-/// A selectable terminal font: file and face indices (regular, bold, italic, bold italic).
+/// A selectable terminal font: file and face indices (regular, bold, italic, bold italic). On
+/// macOS files are absolute paths; on Windows and Linux file names, looked up in the system's
+/// font folders (`locate`).
 #[derive(Clone, Debug)]
 pub struct FontPreset {
     pub name: &'static str,
@@ -23,6 +25,28 @@ pub struct FontPreset {
     pub faces: [Option<(Option<&'static str>, u32)>; 4],
 }
 
+#[cfg(not(target_os = "macos"))]
+const fn four(
+    r: &'static str,
+    b: &'static str,
+    i: &'static str,
+    bi: &'static str,
+) -> [Option<(Option<&'static str>, u32)>; 4] {
+    [
+        Some((Some(r), 0)),
+        Some((Some(b), 0)),
+        Some((Some(i), 0)),
+        Some((Some(bi), 0)),
+    ]
+}
+
+const BUILT_IN: FontPreset = FontPreset {
+    name: "Hack (built-in)",
+    path: None,
+    faces: [None, None, None, None],
+};
+
+#[cfg(target_os = "macos")]
 pub const PRESETS: &[FontPreset] = &[
     FontPreset {
         name: "Menlo",
@@ -73,19 +97,210 @@ pub const PRESETS: &[FontPreset] = &[
         path: Some("/System/Library/Fonts/Supplemental/Andale Mono.ttf"),
         faces: [Some((None, 0)), None, None, None],
     },
+    BUILT_IN,
+];
+
+#[cfg(windows)]
+pub const PRESETS: &[FontPreset] = &[
     FontPreset {
-        name: "Hack (built-in)",
-        path: None,
-        faces: [None, None, None, None],
+        name: "Consolas",
+        path: Some("consola.ttf"),
+        faces: four(
+            "consola.ttf",
+            "consolab.ttf",
+            "consolai.ttf",
+            "consolaz.ttf",
+        ),
+    },
+    FontPreset {
+        name: "Cascadia Mono",
+        path: Some("CascadiaMono.ttf"),
+        faces: [
+            Some((None, 0)),
+            None,
+            Some((Some("CascadiaMonoItalic.ttf"), 0)),
+            None,
+        ],
+    },
+    FontPreset {
+        name: "Lucida Console",
+        path: Some("lucon.ttf"),
+        faces: [Some((None, 0)), None, None, None],
+    },
+    FontPreset {
+        name: "Courier New",
+        path: Some("cour.ttf"),
+        faces: four("cour.ttf", "courbd.ttf", "couri.ttf", "courbi.ttf"),
+    },
+    BUILT_IN,
+];
+
+#[cfg(not(any(target_os = "macos", windows)))]
+pub const PRESETS: &[FontPreset] = &[
+    BUILT_IN,
+    FontPreset {
+        name: "DejaVu Sans Mono",
+        path: Some("DejaVuSansMono.ttf"),
+        faces: four(
+            "DejaVuSansMono.ttf",
+            "DejaVuSansMono-Bold.ttf",
+            "DejaVuSansMono-Oblique.ttf",
+            "DejaVuSansMono-BoldOblique.ttf",
+        ),
+    },
+    FontPreset {
+        name: "Liberation Mono",
+        path: Some("LiberationMono-Regular.ttf"),
+        faces: four(
+            "LiberationMono-Regular.ttf",
+            "LiberationMono-Bold.ttf",
+            "LiberationMono-Italic.ttf",
+            "LiberationMono-BoldItalic.ttf",
+        ),
+    },
+    FontPreset {
+        name: "Ubuntu Mono",
+        path: Some("UbuntuMono-R.ttf"),
+        faces: four(
+            "UbuntuMono-R.ttf",
+            "UbuntuMono-B.ttf",
+            "UbuntuMono-RI.ttf",
+            "UbuntuMono-BI.ttf",
+        ),
+    },
+    FontPreset {
+        name: "Noto Sans Mono",
+        path: Some("NotoSansMono-Regular.ttf"),
+        faces: [
+            Some((None, 0)),
+            Some((Some("NotoSansMono-Bold.ttf"), 0)),
+            None,
+            None,
+        ],
     },
 ];
 
+/// Fallbacks for Chinese, Japanese and Korean text, by key and file.
+#[cfg(target_os = "macos")]
 const CJK_FALLBACKS: &[(&str, &str)] = &[
     ("cjk-ja", "/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc"),
     ("cjk-zh", "/System/Library/Fonts/Hiragino Sans GB.ttc"),
     ("cjk-ko", "/System/Library/Fonts/AppleSDGothicNeo.ttc"),
 ];
+#[cfg(windows)]
+const CJK_FALLBACKS: &[(&str, &str)] = &[
+    ("cjk-ja", "YuGothM.ttc"),
+    ("cjk-zh", "msyh.ttc"),
+    ("cjk-ko", "malgun.ttf"),
+];
+/// Noto CJK covers all three; WenQuanYi where it is the one installed.
+#[cfg(not(any(target_os = "macos", windows)))]
+const CJK_FALLBACKS: &[(&str, &str)] = &[
+    ("cjk", "NotoSansCJK-Regular.ttc"),
+    ("cjk-wqy", "wqy-microhei.ttc"),
+];
+
+#[cfg(target_os = "macos")]
 const SYMBOLS: (&str, &str) = ("symbols", "/System/Library/Fonts/Apple Symbols.ttf");
+#[cfg(windows)]
+const SYMBOLS: (&str, &str) = ("symbols", "seguisym.ttf");
+#[cfg(not(any(target_os = "macos", windows)))]
+const SYMBOLS: (&str, &str) = ("symbols", "DejaVuSans.ttf");
+
+/// The terminal font when none was chosen: the platform's usual one.
+const DEFAULT_FONT: &str = if cfg!(target_os = "macos") {
+    "Menlo"
+} else if cfg!(windows) {
+    "Consolas"
+} else {
+    "Hack (built-in)"
+};
+
+/// The system's font folders (Windows and Linux).
+#[cfg(windows)]
+fn font_dirs() -> Vec<PathBuf> {
+    let windir = std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into());
+    let mut dirs = vec![PathBuf::from(windir).join("Fonts")];
+    // Fonts installed for this user only.
+    if let Some(local) = dirs::data_local_dir() {
+        dirs.push(local.join("Microsoft").join("Windows").join("Fonts"));
+    }
+    dirs
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn font_dirs() -> Vec<PathBuf> {
+    let home = crate::paths::home_dir();
+    let mut dirs = vec![
+        PathBuf::from("/usr/share/fonts"),
+        PathBuf::from("/usr/local/share/fonts"),
+        home.join(".local/share/fonts"),
+        home.join(".fonts"),
+    ];
+    if let Some(data) = std::env::var_os("XDG_DATA_HOME") {
+        dirs.push(PathBuf::from(data).join("fonts"));
+    }
+    dirs
+}
+
+/// Where a font file is: absolute paths as they are (macOS); file names in the system's font
+/// folders. On Linux the folders are indexed once, on first use (fonts sit in distribution-
+/// specific subfolders); nothing is read for the built-in font.
+fn locate(file: &str) -> Option<PathBuf> {
+    let path = Path::new(file);
+    if path.is_absolute() {
+        return Some(path.to_path_buf());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        None
+    }
+    #[cfg(windows)]
+    {
+        font_dirs()
+            .into_iter()
+            .map(|d| d.join(file))
+            .find(|p| p.is_file())
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        static INDEX: OnceLock<HashMap<String, PathBuf>> = OnceLock::new();
+        let index = INDEX.get_or_init(|| {
+            let mut index = HashMap::new();
+            let mut stack: Vec<(PathBuf, u32)> = font_dirs().into_iter().map(|d| (d, 0)).collect();
+            while let Some((dir, depth)) = stack.pop() {
+                let Ok(entries) = std::fs::read_dir(&dir) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    let p = entry.path();
+                    match entry.file_type() {
+                        Ok(t) if t.is_dir() && depth < 4 => stack.push((p, depth + 1)),
+                        Ok(_) => {
+                            let name = entry.file_name().to_string_lossy().into_owned();
+                            index.entry(name).or_insert(p);
+                        }
+                        Err(_) => {}
+                    }
+                }
+            }
+            index
+        });
+        index.get(file).cloned()
+    }
+}
+
+/// Fonts of the system (read-only while the app runs, so they can be memory-mapped).
+fn is_system_font(path: &Path) -> bool {
+    if cfg!(target_os = "macos") {
+        return path.starts_with("/System/Library/");
+    }
+    #[cfg(windows)]
+    if let Some(windir) = std::env::var_os("WINDIR") {
+        return path.starts_with(PathBuf::from(windir).join("Fonts"));
+    }
+    path.starts_with("/usr/share/fonts")
+}
 
 /// The UI fonts, bundled: Inter in three weights and the Phosphor icons.
 const INTER: &[u8] = include_bytes!("../../assets/fonts/Inter-Regular.ttf");
@@ -116,9 +331,9 @@ fn mapped(path: &Path) -> Option<&'static [u8]> {
     if !meta.is_file() || meta.len() > MAX_FONT_BYTES {
         return None;
     }
-    let bytes: &'static [u8] = if path.starts_with("/System/Library/") {
-        // SAFETY: system font files are read-only (sealed system volume); the mapping lives
-        // for the rest of the process.
+    let bytes: &'static [u8] = if is_system_font(path) {
+        // SAFETY: system font files are read-only (the sealed system volume on macOS, files
+        // owned by the system elsewhere); the mapping lives for the rest of the process.
         let map = unsafe { memmap2::Mmap::map(&file) }.ok()?;
         Box::leak(Box::new(map))
     } else {
@@ -138,8 +353,11 @@ fn is_usable_font(bytes: &[u8], index: u32) -> bool {
     skrifa::FontRef::from_index(bytes, index).is_ok_and(|f| f.charmap().map('M').is_some())
 }
 
-fn add_face(defs: &mut FontDefinitions, key: &str, path: &Path, index: u32) -> bool {
-    let Some(bytes) = mapped(path) else {
+fn add_face(defs: &mut FontDefinitions, key: &str, file: &str, index: u32) -> bool {
+    let Some(path) = locate(file) else {
+        return false;
+    };
+    let Some(bytes) = mapped(&path) else {
         return false;
     };
     if !is_usable_font(bytes, index) {
@@ -167,12 +385,12 @@ pub fn definitions(choice: &FontChoice, load_cjk: bool) -> FontDefinitions {
         .collect();
 
     let mut fallbacks: Vec<String> = Vec::new();
-    if add_face(&mut defs, SYMBOLS.0, Path::new(SYMBOLS.1), 0) {
+    if add_face(&mut defs, SYMBOLS.0, SYMBOLS.1, 0) {
         fallbacks.push(SYMBOLS.0.into());
     }
     if load_cjk {
         for (key, path) in CJK_FALLBACKS {
-            if add_face(&mut defs, key, Path::new(path), 0) {
+            if add_face(&mut defs, key, path, 0) {
                 fallbacks.push(key.to_string());
             }
         }
@@ -187,11 +405,10 @@ pub fn definitions(choice: &FontChoice, load_cjk: bool) -> FontDefinitions {
         (Some(p), _) => {
             if let Some(base) = p.path {
                 for (i, face) in p.faces.iter().enumerate() {
-                    if let Some((file, index)) = face {
-                        let path = Path::new(file.unwrap_or(base));
-                        if add_face(&mut defs, keys[i], path, *index) {
-                            faces[i] = Some(keys[i].to_string());
-                        }
+                    if let Some((file, index)) = face
+                        && add_face(&mut defs, keys[i], file.unwrap_or(base), *index)
+                    {
+                        faces[i] = Some(keys[i].to_string());
                     }
                 }
             }
@@ -200,7 +417,7 @@ pub fn definitions(choice: &FontChoice, load_cjk: bool) -> FontDefinitions {
             if add_face(
                 &mut defs,
                 TERM_REGULAR,
-                &crate::paths::expand_tilde(path),
+                &crate::paths::expand_tilde(path).to_string_lossy(),
                 choice.index,
             ) =>
         {
@@ -228,8 +445,10 @@ pub fn definitions(choice: &FontChoice, load_cjk: bool) -> FontDefinitions {
     // remote prompts print, so they stay out of the terminal and monospace families above.
     let font = |bytes: &'static [u8]| Arc::new(FontData::from_static(bytes));
     defs.font_data.insert("Inter".into(), font(INTER));
-    defs.font_data.insert("Inter-Medium".into(), font(INTER_MEDIUM));
-    defs.font_data.insert("Inter-SemiBold".into(), font(INTER_SEMIBOLD));
+    defs.font_data
+        .insert("Inter-Medium".into(), font(INTER_MEDIUM));
+    defs.font_data
+        .insert("Inter-SemiBold".into(), font(INTER_SEMIBOLD));
     let mut phosphor = FontData::from_static(PHOSPHOR);
     // Icons sit a little high next to Inter's x-height.
     phosphor.tweak.y_offset_factor = 0.08;
@@ -243,8 +462,10 @@ pub fn definitions(choice: &FontChoice, load_cjk: bool) -> FontDefinitions {
         .insert(FontFamily::Proportional, ui_family("Inter"));
     defs.families
         .insert(FontFamily::Name(MEDIUM.into()), ui_family("Inter-Medium"));
-    defs.families
-        .insert(FontFamily::Name(SEMIBOLD.into()), ui_family("Inter-SemiBold"));
+    defs.families.insert(
+        FontFamily::Name(SEMIBOLD.into()),
+        ui_family("Inter-SemiBold"),
+    );
     defs.families.insert(
         FontFamily::Name(ICONS.into()),
         vec!["Phosphor".into(), "Inter".into()],
@@ -272,11 +493,11 @@ pub fn apply(ctx: &egui::Context, choice: &FontChoice, load_cjk: bool) -> bool {
     ok
 }
 
-/// The saved font, or Menlo when nothing is chosen yet.
+/// The saved font, or the platform's usual one when nothing is chosen yet.
 pub fn effective_choice(choice: &FontChoice) -> FontChoice {
     if choice.name.is_empty() && choice.path.is_none() {
         FontChoice {
-            name: "Menlo".into(),
+            name: DEFAULT_FONT.into(),
             path: None,
             index: 0,
         }

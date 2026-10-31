@@ -1,5 +1,8 @@
 //! The built-in editor's load and save against a real OpenSSH server.
 
+// Against a local OpenSSH server (`/usr/sbin/sshd`): macOS and Linux.
+#![cfg(unix)]
+
 mod common;
 
 use std::os::unix::fs::PermissionsExt;

@@ -1,15 +1,23 @@
 //! Updates from GitHub releases.
 //!
 //! The app asks GitHub for the latest release, and when it is newer than this build downloads
-//! its `Peler-<version>.zip`, checks it (size, SHA-256 published by GitHub, bundle id, version,
-//! code signature, and the same signing team when this build has one), and replaces the
-//! installed app once Peler has quit, then opens the new version. When the app is not writable
-//! by the user (installed by the .pkg as root), macOS asks for an administrator password. The
-//! outcome is left in the data folder for the next launch to report.
+//! the file that matches how this copy was installed, checks its size and the SHA-256 GitHub
+//! published for it, and installs it once Peler has quit:
 //!
-//! macOS's own tools do the work (`curl`, `ditto`, `codesign`, `plutil`), so the updater adds
-//! no HTTP or TLS code to the app.
+//! - macOS: `Peler-<version>.zip`, also checked for bundle id, version, code signature and the
+//!   same signing team when this build has one; the installed app is replaced and opened again.
+//!   When the app is not writable by the user (installed by the .pkg as root), macOS asks for
+//!   an administrator password.
+//! - Windows, installed with the setup: the new setup runs silently over it (asking for
+//!   administrator rights only for an installation for all users) and opens Peler again.
+//! - Linux AppImage, or the .tar.gz unpacked where the user can write: the file is replaced and
+//!   Peler opens again. Copies from a .deb or .rpm are updated by downloading the new package.
+//!
+//! The outcome is left in the data folder for the next launch to report. The system's own
+//! tools do the work (`curl`, and on macOS `ditto`, `codesign`, `plutil`; `tar` on Linux), so
+//! the updater adds no HTTP or TLS code to the app.
 
+#[cfg(target_os = "macos")]
 use std::ffi::OsString;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -27,9 +35,11 @@ use crate::i18n::t;
 /// The GitHub repository releases come from.
 pub const REPO: &str = "ilhamnadhif/peler";
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
+#[cfg(target_os = "macos")]
 const BUNDLE_ID: &str = "dev.peler.app";
 /// Name prefix of the old app while the new one is moved in (next to it, so a crash in between
 /// never loses it).
+#[cfg(target_os = "macos")]
 const ASIDE_PREFIX: &str = ".Peler.app.old-";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,8 +60,8 @@ pub struct Release {
     pub date: Option<String>,
     /// The release page.
     pub page: String,
-    /// The app archive the updater installs.
-    pub archive: Option<Asset>,
+    /// The file the updater installs on this system (none: download it by hand).
+    pub download: Option<Asset>,
 }
 
 #[derive(Deserialize)]
@@ -98,8 +108,35 @@ fn protocols() -> &'static str {
     }
 }
 
+/// A command for one of the system's tools, without a console window flashing up on Windows.
+fn command(program: impl AsRef<std::ffi::OsStr>) -> Command {
+    #[allow(unused_mut)]
+    let mut cmd = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
+/// The system's curl (part of Windows 10 and later, macOS and nearly every Linux).
+fn curl_path() -> PathBuf {
+    if cfg!(windows) {
+        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        return PathBuf::from(root).join("System32").join("curl.exe");
+    }
+    let usr = Path::new("/usr/bin/curl");
+    if usr.exists() {
+        usr.to_path_buf()
+    } else {
+        PathBuf::from("curl")
+    }
+}
+
 fn curl(args: &[&str]) -> Result<Vec<u8>, String> {
-    let out = Command::new("/usr/bin/curl")
+    let out = command(curl_path())
         .args([
             "-fsSL",
             "--proto",
@@ -139,17 +176,29 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
     a > b
 }
 
-fn parse_release(json: &[u8]) -> Result<Release, String> {
+/// The release file that updates a copy installed as `kind`.
+fn asset_name(kind: &Install, version: &str) -> Option<String> {
+    let arch = std::env::consts::ARCH;
+    Some(match kind {
+        Install::MacApp(_) => format!("Peler-{version}.zip"),
+        Install::WindowsSetup { .. } => format!("Peler-{version}-windows-x64-setup.exe"),
+        Install::AppImage(_) => format!("Peler-{version}-linux-{arch}.AppImage"),
+        Install::LinuxArchive(_) => format!("Peler-{version}-linux-{arch}.tar.gz"),
+        Install::Manual => return None,
+    })
+}
+
+fn parse_release(json: &[u8], kind: &Install) -> Result<Release, String> {
     let r: ApiRelease = serde_json::from_slice(json).map_err(|e| e.to_string())?;
     if r.draft || r.prerelease {
         return Err("not a final release".into());
     }
     let version = r.tag_name.trim_start_matches('v').to_string();
-    let archive_name = format!("Peler-{version}.zip");
-    let archive = r
+    let wanted = asset_name(kind, &version);
+    let download = r
         .assets
         .into_iter()
-        .find(|a| a.name == archive_name)
+        .find(|a| Some(&a.name) == wanted.as_ref())
         .map(|a| Asset {
             sha256: a
                 .digest
@@ -163,19 +212,123 @@ fn parse_release(json: &[u8]) -> Result<Release, String> {
         notes: r.body.unwrap_or_default(),
         date: r.published_at.and_then(|d| d.get(..10).map(str::to_string)),
         page: r.html_url,
-        archive,
+        download,
     })
 }
 
 /// The latest release, if it is newer than this build.
 pub fn check() -> Result<Option<Release>, String> {
     let json = curl(&["-H", "Accept: application/vnd.github+json", &feed_url()])?;
-    let release = parse_release(&json)?;
+    let release = parse_release(&json, &Install::current())?;
     Ok(is_newer(&release.version, CURRENT).then_some(release))
+}
+
+/// How this copy of Peler was installed, which decides how it updates.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Install {
+    /// `Peler.app` (macOS).
+    MacApp(PathBuf),
+    /// By the Windows setup; `all_users` when it went to Program Files.
+    WindowsSetup { exe: PathBuf, all_users: bool },
+    /// The AppImage at this path (Linux).
+    AppImage(PathBuf),
+    /// The binary from the .tar.gz, where the user can replace it (Linux).
+    LinuxArchive(PathBuf),
+    /// Updated by downloading the new version by hand: a .deb or .rpm, the portable Windows
+    /// .zip, a development build.
+    Manual,
+}
+
+impl Install {
+    pub fn current() -> Self {
+        let Some(exe) = std::env::current_exe()
+            .ok()
+            .and_then(|e| e.canonicalize().ok())
+        else {
+            return Install::Manual;
+        };
+        if cfg!(debug_assertions) && std::env::var_os("PELER_UPDATE_FEED").is_none() {
+            return Install::Manual;
+        }
+        Self::detect(&exe)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn detect(_exe: &Path) -> Self {
+        installed_bundle().map_or(Install::Manual, Install::MacApp)
+    }
+
+    #[cfg(windows)]
+    fn detect(exe: &Path) -> Self {
+        // The setup leaves its uninstaller next to the app; the portable .zip has none.
+        let Some(dir) = exe.parent() else {
+            return Install::Manual;
+        };
+        if !dir.join("unins000.exe").exists() {
+            return Install::Manual;
+        }
+        let all_users = ["ProgramFiles", "ProgramW6432", "ProgramFiles(x86)"]
+            .iter()
+            .filter_map(std::env::var_os)
+            .any(|p| exe.starts_with(PathBuf::from(p)));
+        Install::WindowsSetup {
+            exe: exe.to_path_buf(),
+            all_users,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn detect(exe: &Path) -> Self {
+        if let Some(image) = std::env::var_os("APPIMAGE").map(PathBuf::from)
+            && image.is_file()
+        {
+            return Install::AppImage(image);
+        }
+        // Installed by a package (or by root): the package manager updates it.
+        if exe.starts_with("/usr/") || exe.starts_with("/opt/") {
+            return Install::Manual;
+        }
+        match exe.parent() {
+            Some(dir) if writable(dir) => Install::LinuxArchive(exe.to_path_buf()),
+            _ => Install::Manual,
+        }
+    }
+}
+
+/// Whether the user can create files in `dir` (and so replace one there).
+#[cfg(target_os = "linux")]
+fn writable(dir: &Path) -> bool {
+    let p = dir.join(format!(".peler-write-test-{}", std::process::id()));
+    let ok = std::fs::File::create(&p).is_ok();
+    let _ = std::fs::remove_file(&p);
+    ok
+}
+
+/// Whether this copy can install `release` by itself.
+pub fn installable(release: &Release) -> bool {
+    Install::current() != Install::Manual && release.download.is_some()
+}
+
+/// Why the update has to be downloaded by hand.
+pub fn manual_reason() -> &'static str {
+    if cfg!(target_os = "macos") {
+        t(
+            "Automatic installation needs Peler in the Applications folder. Download the new version from GitHub instead.",
+        )
+    } else if cfg!(windows) {
+        t(
+            "This copy of Peler was not installed with its setup. Download the new version from GitHub instead.",
+        )
+    } else {
+        t(
+            "Peler was installed from a package (or where you can't change it). Download the new version from GitHub and install it the same way.",
+        )
+    }
 }
 
 /// The installed `Peler.app` this process runs from, when it can be updated in place: not a
 /// development build, not a disk image, not a translocated copy macOS made read-only.
+#[cfg(target_os = "macos")]
 pub fn installed_bundle() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
     let bundle = exe.parent()?.parent()?.parent()?.to_path_buf();
@@ -202,10 +355,14 @@ pub enum Stage {
 #[derive(Debug)]
 pub struct Prepared {
     pub version: String,
+    /// The download's private folder.
     pub dir: PathBuf,
-    pub app: PathBuf,
+    /// What gets installed: `Peler.app` (macOS), the setup (Windows), the new AppImage or
+    /// binary (Linux).
+    pub file: PathBuf,
 }
 
+#[cfg(target_os = "macos")]
 fn plist_value(app: &Path, key: &str) -> Option<String> {
     let out = Command::new("/usr/bin/plutil")
         .args(["-extract", key, "raw", "-o", "-"])
@@ -218,6 +375,7 @@ fn plist_value(app: &Path, key: &str) -> Option<String> {
 }
 
 /// The signing team of an app (`None` for ad-hoc or unsigned builds).
+#[cfg(target_os = "macos")]
 fn team_id(app: &Path) -> Option<String> {
     let out = Command::new("/usr/bin/codesign")
         .args(["-dv"])
@@ -232,6 +390,7 @@ fn team_id(app: &Path) -> Option<String> {
         .map(str::to_string)
 }
 
+#[cfg(target_os = "macos")]
 fn signature_valid(app: &Path) -> bool {
     Command::new("/usr/bin/codesign")
         .args(["--verify", "--deep", "--strict"])
@@ -244,7 +403,6 @@ fn signature_valid(app: &Path) -> bool {
 /// A new folder for one download, private to this user and never shared with another download
 /// or another running Peler.
 fn new_download_dir() -> Result<PathBuf, String> {
-    use std::os::unix::fs::DirBuilderExt;
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -256,7 +414,11 @@ fn new_download_dir() -> Result<PathBuf, String> {
             COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
         // `create` (not `create_all`) fails when anything, a link included, is already there.
-        match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+        #[cfg_attr(not(unix), allow(unused_mut))]
+        let mut builder = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        match builder.create(&dir) {
             Ok(()) => return Ok(dir),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(e.to_string()),
@@ -282,12 +444,12 @@ fn sha256_file(path: &Path) -> std::io::Result<String> {
         .collect())
 }
 
-/// Downloads and checks the release's app archive.
+/// Downloads and checks the release's file for this installation.
 pub fn download(release: &Release, stage: &Arc<Mutex<Stage>>) -> Result<Prepared, String> {
     let asset = release
-        .archive
+        .download
         .as_ref()
-        .ok_or("this release has no app archive")?;
+        .ok_or("this release has no file for this system")?;
     let dir = new_download_dir()?;
     let result = download_into(release, asset, &dir, stage);
     if result.is_err() {
@@ -302,13 +464,19 @@ fn download_into(
     dir: &Path,
     stage: &Arc<Mutex<Stage>>,
 ) -> Result<Prepared, String> {
-    let archive = dir.join(&asset.name);
+    let archive = fetch(asset, dir, stage)?;
+    prepare(release, &archive, dir)
+}
 
+/// Downloads `asset` into `dir` and checks its size and SHA-256. A file without a published
+/// checksum is refused.
+fn fetch(asset: &Asset, dir: &Path, stage: &Arc<Mutex<Stage>>) -> Result<PathBuf, String> {
+    let archive = dir.join(&asset.name);
     *stage.lock() = Stage::Downloading {
         done: 0,
         total: asset.size,
     };
-    let mut child = Command::new("/usr/bin/curl")
+    let mut child = command(curl_path())
         .args([
             "-fsSL",
             "--proto",
@@ -353,16 +521,24 @@ fn download_into(
             asset.size
         ));
     }
-    if let Some(expected) = &asset.sha256 {
-        let actual = sha256_file(&archive).map_err(|e| e.to_string())?;
-        if &actual != expected {
-            return Err("the download does not match its published checksum".into());
-        }
+    let expected = asset
+        .sha256
+        .as_ref()
+        .ok_or("the download has no published checksum")?;
+    let actual = sha256_file(&archive).map_err(|e| e.to_string())?;
+    if &actual != expected {
+        return Err("the download does not match its published checksum".into());
     }
+    Ok(archive)
+}
+
+/// macOS: unpacks the app and checks it is the right, intact Peler.
+#[cfg(target_os = "macos")]
+fn prepare(release: &Release, archive: &Path, dir: &Path) -> Result<Prepared, String> {
     let unpacked = dir.join("app");
     let ok = Command::new("/usr/bin/ditto")
         .args(["-x", "-k"])
-        .arg(&archive)
+        .arg(archive)
         .arg(&unpacked)
         .status()
         .map_err(|e| e.to_string())?
@@ -387,15 +563,75 @@ fn download_into(
     {
         return Err("the downloaded app is signed by someone else".into());
     }
-    let _ = std::fs::remove_file(&archive);
+    let _ = std::fs::remove_file(archive);
     Ok(Prepared {
         version: release.version.clone(),
         dir: dir.to_path_buf(),
-        app,
+        file: app,
+    })
+}
+
+/// Windows: the setup is run as it is.
+#[cfg(windows)]
+fn prepare(release: &Release, setup: &Path, dir: &Path) -> Result<Prepared, String> {
+    Ok(Prepared {
+        version: release.version.clone(),
+        dir: dir.to_path_buf(),
+        file: setup.to_path_buf(),
+    })
+}
+
+/// Linux: an AppImage is used as it is; from the .tar.gz, its `bin/peler`. Either must run and
+/// say it is this version.
+#[cfg(target_os = "linux")]
+fn prepare(release: &Release, download: &Path, dir: &Path) -> Result<Prepared, String> {
+    use std::os::unix::fs::PermissionsExt;
+    let file = if download.extension().is_some_and(|e| e == "gz") {
+        let unpacked = dir.join("unpacked");
+        std::fs::create_dir(&unpacked).map_err(|e| e.to_string())?;
+        let ok = command("tar")
+            .arg("-xzf")
+            .arg(download)
+            .arg("-C")
+            .arg(&unpacked)
+            .status()
+            .map_err(|e| format!("tar: {e}"))?
+            .success();
+        if !ok {
+            return Err("the archive could not be unpacked".into());
+        }
+        let bin = std::fs::read_dir(&unpacked)
+            .map_err(|e| e.to_string())?
+            .flatten()
+            .map(|e| e.path().join("bin/peler"))
+            .find(|p| p.is_file())
+            .ok_or("the archive has no Peler in it")?;
+        let _ = std::fs::remove_file(download);
+        bin
+    } else {
+        download.to_path_buf()
+    };
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755))
+        .map_err(|e| e.to_string())?;
+    let out = command(&file)
+        .arg("--version")
+        .env_remove("APPIMAGE")
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("the new version does not run: {e}"))?;
+    let said = String::from_utf8_lossy(&out.stdout);
+    if !said.trim().ends_with(&release.version) {
+        return Err("the downloaded version does not match the release".into());
+    }
+    Ok(Prepared {
+        version: release.version.clone(),
+        dir: dir.to_path_buf(),
+        file,
     })
 }
 
 /// Whether the current user can replace `bundle` without an administrator password.
+#[cfg(target_os = "macos")]
 fn user_can_replace(bundle: &Path) -> bool {
     let probe = |dir: &Path| {
         let p = dir.join(format!(".peler-write-test-{}", std::process::id()));
@@ -414,6 +650,7 @@ fn user_can_replace(bundle: &Path) -> bool {
 /// set, signing team (`$4`). As root the copy gets the owner of the app it replaces. The old app
 /// is moved aside, and put back when the new one can't be moved in. Only the last line of a
 /// failure is meant for the user.
+#[cfg(target_os = "macos")]
 const SWAP_SCRIPT: &str = r#"
 fail() { echo "$1" >&2; exit 1; }
 src=$1 app=$2 version=$3 team=$4 id=$5
@@ -458,6 +695,7 @@ exit 0
 /// directly or behind the administrator password prompt), records its outcome in `$2` for the
 /// next launch, opens the app (`$5`) and deletes the download (`$3`). It runs as the user, and
 /// nothing is spliced into the script: every value is an argument.
+#[cfg(target_os = "macos")]
 const HELPER_SCRIPT: &str = r#"
 pid=$1 status=$2 download=$3 version=$4 app=$5
 shift 5
@@ -472,6 +710,7 @@ printf '%s\n%s\n%s\n' "$version" "$rc" "$out" > "$status.tmp" && /bin/mv -f "$st
 /// Runs the swap script (item 2) as root with the remaining items as its arguments, after
 /// macOS asked for an administrator password with the prompt in item 1; nothing changes if it
 /// is declined. AppleScript quotes every argument, and no file the user can write is run.
+#[cfg(target_os = "macos")]
 const ADMIN_APPLESCRIPT: &str = r#"on run argv
     set cmd to "/bin/sh -c " & quoted form of (item 2 of argv) & " peler-update"
     repeat with arg in rest of rest of argv
@@ -485,9 +724,104 @@ fn outcome_file() -> PathBuf {
     crate::paths::data_dir().join("update-outcome")
 }
 
+/// Starts the installation of a prepared update; the caller then quits the app.
+pub fn launch_installer(prepared: &Prepared) -> Result<(), String> {
+    match Install::current() {
+        #[cfg(target_os = "macos")]
+        Install::MacApp(bundle) => launch_mac_installer(prepared, &bundle),
+        #[cfg(windows)]
+        Install::WindowsSetup { all_users, .. } => launch_windows_setup(prepared, all_users),
+        #[cfg(target_os = "linux")]
+        Install::AppImage(path) | Install::LinuxArchive(path) => {
+            replace_and_relaunch(prepared, &path)
+        }
+        _ => Err("this copy of Peler can't update itself".into()),
+    }
+}
+
+/// Windows: runs the new setup silently over the installed version, once this process has quit
+/// (the setup closes it, and opens Peler again when done). An installation for all users asks
+/// for administrator rights.
+#[cfg(windows)]
+fn launch_windows_setup(prepared: &Prepared, all_users: bool) -> Result<(), String> {
+    record_pending(&prepared.version)?;
+    command(&prepared.file)
+        .args([
+            "/SILENT",
+            "/SUPPRESSMSGBOXES",
+            "/NORESTART",
+            "/NOCANCEL",
+            "/update=1",
+        ])
+        .arg(if all_users {
+            "/ALLUSERS"
+        } else {
+            "/CURRENTUSER"
+        })
+        .stdin(Stdio::null())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Linux: puts the new AppImage or binary in place of the running one (renaming over a running
+/// program is fine there), then starts it once this process has quit.
+#[cfg(target_os = "linux")]
+fn replace_and_relaunch(prepared: &Prepared, target: &Path) -> Result<(), String> {
+    use std::os::unix::process::CommandExt;
+    let dir = target.parent().ok_or("no folder to update in")?;
+    let name = target.file_name().ok_or("no file to update")?;
+    // A copy beside the target first, so the final step is one rename on the same disk.
+    let staged = dir.join(format!(
+        ".{}.update-{}",
+        name.to_string_lossy(),
+        std::process::id()
+    ));
+    std::fs::copy(&prepared.file, &staged).map_err(|e| format!("{}: {e}", dir.display()))?;
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755));
+    }
+    if let Err(e) = std::fs::rename(&staged, target) {
+        let _ = std::fs::remove_file(&staged);
+        return Err(format!("{}: {e}", target.display()));
+    }
+    let _ = std::fs::remove_dir_all(&prepared.dir);
+    record_pending(&prepared.version)?;
+    command("/bin/sh")
+        .args([
+            "-c",
+            r#"while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2""#,
+            "peler-update",
+        ])
+        .arg(std::process::id().to_string())
+        .arg(target)
+        // The new copy sets these up itself.
+        .env_remove("APPIMAGE")
+        .env_remove("APPDIR")
+        .env_remove("ARGV0")
+        .env_remove("OWD")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Windows and Linux: the update about to be installed, so the next launch can tell whether it
+/// arrived (the same record the macOS helper leaves, with the outcome decided at that launch).
+#[cfg(not(target_os = "macos"))]
+fn record_pending(version: &str) -> Result<(), String> {
+    crate::paths::write_private(&outcome_file(), format!("{version}\npending\n").as_bytes())
+        .map_err(|e| e.to_string())
+}
+
 /// Starts a helper that waits for this process to exit, swaps in the new app (asking for an
 /// administrator password when needed), and opens it. The caller then quits the app.
-pub fn launch_installer(prepared: &Prepared, bundle: &Path) -> Result<(), String> {
+#[cfg(target_os = "macos")]
+fn launch_mac_installer(prepared: &Prepared, bundle: &Path) -> Result<(), String> {
     // Another copy may have been installed meanwhile (the .pkg, the install script).
     if let Some(installed) = plist_value(bundle, "CFBundleShortVersionString")
         && !is_newer(&prepared.version, &installed)
@@ -514,7 +848,7 @@ pub fn launch_installer(prepared: &Prepared, bundle: &Path) -> Result<(), String
         .into()
     };
     swap.extend([
-        prepared.app.clone().into_os_string(),
+        prepared.file.clone().into_os_string(),
         bundle.as_os_str().to_owned(),
         prepared.version.clone().into(),
         team_id(bundle).unwrap_or_default().into(),
@@ -555,10 +889,19 @@ pub fn take_outcome() -> Option<Outcome> {
     parse_outcome(&text)
 }
 
-/// The helper's record: version, exit status, then what the swap printed.
+/// The helper's record: version, exit status, then what the swap printed. On Windows and Linux
+/// the status is `pending`: the update arrived when this is that version.
 fn parse_outcome(text: &str) -> Option<Outcome> {
     let mut lines = text.splitn(3, '\n');
     let version = lines.next()?.trim();
+    let second = text.lines().nth(1).map(str::trim);
+    if second == Some("pending") {
+        return Some(if version == CURRENT {
+            Outcome::Installed(version.to_string())
+        } else {
+            Outcome::Failed(t("the installer did not finish").into())
+        });
+    }
     let code: i32 = lines.next()?.trim().parse().ok()?;
     if code == 0 {
         return Some(Outcome::Installed(version.to_string()));
@@ -591,11 +934,13 @@ fn parse_outcome(text: &str) -> Option<Outcome> {
 /// while the app itself is in place and intact, so the only copy is never removed. Copies owned
 /// by root stay until the next update that runs as root removes them.
 pub fn remove_leftovers() {
+    #[cfg(target_os = "macos")]
     if let Some(bundle) = installed_bundle() {
         remove_leftovers_beside(&bundle, BUNDLE_ID);
     }
 }
 
+#[cfg(target_os = "macos")]
 fn remove_leftovers_beside(bundle: &Path, id: &str) {
     let Some(Ok(entries)) = bundle.parent().map(std::fs::read_dir) else {
         return;
@@ -623,7 +968,7 @@ fn remove_leftovers_beside(bundle: &Path, id: &str) {
 /// Opens a web page in the default browser.
 pub fn open_page(url: &str) {
     if url.starts_with("https://") {
-        let _ = Command::new("/usr/bin/open").arg(url).spawn();
+        crate::platform::open(url);
     }
 }
 
@@ -646,16 +991,151 @@ mod tests {
         let json = br#"{"tag_name":"v1.2.0","body":"Notes","html_url":"https://github.com/x/y/releases/tag/v1.2.0","published_at":"2026-10-16T10:08:51Z","draft":false,"prerelease":false,
             "assets":[{"name":"Peler-1.2.0.dmg","browser_download_url":"https://a/dmg","size":10,"digest":"sha256:AA"},
                       {"name":"Peler-1.2.0.zip","browser_download_url":"https://a/zip","size":20,"digest":"sha256:ABCD"}]}"#;
-        let r = parse_release(json).unwrap();
+        let mac = Install::MacApp(PathBuf::from("/Applications/Peler.app"));
+        let r = parse_release(json, &mac).unwrap();
         assert_eq!(r.version, "1.2.0");
         assert_eq!(r.date.as_deref(), Some("2026-10-16"));
-        let a = r.archive.unwrap();
+        let a = r.download.unwrap();
         assert_eq!(
             (a.url.as_str(), a.size, a.sha256.as_deref()),
             ("https://a/zip", 20, Some("abcd"))
         );
         let pre = br#"{"tag_name":"v2.0.0-rc1","html_url":"u","prerelease":true,"assets":[]}"#;
-        assert!(parse_release(pre).is_err());
+        assert!(parse_release(pre, &mac).is_err());
+        // Each kind of installation takes its own file; a manual one none.
+        let arch = std::env::consts::ARCH;
+        let json = format!(
+            r#"{{"tag_name":"v1.3.0","html_url":"u","assets":[
+                {{"name":"Peler-1.3.0-windows-x64-setup.exe","browser_download_url":"https://a/exe","size":1,"digest":"sha256:01"}},
+                {{"name":"Peler-1.3.0-linux-{arch}.AppImage","browser_download_url":"https://a/ai","size":2,"digest":"sha256:02"}},
+                {{"name":"Peler-1.3.0-linux-{arch}.tar.gz","browser_download_url":"https://a/tgz","size":3,"digest":"sha256:03"}}]}}"#
+        );
+        let url = |kind: Install| {
+            parse_release(json.as_bytes(), &kind)
+                .unwrap()
+                .download
+                .map(|a| a.url)
+        };
+        let p = PathBuf::from("/x");
+        assert_eq!(
+            url(Install::WindowsSetup {
+                exe: p.clone(),
+                all_users: false
+            })
+            .as_deref(),
+            Some("https://a/exe")
+        );
+        assert_eq!(
+            url(Install::AppImage(p.clone())).as_deref(),
+            Some("https://a/ai")
+        );
+        assert_eq!(
+            url(Install::LinuxArchive(p)).as_deref(),
+            Some("https://a/tgz")
+        );
+        assert_eq!(url(Install::Manual), None);
+    }
+
+    /// Linux: an update is downloaded (curl, here from a file), checked (checksum, and that it
+    /// runs and is the release's version) and put in place of the running file, for an
+    /// AppImage and for the binary from the .tar.gz.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_updates_replace_the_running_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let tmp = tempfile::tempdir().unwrap();
+        let script = |version: &str| format!("#!/bin/sh\necho 'Peler {version}'\n");
+        let asset = |name: &str, path: &Path| Asset {
+            name: name.into(),
+            url: format!("file://{}", path.display()),
+            size: std::fs::metadata(path).unwrap().len(),
+            sha256: Some(sha256_file(path).unwrap()),
+        };
+        let release = |download: Asset| Release {
+            version: "9.9.9".into(),
+            notes: String::new(),
+            date: None,
+            page: String::new(),
+            download: Some(download),
+        };
+        let stage = Arc::new(Mutex::new(Stage::Starting));
+
+        // AppImage.
+        let published = tmp.path().join("published.AppImage");
+        std::fs::write(&published, script("9.9.9")).unwrap();
+        let installed = tmp.path().join("apps/Peler.AppImage");
+        std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
+        std::fs::write(&installed, script("1.0.0")).unwrap();
+        let prepared = download(
+            &release(asset("Peler-9.9.9-linux-x.AppImage", &published)),
+            &stage,
+        )
+        .unwrap();
+        replace_and_relaunch(&prepared, &installed).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&installed).unwrap(),
+            script("9.9.9")
+        );
+        assert_eq!(
+            std::fs::metadata(&installed).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
+
+        // A wrong version or checksum is refused, and nothing changes.
+        let other = tmp.path().join("other.AppImage");
+        std::fs::write(&other, script("9.9.8")).unwrap();
+        let err = download(
+            &release(asset("Peler-9.9.9-linux-x.AppImage", &other)),
+            &stage,
+        )
+        .unwrap_err();
+        assert!(err.contains("version"), "{err}");
+        let mut tampered = asset("Peler-9.9.9-linux-x.AppImage", &published);
+        tampered.sha256 = Some("00".into());
+        assert!(
+            download(&release(tampered), &stage)
+                .unwrap_err()
+                .contains("checksum")
+        );
+
+        // The .tar.gz: its bin/peler replaces the installed binary.
+        let tree = tmp.path().join("tree/peler-9.9.9/bin");
+        std::fs::create_dir_all(&tree).unwrap();
+        std::fs::write(tree.join("peler"), script("9.9.9")).unwrap();
+        let tarball = tmp.path().join("published.tar.gz");
+        assert!(
+            Command::new("tar")
+                .arg("-czf")
+                .arg(&tarball)
+                .arg("-C")
+                .arg(tmp.path().join("tree"))
+                .arg("peler-9.9.9")
+                .status()
+                .unwrap()
+                .success()
+        );
+        let binary = tmp.path().join("local/bin/peler");
+        std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
+        std::fs::write(&binary, script("1.0.0")).unwrap();
+        let prepared = download(
+            &release(asset("Peler-9.9.9-linux-x.tar.gz", &tarball)),
+            &stage,
+        )
+        .unwrap();
+        replace_and_relaunch(&prepared, &binary).unwrap();
+        assert_eq!(std::fs::read_to_string(&binary).unwrap(), script("9.9.9"));
+    }
+
+    #[test]
+    fn pending_updates_are_judged_at_the_next_launch() {
+        assert_eq!(
+            parse_outcome(&format!("{CURRENT}\npending\n")),
+            Some(Outcome::Installed(CURRENT.into()))
+        );
+        assert!(matches!(
+            parse_outcome("0.0.1\npending\n"),
+            Some(Outcome::Failed(_))
+        ));
     }
 
     #[test]
@@ -689,16 +1169,20 @@ mod tests {
 
     #[test]
     fn download_dirs_are_unique_and_private() {
-        use std::os::unix::fs::PermissionsExt;
         let a = new_download_dir().unwrap();
         let b = new_download_dir().unwrap();
         assert_ne!(a, b);
-        let mode = std::fs::metadata(&a).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o700);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&a).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o700);
+        }
         std::fs::remove_dir(&a).unwrap();
         std::fs::remove_dir(&b).unwrap();
     }
 
+    #[cfg(target_os = "macos")]
     /// A small ad-hoc signed bundle (its executable is a copy of `true`).
     fn fake_app(parent: &Path, version: &str) -> PathBuf {
         let app = parent.join("Peler.app");
@@ -729,6 +1213,7 @@ mod tests {
         app
     }
 
+    #[cfg(target_os = "macos")]
     /// Runs `script` the way the helper does for a user-writable app; returns its stderr.
     fn run_swap(script: &str, new: &Path, app: &Path, version: &str, team: &str) -> String {
         let out = Command::new("/bin/sh")
@@ -742,6 +1227,7 @@ mod tests {
         String::from_utf8_lossy(&out.stderr).trim().to_string()
     }
 
+    #[cfg(target_os = "macos")]
     fn leftovers(dir: &Path) -> Vec<String> {
         std::fs::read_dir(dir)
             .unwrap()
@@ -751,6 +1237,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn swap_installs_a_checked_copy() {
         let tmp = tempfile::tempdir().unwrap();
@@ -770,6 +1257,7 @@ mod tests {
         assert!(new.exists(), "the download is copied, not moved");
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn swap_refuses_a_bad_update_and_keeps_the_app() {
         let tmp = tempfile::tempdir().unwrap();
@@ -803,6 +1291,7 @@ mod tests {
         kept(&app);
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn swap_puts_the_old_app_back_when_the_new_one_cannot_move_in() {
         let tmp = tempfile::tempdir().unwrap();
@@ -825,6 +1314,7 @@ mod tests {
         assert!(leftovers(&apps).is_empty());
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn leftovers_go_only_while_the_app_is_intact() {
         let tmp = tempfile::tempdir().unwrap();
@@ -850,6 +1340,7 @@ mod tests {
         assert!(app.exists());
     }
 
+    #[cfg(target_os = "macos")]
     /// The administrator variant can't run in a test; the same AppleScript without the password
     /// prompt shows every argument arrives unchanged.
     #[test]

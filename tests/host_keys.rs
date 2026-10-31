@@ -1,6 +1,9 @@
 //! Host-key edge cases: a revoked key is refused without asking, and abandoning a connection
 //! while its host-key prompt is up ends it cleanly.
 
+// Against a local OpenSSH server (`/usr/sbin/sshd`): macOS and Linux.
+#![cfg(unix)]
+
 mod common;
 
 use common::{TestServer, user, wait_for};

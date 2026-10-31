@@ -75,22 +75,41 @@ impl ForwardRow {
     }
 }
 
-/// SSH agents found on this Mac: their name and socket.
+/// SSH agents found on this computer besides the system one: their name and socket (or, on
+/// Windows, "pageant").
 fn known_agents() -> Vec<(&'static str, String)> {
-    [
+    #[cfg(target_os = "macos")]
+    let candidates = vec![
         (
             "1Password",
-            "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock",
+            "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock".to_string(),
         ),
         (
             "Secretive",
-            "~/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh",
+            "~/Library/Containers/com.maxgoedjen.Secretive.SecretAgent/Data/socket.ssh".to_string(),
         ),
-    ]
-    .into_iter()
-    .filter(|(_, path)| paths::expand_tilde(path).exists())
-    .map(|(name, path)| (name, path.to_string()))
-    .collect()
+    ];
+    // PuTTY's agent, which KeePass and others also speak. 1Password and the OpenSSH agent use
+    // the system pipe.
+    #[cfg(windows)]
+    return vec![("Pageant", "pageant".to_string())];
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let candidates = {
+        let mut list = vec![
+            ("1Password", "~/.1password/agent.sock".to_string()),
+            ("Bitwarden", "~/.bitwarden-ssh-agent.sock".to_string()),
+        ];
+        if let Some(run) = std::env::var_os("XDG_RUNTIME_DIR") {
+            let run = std::path::PathBuf::from(run);
+            list.push(("GNOME Keyring", run.join("gcr/ssh").display().to_string()));
+        }
+        list
+    };
+    #[cfg(not(windows))]
+    candidates
+        .into_iter()
+        .filter(|(_, path)| paths::expand_tilde(path).exists())
+        .collect()
 }
 
 pub struct Editor {
@@ -368,7 +387,7 @@ impl Editor {
             style::right_to_left(ui, |ui| {
                 let save_connect_button = ui
                     .add(style::primary(t("Save & Connect")))
-                    .on_hover_text("⌘↩");
+                    .on_hover_text(super::keys::Shortcut::SaveAndConnect.label());
                 #[cfg(debug_assertions)]
                 crate::devtest::record("editor-save-connect", save_connect_button.rect);
                 let save_connect = save_connect_button.clicked() || enter;
@@ -492,15 +511,18 @@ impl Editor {
                 style::row(ui, t("Password"), |ui| {
                     let saved = self.had_password && !self.clear_password;
                     let hint = if saved {
-                        t("Saved in Keychain — type to replace")
+                        tf(
+                            "Saved in {} — type to replace",
+                            &[crate::platform::keychain()],
+                        )
                     } else {
-                        t("Leave empty to ask when connecting")
+                        t("Leave empty to ask when connecting").to_string()
                     };
                     secret_input(
                         ui,
                         &mut self.password,
                         &mut self.show_password,
-                        hint,
+                        &hint,
                         saved.then_some((self.draft.id, SecretKind::Password)),
                         &mut self.error,
                         "editor-show-password",
@@ -539,15 +561,18 @@ impl Editor {
                 style::row(ui, t("Passphrase"), |ui| {
                     let saved = self.had_passphrase && !self.clear_passphrase;
                     let hint = if saved {
-                        t("Saved in Keychain — type to replace")
+                        tf(
+                            "Saved in {} — type to replace",
+                            &[crate::platform::keychain()],
+                        )
                     } else {
-                        t("Only if the key is encrypted")
+                        t("Only if the key is encrypted").to_string()
                     };
                     secret_input(
                         ui,
                         &mut self.passphrase,
                         &mut self.show_passphrase,
-                        hint,
+                        &hint,
                         saved.then_some((self.draft.id, SecretKind::Passphrase)),
                         &mut self.error,
                         "editor-show-passphrase",
@@ -582,7 +607,8 @@ impl Editor {
                 self.key_path = paths::contract_tilde(&p);
             }
             if !self.key_files.is_empty() {
-                egui::ComboBox::from_id_salt("key-files").icon(super::kit::combo_caret)
+                egui::ComboBox::from_id_salt("key-files")
+                    .icon(super::kit::combo_caret)
                     .selected_text("")
                     .width(28.0)
                     .show_ui(ui, |ui| {
@@ -607,7 +633,10 @@ impl Editor {
         if self.had_stored_key && !self.replace_stored_key {
             ui.horizontal(|ui| {
                 kit::icon(ui, icons::KEY, 15.0, style::pal(ui).accent_text);
-                ui.label(t("A private key is saved in the Keychain."));
+                ui.label(tf(
+                    "A private key is saved in {}.",
+                    &[crate::platform::keychain()],
+                ));
                 let show = ui.button(if self.shown_key.is_some() {
                     t("Hide")
                 } else {
@@ -619,8 +648,10 @@ impl Editor {
                     match secrets::get(self.draft.id, SecretKind::PrivateKey) {
                         Ok(Some(key)) => self.shown_key = Some(key),
                         Ok(None) => {
-                            self.error =
-                                Some(t("The private key is not in the Keychain any more.").into())
+                            self.error = Some(tf(
+                                "The private key is not in {} any more.",
+                                &[crate::platform::keychain()],
+                            ))
                         }
                         Err(e) => self.error = Some(format!("{e:#}")),
                     }
@@ -722,12 +753,20 @@ impl Editor {
         }
         style::hint(
             ui,
-            t("Stored in the macOS Keychain, not in the connections file."),
+            tf(
+                "Stored in {}, not in the connections file.",
+                &[crate::platform::keychain()],
+            ),
         );
     }
 
     fn agent_ui(&mut self, ui: &mut egui::Ui) {
-        ui.add(style::input(&mut self.agent_socket).hint_text(t("System agent (SSH_AUTH_SOCK)")));
+        let hint = if cfg!(windows) {
+            t("OpenSSH agent, a pipe, or \"pageant\"")
+        } else {
+            t("System agent (SSH_AUTH_SOCK)")
+        };
+        ui.add(style::input(&mut self.agent_socket).hint_text(hint));
         if !self.agents.is_empty() {
             ui.horizontal_wrapped(|ui| {
                 ui.label(RichText::new(t("Use:")).weak());
@@ -748,11 +787,28 @@ impl Editor {
             });
         }
         let socket = self.agent_socket.trim();
-        let (ok, text) = if socket.is_empty() {
+        let (ok, text) = if cfg!(windows) && socket.is_empty() {
+            (
+                true,
+                t("Uses the Windows OpenSSH agent (keys added with ssh-add).").to_string(),
+            )
+        } else if cfg!(windows) && socket.eq_ignore_ascii_case("pageant") {
+            (
+                true,
+                t("Uses Pageant (PuTTY, KeePass and others).").to_string(),
+            )
+        } else if cfg!(windows) {
+            // A named pipe can't be looked at without connecting to it.
+            (true, t("Uses the agent at this pipe.").to_string())
+        } else if socket.is_empty() {
             match std::env::var_os("SSH_AUTH_SOCK") {
-                Some(_) => (
+                Some(_) if cfg!(target_os = "macos") => (
                     true,
                     t("Uses the macOS SSH agent (keys added with ssh-add).").to_string(),
+                ),
+                Some(_) => (
+                    true,
+                    t("Uses your session's SSH agent (keys added with ssh-add).").to_string(),
                 ),
                 None => (
                     false,
@@ -800,7 +856,8 @@ impl Editor {
                     || t("None (connect directly)").to_string(),
                     |(n, _)| n.clone(),
                 );
-            egui::ComboBox::from_id_salt("jump-host").icon(super::kit::combo_caret)
+            egui::ComboBox::from_id_salt("jump-host")
+                .icon(super::kit::combo_caret)
                 .selected_text(current)
                 .width(ui.available_width())
                 .show_ui(ui, |ui| {
@@ -828,7 +885,8 @@ impl Editor {
             let mut remove = None;
             for (i, row) in self.forwards.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
-                    egui::ComboBox::from_id_salt(("forward-kind", i)).icon(super::kit::combo_caret)
+                    egui::ComboBox::from_id_salt(("forward-kind", i))
+                        .icon(super::kit::combo_caret)
                         .width(96.0)
                         .selected_text(match row.kind {
                             ForwardKind::Local => t("Local"),
@@ -887,12 +945,12 @@ impl Editor {
                     ui,
                     match row.kind {
                         ForwardKind::Local => tf(
-                            "localhost:{} on this Mac reaches {}:{} as seen from the server.",
-                            &[listen, host, port],
+                            "localhost:{} on {} reaches {}:{} as seen from the server.",
+                            &[listen, crate::platform::this_computer(), host, port],
                         ),
                         ForwardKind::Remote => tf(
-                            "Port {} on the server reaches {}:{} as seen from this Mac.",
-                            &[listen, host, port],
+                            "Port {} on the server reaches {}:{} as seen from {}.",
+                            &[listen, host, port, crate::platform::this_computer()],
                         ),
                         ForwardKind::Dynamic => tf(
                             "A SOCKS proxy at localhost:{}; its connections leave from the server.",
@@ -926,7 +984,8 @@ impl Editor {
             } else {
                 t("(none)").to_string()
             };
-            egui::ComboBox::from_id_salt("group").icon(super::kit::combo_caret)
+            egui::ComboBox::from_id_salt("group")
+                .icon(super::kit::combo_caret)
                 .selected_text(current)
                 .width(ui.available_width())
                 .show_ui(ui, |ui| {

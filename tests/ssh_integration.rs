@@ -1,5 +1,8 @@
 //! End-to-end tests of the SSH layer against a real (unprivileged) OpenSSH server.
 
+// Against a local OpenSSH server (`/usr/sbin/sshd`): macOS and Linux.
+#![cfg(unix)]
+
 mod common;
 
 use std::sync::Arc;

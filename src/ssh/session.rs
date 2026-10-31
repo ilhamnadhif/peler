@@ -882,12 +882,12 @@ async fn authenticate(
                 .await
                 .ok_or_else(|| {
                     // Typically a connection imported without its credentials.
-                    ConnError::KeyFile(
-                        t("this Mac has no saved copy of the pasted key. Paste it again in Edit Connection, or choose a key file.")
-                            .into(),
-                    )
+                    ConnError::KeyFile(tf(
+                        "{} has no saved copy of the pasted key. Paste it again in Edit Connection, or choose a key file.",
+                        &[crate::platform::this_computer()],
+                    ))
                 })?;
-            Some((text, "Keychain".to_string()))
+            Some((text, crate::platform::SECRET_STORE.to_string()))
         }
     };
 
@@ -1097,24 +1097,71 @@ async fn auth_agent(
     legacy: bool,
     flags: &Flags,
 ) -> Result<Option<Vec<MethodKind>>, ConnError> {
-    use russh::keys::agent::AgentIdentity;
     use russh::keys::agent::client::AgentClient;
-    let path = if socket.trim().is_empty() {
-        std::env::var("SSH_AUTH_SOCK").map_err(|_| {
-            ConnError::AuthFailed(
-                t("no SSH agent is running (SSH_AUTH_SOCK is not set). Set the agent's socket in the connection's settings.")
-                    .into(),
-            )
-        })?
-    } else {
-        paths::expand_tilde(socket.trim()).display().to_string()
-    };
-    let mut agent = AgentClient::connect_uds(&path).await.map_err(|e| {
-        ConnError::AuthFailed(tf(
-            "could not reach the SSH agent at {} ({})",
-            &[&path, &e.to_string()],
-        ))
-    })?;
+    #[cfg(unix)]
+    {
+        let path = if socket.trim().is_empty() {
+            std::env::var("SSH_AUTH_SOCK").map_err(|_| {
+                ConnError::AuthFailed(
+                    t("no SSH agent is running (SSH_AUTH_SOCK is not set). Set the agent's socket in the connection's settings.")
+                        .into(),
+                )
+            })?
+        } else {
+            paths::expand_tilde(socket.trim()).display().to_string()
+        };
+        let agent = AgentClient::connect_uds(&path)
+            .await
+            .map_err(|e| agent_unreachable(&path, e))?;
+        sign_with_agent(handle, user, legacy, flags, agent).await
+    }
+    // Windows: the OpenSSH agent's named pipe (or the one in SSH_AUTH_SOCK, or set in the
+    // connection), or Pageant (PuTTY, KeePass, 1Password's Pageant mode) when set to "pageant".
+    #[cfg(windows)]
+    {
+        let socket = socket.trim();
+        if socket.eq_ignore_ascii_case("pageant") {
+            let agent = AgentClient::connect_pageant()
+                .await
+                .map_err(|e| agent_unreachable("Pageant", e))?;
+            return sign_with_agent(handle, user, legacy, flags, agent).await;
+        }
+        let pipe = if socket.is_empty() {
+            std::env::var("SSH_AUTH_SOCK").unwrap_or_else(|_| r"\\.\pipe\openssh-ssh-agent".into())
+        } else {
+            socket.to_string()
+        };
+        let agent = AgentClient::connect_named_pipe(&pipe)
+            .await
+            .map_err(|e| agent_unreachable(&pipe, e))?;
+        sign_with_agent(handle, user, legacy, flags, agent).await
+    }
+}
+
+fn agent_unreachable(place: &str, e: impl std::fmt::Display) -> ConnError {
+    ConnError::AuthFailed(tf(
+        "could not reach the SSH agent at {} ({})",
+        &[place, &e.to_string()],
+    ))
+}
+
+/// Offers the agent's keys to the server, one by one.
+async fn sign_with_agent<S>(
+    handle: &mut SshHandle,
+    user: &str,
+    legacy: bool,
+    flags: &Flags,
+    mut agent: russh::keys::agent::client::AgentClient<S>,
+) -> Result<Option<Vec<MethodKind>>, ConnError>
+where
+    S: russh::keys::agent::client::AgentStream
+        + tokio::io::AsyncRead
+        + tokio::io::AsyncWrite
+        + Unpin
+        + Send
+        + 'static,
+{
+    use russh::keys::agent::AgentIdentity;
     let identities = agent.request_identities().await.map_err(|e| {
         ConnError::AuthFailed(tf("the SSH agent did not answer ({})", &[&e.to_string()]))
     })?;
@@ -1722,16 +1769,20 @@ async fn run_shell(handle: Arc<SshHandle>, pane: PaneStart, ctx: Context) {
     if !current() {
         return;
     }
+    let keys = crate::ui::keys::Shortcut::Reconnect.label();
     let message = match (&exit_signal, exit_status) {
         (Some(sig), _) => tf(
-            "[Session ended by signal {}. Press Enter or ⌘R to reconnect.]",
-            &[sig],
+            "[Session ended by signal {}. Press Enter or {} to reconnect.]",
+            &[sig, &keys],
         ),
         (None, Some(code)) => tf(
-            "[Session ended, exit code {}. Press Enter or ⌘R to reconnect.]",
-            &[&code.to_string()],
+            "[Session ended, exit code {}. Press Enter or {} to reconnect.]",
+            &[&code.to_string(), &keys],
         ),
-        (None, None) => t("[Connection closed. Press Enter or ⌘R to reconnect.]").to_string(),
+        (None, None) => tf(
+            "[Connection closed. Press Enter or {} to reconnect.]",
+            &[&keys],
+        ),
     };
     tcore::end_session(&mut feeder.lock(), &message);
     *status.lock() = PaneStatus::Exited(exit_status);

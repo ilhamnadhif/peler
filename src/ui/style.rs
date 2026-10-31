@@ -112,12 +112,7 @@ pub fn pal(ui: &Ui) -> Palette {
 
 /// A color at `alpha` (0–1) opacity, for soft fills behind colored text and icons.
 pub fn soft(c: Color32, alpha: f32) -> Color32 {
-    Color32::from_rgba_unmultiplied(
-        c.r(),
-        c.g(),
-        c.b(),
-        (alpha.clamp(0.0, 1.0) * 255.0) as u8,
-    )
+    Color32::from_rgba_unmultiplied(c.r(), c.g(), c.b(), (alpha.clamp(0.0, 1.0) * 255.0) as u8)
 }
 
 // ---------------------------------------------------------------------------------------------

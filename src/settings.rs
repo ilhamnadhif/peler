@@ -106,11 +106,19 @@ impl Default for Settings {
             scheme_dark: "Peler Dark".into(),
             scheme_light: "Peler Light".into(),
             font: FontChoice::default(),
-            font_size: 13.0,
+            // Menlo at 13 matches the other macOS terminals; Consolas and Hack read better a
+            // point larger.
+            font_size: if cfg!(target_os = "macos") {
+                13.0
+            } else {
+                14.0
+            },
             scrollback: 10_000,
             cursor_style: CursorStyle::Block,
             cursor_blink: false,
-            option_as_meta: false,
+            // Alt sends Meta in the usual Windows and Linux terminals; on macOS Option types
+            // characters unless asked otherwise.
+            option_as_meta: !cfg!(target_os = "macos"),
             copy_on_select: false,
             keepalive_secs: 30,
             confirm_close_connected: true,
