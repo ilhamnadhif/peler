@@ -3,7 +3,7 @@
 use eframe::egui::{self, RichText};
 use uuid::Uuid;
 
-use super::style;
+use super::{icons, kit, style};
 use crate::bookmarks::{Auth, Bookmark, BookmarkStore, Forward, ForwardKind};
 use crate::i18n::{t, tf};
 use crate::paths;
@@ -341,7 +341,7 @@ impl Editor {
         let modal = egui::Modal::new(egui::Id::new("bookmark-editor")).show(ctx, |ui| {
             ui.set_width(width);
             style::form_spacing(ui);
-            ui.heading(RichText::new(title).strong());
+            ui.heading(title);
             let enter = ui.input(|i| i.key_pressed(egui::Key::Enter) && i.modifiers.command);
             let max_form = (screen.height() - 200.0).max(240.0);
             egui::ScrollArea::vertical()
@@ -582,7 +582,7 @@ impl Editor {
                 self.key_path = paths::contract_tilde(&p);
             }
             if !self.key_files.is_empty() {
-                egui::ComboBox::from_id_salt("key-files")
+                egui::ComboBox::from_id_salt("key-files").icon(super::kit::combo_caret)
                     .selected_text("")
                     .width(28.0)
                     .show_ui(ui, |ui| {
@@ -606,10 +606,8 @@ impl Editor {
     fn pasted_key_ui(&mut self, ui: &mut egui::Ui) {
         if self.had_stored_key && !self.replace_stored_key {
             ui.horizontal(|ui| {
-                ui.label(format!(
-                    "🔑 {}",
-                    t("A private key is saved in the Keychain.")
-                ));
+                kit::icon(ui, icons::KEY, 15.0, style::pal(ui).accent_text);
+                ui.label(t("A private key is saved in the Keychain."));
                 let show = ui.button(if self.shown_key.is_some() {
                     t("Hide")
                 } else {
@@ -690,13 +688,26 @@ impl Editor {
         let error = ui.visuals().error_fg_color;
         match self.pasted_key_check() {
             Some(KeyCheck::Valid(kind)) => {
-                ui.colored_label(style::GREEN, tf("✓ {} private key", &[&kind]));
+                let ok = style::pal(ui).ok;
+                ui.horizontal(|ui| {
+                    kit::icon(ui, icons::CHECK_CIRCLE, 15.0, ok);
+                    ui.colored_label(ok, tf("{} private key", &[&kind]));
+                });
             }
             Some(KeyCheck::Encrypted) => {
-                ui.colored_label(
-                    style::GREEN,
-                    t("✓ Encrypted private key: enter its passphrase below (or when connecting)."),
-                );
+                let ok = style::pal(ui).ok;
+                ui.horizontal(|ui| {
+                    kit::icon(ui, icons::CHECK_CIRCLE, 15.0, ok);
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(t(
+                                "Encrypted private key: enter its passphrase below (or when connecting).",
+                            ))
+                            .color(ok),
+                        )
+                        .wrap(),
+                    );
+                });
             }
             Some(KeyCheck::PublicKey) => {
                 ui.colored_label(
@@ -789,7 +800,7 @@ impl Editor {
                     || t("None (connect directly)").to_string(),
                     |(n, _)| n.clone(),
                 );
-            egui::ComboBox::from_id_salt("jump-host")
+            egui::ComboBox::from_id_salt("jump-host").icon(super::kit::combo_caret)
                 .selected_text(current)
                 .width(ui.available_width())
                 .show_ui(ui, |ui| {
@@ -817,7 +828,7 @@ impl Editor {
             let mut remove = None;
             for (i, row) in self.forwards.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
-                    egui::ComboBox::from_id_salt(("forward-kind", i))
+                    egui::ComboBox::from_id_salt(("forward-kind", i)).icon(super::kit::combo_caret)
                         .width(96.0)
                         .selected_text(match row.kind {
                             ForwardKind::Local => t("Local"),
@@ -845,7 +856,7 @@ impl Editor {
                     #[cfg(debug_assertions)]
                     crate::devtest::record(format!("forward-listen:{i}"), _listen.rect);
                     if row.kind != ForwardKind::Dynamic {
-                        ui.label("→");
+                        kit::icon(ui, icons::ARROW_RIGHT, 14.0, style::pal(ui).text_muted);
                         let _host = ui.add(
                             style::input(&mut row.host)
                                 .hint_text("localhost")
@@ -893,7 +904,7 @@ impl Editor {
             if let Some(i) = remove {
                 self.forwards.remove(i);
             }
-            let add = ui.button(format!("+ {}", t("Add Forward")));
+            let add = kit::secondary(ui, Some(icons::PLUS), t("Add Forward"));
             #[cfg(debug_assertions)]
             crate::devtest::record("editor-add-forward", add.rect);
             if add.clicked() {
@@ -915,7 +926,7 @@ impl Editor {
             } else {
                 t("(none)").to_string()
             };
-            egui::ComboBox::from_id_salt("group")
+            egui::ComboBox::from_id_salt("group").icon(super::kit::combo_caret)
                 .selected_text(current)
                 .width(ui.available_width())
                 .show_ui(ui, |ui| {

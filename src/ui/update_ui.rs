@@ -291,22 +291,24 @@ impl Updater {
     /// The toolbar button, while an update is available. Returns true when clicked.
     pub fn toolbar_button(&mut self, ui: &mut egui::Ui) -> bool {
         let label = match &self.state {
-            State::Available(r) => format!("⬆ {} {}", t("Update"), r.version),
+            State::Available(r) => format!("{} {}", t("Update"), r.version),
             State::Downloading(_) => match *self.stage.lock() {
                 Stage::Downloading { done, total } if total > 0 => {
-                    format!("⬆ {}%", (done as f64 / total as f64 * 100.0).floor())
+                    format!("{}%", (done as f64 / total as f64 * 100.0).floor())
                 }
-                _ => format!("⬆ {}", t("Update")),
+                _ => t("Update").to_string(),
             },
-            State::Ready(..) => format!("⬆ {}", t("Restart to Update")),
+            State::Ready(..) => t("Restart to Update").to_string(),
             _ => return false,
         };
-        let resp = ui
-            .add(
-                egui::Button::new(RichText::new(label).color(egui::Color32::WHITE))
-                    .fill(style::ACCENT),
-            )
-            .on_hover_text(t("A new version of Peler is available"));
+        let resp = super::kit::button_ex(
+            ui,
+            super::kit::Kind::Primary,
+            Some(super::icons::ARROW_CIRCLE_UP),
+            &label,
+            true,
+        )
+        .on_hover_text(t("A new version of Peler is available"));
         #[cfg(debug_assertions)]
         crate::devtest::record("update-button", resp.rect);
         let clicked = resp.clicked();
@@ -446,26 +448,13 @@ impl Updater {
                         let _ = skip;
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if installable {
-                                let install = ui.add(
-                                    egui::Button::new(
-                                        RichText::new(t("Install Update")).color(egui::Color32::WHITE),
-                                    )
-                                    .fill(style::ACCENT),
-                                );
+                                let install = ui.add(style::primary(t("Install Update")));
                                 #[cfg(debug_assertions)]
                                 crate::devtest::record("update-install", install.rect);
                                 if install.clicked() {
                                     install_release = Some(release.clone());
                                 }
-                            } else if ui
-                                .add(
-                                    egui::Button::new(
-                                        RichText::new(t("Download…")).color(egui::Color32::WHITE),
-                                    )
-                                    .fill(style::ACCENT),
-                                )
-                                .clicked()
-                            {
+                            } else if ui.add(style::primary(t("Download…"))).clicked() {
                                 update::open_page(&release.page);
                                 close = true;
                             }
@@ -496,8 +485,12 @@ impl Updater {
                         ),
                         Stage::Verifying => (1.0, t("Verifying…").to_string()),
                     };
-                    ui.add(egui::ProgressBar::new(fraction).fill(style::ACCENT));
-                    ui.label(RichText::new(text).weak());
+                    ui.add(
+                        egui::ProgressBar::new(fraction)
+                            .desired_height(6.0)
+                            .fill(style::pal(ui).accent),
+                    );
+                    ui.label(RichText::new(text).color(style::pal(ui).text_muted));
                     ui.add_space(8.0);
                     if ui.button(t("Hide")).clicked() {
                         close = true;
@@ -510,12 +503,7 @@ impl Updater {
                     ));
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        let restart = ui.add(
-                            egui::Button::new(
-                                RichText::new(t("Restart Now")).color(egui::Color32::WHITE),
-                            )
-                            .fill(style::ACCENT),
-                        );
+                        let restart = ui.add(style::primary(t("Restart Now")));
                         #[cfg(debug_assertions)]
                         crate::devtest::record("update-restart", restart.rect);
                         if restart.clicked() {
@@ -691,7 +679,7 @@ fn release_notes(ui: &mut egui::Ui, notes: &str, max_height: f32) {
                                 if i > 0 {
                                     ui.add_space(6.0);
                                 }
-                                ui.label(RichText::new(text).strong());
+                                ui.label(RichText::new(text).font(style::semibold(13.5)));
                             }
                             Block::Item(level, text) => {
                                 ui.horizontal_top(|ui| {

@@ -1,16 +1,155 @@
-//! Visual style: a calm, native-looking theme for both light and dark mode.
+//! Design tokens (colors, type, spacing), the egui style built from them, and the form helpers
+//! every dialog uses. Shared components (buttons, tabs, pills, empty states) are in `kit.rs`.
+//!
+//! Every screen draws with these tokens: [`Palette`] for colors (light and dark), [`medium`],
+//! [`semibold`] and [`icon_font`] for type. The accent is the indigo of the app icon.
 
 use eframe::egui::{
-    self, Align, Color32, CornerRadius, Layout, Margin, RichText, Stroke, Theme, ThemePreference,
-    Ui, vec2,
+    self, Align, Color32, CornerRadius, FontFamily, FontId, Layout, Margin, Shadow, Stroke, Theme,
+    ThemePreference, Ui, vec2,
 };
 
+use super::fonts;
 use crate::settings::ThemeMode;
 
-pub const ACCENT: Color32 = Color32::from_rgb(0x2f, 0x81, 0xf7);
-pub const GREEN: Color32 = Color32::from_rgb(0x3f, 0xb9, 0x50);
-pub const AMBER: Color32 = Color32::from_rgb(0xe0, 0xa8, 0x2e);
-pub const RED: Color32 = Color32::from_rgb(0xe0, 0x50, 0x4f);
+/// Colors of one theme.
+#[derive(Clone, Copy, Debug)]
+pub struct Palette {
+    /// Content area: the terminal's surroundings, file lists, the welcome screen.
+    pub canvas: Color32,
+    /// Window chrome: sidebar, tab strip, status bar.
+    pub chrome: Color32,
+    /// Raised surfaces: inputs, cards, dialogs, menus.
+    pub surface: Color32,
+    /// Hovered rows and quiet button fills.
+    pub hover: Color32,
+    /// Pressed state and subtle fills (segmented control track, count pills).
+    pub subtle: Color32,
+    pub border: Color32,
+    pub border_strong: Color32,
+    pub text: Color32,
+    pub text_muted: Color32,
+    pub text_faint: Color32,
+    pub accent: Color32,
+    pub accent_hover: Color32,
+    /// Text on an accent fill.
+    pub on_accent: Color32,
+    /// Background of selected rows and "on" toggles.
+    pub accent_soft: Color32,
+    /// Accent-colored text (readable on both the canvas and `accent_soft`).
+    pub accent_text: Color32,
+    pub ok: Color32,
+    pub warn: Color32,
+    pub err: Color32,
+    pub info: Color32,
+    /// Folder icons in file lists and the sidebar.
+    pub folder: Color32,
+}
+
+const LIGHT: Palette = Palette {
+    // The background of the "Peler Light" terminal scheme, so the terminal blends in.
+    canvas: Color32::from_rgb(0xfb, 0xfb, 0xfc),
+    chrome: Color32::from_rgb(0xf5, 0xf5, 0xf7),
+    surface: Color32::from_rgb(0xff, 0xff, 0xff),
+    hover: Color32::from_rgb(0xef, 0xef, 0xf3),
+    subtle: Color32::from_rgb(0xe8, 0xe8, 0xee),
+    border: Color32::from_rgb(0xe3, 0xe3, 0xe9),
+    border_strong: Color32::from_rgb(0xcf, 0xcf, 0xd8),
+    text: Color32::from_rgb(0x1a, 0x1a, 0x20),
+    text_muted: Color32::from_rgb(0x68, 0x68, 0x74),
+    text_faint: Color32::from_rgb(0x96, 0x96, 0xa2),
+    accent: Color32::from_rgb(0x6d, 0x5a, 0xe6),
+    accent_hover: Color32::from_rgb(0x5b, 0x48, 0xd6),
+    on_accent: Color32::WHITE,
+    accent_soft: Color32::from_rgb(0xee, 0xeb, 0xfd),
+    accent_text: Color32::from_rgb(0x56, 0x41, 0xd0),
+    ok: Color32::from_rgb(0x16, 0x8c, 0x4e),
+    warn: Color32::from_rgb(0xb4, 0x70, 0x00),
+    err: Color32::from_rgb(0xd6, 0x30, 0x31),
+    info: Color32::from_rgb(0x25, 0x63, 0xdc),
+    folder: Color32::from_rgb(0x5b, 0x6e, 0xe8),
+};
+
+const DARK: Palette = Palette {
+    // The background of the "Peler Dark" terminal scheme, so the terminal blends in.
+    canvas: Color32::from_rgb(0x17, 0x19, 0x1e),
+    chrome: Color32::from_rgb(0x12, 0x13, 0x17),
+    surface: Color32::from_rgb(0x1f, 0x20, 0x26),
+    hover: Color32::from_rgb(0x26, 0x27, 0x2e),
+    subtle: Color32::from_rgb(0x2c, 0x2d, 0x35),
+    border: Color32::from_rgb(0x2b, 0x2c, 0x33),
+    border_strong: Color32::from_rgb(0x3d, 0x3f, 0x48),
+    text: Color32::from_rgb(0xe8, 0xe8, 0xec),
+    text_muted: Color32::from_rgb(0x9e, 0x9f, 0xa8),
+    text_faint: Color32::from_rgb(0x6e, 0x6f, 0x78),
+    accent: Color32::from_rgb(0x8b, 0x7c, 0xf6),
+    accent_hover: Color32::from_rgb(0xa0, 0x94, 0xf8),
+    on_accent: Color32::WHITE,
+    accent_soft: Color32::from_rgb(0x2a, 0x25, 0x47),
+    accent_text: Color32::from_rgb(0xb4, 0xaa, 0xff),
+    ok: Color32::from_rgb(0x4a, 0xcd, 0x80),
+    warn: Color32::from_rgb(0xf0, 0xb4, 0x48),
+    err: Color32::from_rgb(0xf8, 0x68, 0x64),
+    info: Color32::from_rgb(0x6e, 0xa0, 0xff),
+    folder: Color32::from_rgb(0x8b, 0x9c, 0xf8),
+};
+
+impl Palette {
+    /// Barely visible fill for hovered list rows.
+    pub fn faint_row(&self) -> Color32 {
+        soft(self.hover, 0.6)
+    }
+}
+
+pub fn palette(dark: bool) -> Palette {
+    if dark { DARK } else { LIGHT }
+}
+
+/// The palette of the theme `ui` is drawn with.
+pub fn pal(ui: &Ui) -> Palette {
+    palette(ui.visuals().dark_mode)
+}
+
+/// A color at `alpha` (0–1) opacity, for soft fills behind colored text and icons.
+pub fn soft(c: Color32, alpha: f32) -> Color32 {
+    Color32::from_rgba_unmultiplied(
+        c.r(),
+        c.g(),
+        c.b(),
+        (alpha.clamp(0.0, 1.0) * 255.0) as u8,
+    )
+}
+
+// ---------------------------------------------------------------------------------------------
+// Type
+// ---------------------------------------------------------------------------------------------
+
+/// Body text size of the UI.
+pub const BODY: f32 = 13.5;
+/// Small text: details, hints, the status bar.
+pub const SMALL: f32 = 11.5;
+
+/// Inter Medium: labels that need a little weight (tabs, buttons, row titles).
+pub fn medium(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name(fonts::MEDIUM.into()))
+}
+
+/// Inter SemiBold: titles and headings.
+pub fn semibold(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name(fonts::SEMIBOLD.into()))
+}
+
+/// The icon font alone (icons also render inside ordinary text).
+pub fn icon_font(size: f32) -> FontId {
+    FontId::new(size, FontFamily::Name(fonts::ICONS.into()))
+}
+
+// ---------------------------------------------------------------------------------------------
+// Style
+// ---------------------------------------------------------------------------------------------
+
+pub const RADIUS: u8 = 6;
+pub const RADIUS_LG: u8 = 10;
 
 pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
     ctx.set_theme(match mode {
@@ -21,153 +160,153 @@ pub fn apply(ctx: &egui::Context, mode: ThemeMode) {
     for theme in [Theme::Dark, Theme::Light] {
         ctx.style_mut_of(theme, |style| {
             let dark = theme == Theme::Dark;
-            style.spacing.item_spacing = vec2(8.0, 6.0);
-            style.spacing.button_padding = vec2(10.0, 4.0);
-            style.spacing.interact_size.y = 24.0;
-            style.spacing.window_margin = Margin::same(16);
-            style.spacing.menu_margin = Margin::same(6);
+            let p = palette(dark);
+            let s = &mut style.spacing;
+            s.item_spacing = vec2(8.0, 6.0);
+            s.button_padding = vec2(10.0, 4.0);
+            s.interact_size = vec2(24.0, 26.0);
+            s.window_margin = Margin::same(20);
+            s.menu_margin = Margin::same(6);
+            s.indent = 16.0;
+            s.icon_width = 15.0;
+            s.icon_width_inner = 9.0;
+            s.icon_spacing = 6.0;
+            s.combo_height = 320.0;
+            s.tooltip_width = 360.0;
+            s.menu_width = 220.0;
+            s.scroll = egui::style::ScrollStyle::floating();
+            s.scroll.bar_width = 8.0;
+            s.scroll.floating_width = 3.0;
+            s.scroll.floating_allocated_width = 0.0;
             // Selectable labels sense clicks and drags and would steal them from the rows,
             // buttons and tables they sit in; text that should be copyable opts in explicitly.
             style.interaction.selectable_labels = false;
+
             let v = &mut style.visuals;
             v.text_cursor.blink = false; // a blinking caret would repaint twice a second
-            v.window_corner_radius = CornerRadius::same(10);
+            v.text_cursor.stroke = Stroke::new(1.5, p.accent);
+            v.panel_fill = p.canvas;
+            v.window_fill = p.surface;
+            v.extreme_bg_color = p.surface;
+            v.text_edit_bg_color = Some(p.surface);
+            v.faint_bg_color = if dark {
+                Color32::from_rgb(0x1b, 0x1c, 0x21)
+            } else {
+                Color32::from_rgb(0xf7, 0xf7, 0xf9)
+            };
+            v.code_bg_color = p.subtle;
+            v.hyperlink_color = p.accent_text;
+            v.warn_fg_color = p.warn;
+            v.error_fg_color = p.err;
+            v.override_text_color = None;
+            v.weak_text_color = Some(p.text_muted);
+            v.selection.bg_fill = soft(p.accent, if dark { 0.30 } else { 0.18 });
+            // The text color of selected rows and items, and egui's ring around a focused text
+            // field (`Field` paints a softer accent ring over it).
+            v.selection.stroke = Stroke::new(1.0, p.accent_text);
+            v.window_corner_radius = CornerRadius::same(RADIUS_LG);
             v.menu_corner_radius = CornerRadius::same(8);
-            v.selection.bg_fill = if dark {
-                Color32::from_rgb(0x26, 0x4f, 0x78)
-            } else {
-                Color32::from_rgb(0xb4, 0xd5, 0xfe)
+            v.window_stroke = Stroke::new(1.0, p.border);
+            v.window_shadow = Shadow {
+                offset: [0, 10],
+                blur: 30,
+                spread: 0,
+                color: Color32::from_black_alpha(if dark { 120 } else { 38 }),
             };
-            // The text color of selected rows, items and text. egui also rings focused text
-            // fields with it; `Field` paints its own blue ring over that.
-            v.selection.stroke = Stroke::new(
+            v.popup_shadow = Shadow {
+                offset: [0, 4],
+                blur: 14,
+                spread: 0,
+                color: Color32::from_black_alpha(if dark { 100 } else { 28 }),
+            };
+            v.window_highlight_topmost = false;
+            v.collapsing_header_frame = false;
+            v.indent_has_left_vline = true;
+            v.striped = false;
+            v.slider_trailing_fill = true;
+            v.handle_shape = egui::style::HandleShape::Circle;
+            v.disabled_alpha = 0.45;
+
+            let radius = CornerRadius::same(RADIUS);
+            let w = &mut v.widgets;
+            // Labels, separators, frames.
+            w.noninteractive.bg_fill = p.surface;
+            w.noninteractive.weak_bg_fill = p.surface;
+            w.noninteractive.bg_stroke = Stroke::new(1.0, p.border);
+            w.noninteractive.fg_stroke = Stroke::new(1.0, p.text);
+            w.noninteractive.corner_radius = radius;
+            // Buttons, inputs, checkboxes at rest: an outlined surface.
+            w.inactive.bg_fill = p.subtle;
+            w.inactive.weak_bg_fill = p.surface;
+            w.inactive.bg_stroke = Stroke::new(1.0, p.border_strong);
+            w.inactive.fg_stroke = Stroke::new(1.0, p.text);
+            w.inactive.corner_radius = radius;
+            w.inactive.expansion = 0.0;
+            w.hovered.bg_fill = p.subtle;
+            w.hovered.weak_bg_fill = p.hover;
+            w.hovered.bg_stroke = Stroke::new(
                 1.0,
                 if dark {
-                    Color32::WHITE
+                    p.border_strong
                 } else {
-                    Color32::from_rgb(0x10, 0x3d, 0x7a)
+                    Color32::from_rgb(0xbe, 0xbe, 0xc8)
                 },
             );
-            // Near-white text rather than pure white (which glares on a dark background), and a
-            // quieter gray for details; both read well above the 4.5:1 contrast WCAG asks for.
-            let (text, weak) = if dark {
-                (
-                    Color32::from_rgb(0xdc, 0xdf, 0xe4),
-                    Color32::from_rgb(0x8f, 0x96, 0xa0),
-                )
-            } else {
-                (
-                    Color32::from_rgb(0x2b, 0x2f, 0x36),
-                    Color32::from_rgb(0x64, 0x6a, 0x73),
-                )
-            };
-            v.widgets.noninteractive.fg_stroke.color = text;
-            v.widgets.inactive.fg_stroke.color = text;
-            v.weak_text_color = Some(weak);
-            v.hyperlink_color = ACCENT;
-            if dark {
-                v.panel_fill = Color32::from_rgb(0x1e, 0x20, 0x26);
-                v.window_fill = Color32::from_rgb(0x25, 0x28, 0x2f);
-                v.extreme_bg_color = Color32::from_rgb(0x16, 0x18, 0x1d);
-                v.faint_bg_color = Color32::from_rgb(0x24, 0x27, 0x2e);
-            } else {
-                v.panel_fill = Color32::from_rgb(0xf4, 0xf5, 0xf7);
-                v.window_fill = Color32::from_rgb(0xfc, 0xfc, 0xfd);
-                v.extreme_bg_color = Color32::WHITE;
-                v.faint_bg_color = Color32::from_rgb(0xec, 0xee, 0xf1);
+            w.hovered.fg_stroke = Stroke::new(1.0, p.text);
+            w.hovered.corner_radius = radius;
+            w.hovered.expansion = 0.0;
+            w.active.bg_fill = p.subtle;
+            w.active.weak_bg_fill = p.subtle;
+            w.active.bg_stroke = Stroke::new(1.0, p.accent);
+            w.active.fg_stroke = Stroke::new(1.0, p.text);
+            w.active.corner_radius = radius;
+            w.active.expansion = 0.0;
+            w.open.bg_fill = p.subtle;
+            w.open.weak_bg_fill = p.hover;
+            w.open.bg_stroke = Stroke::new(1.0, p.border_strong);
+            w.open.fg_stroke = Stroke::new(1.0, p.text);
+            w.open.corner_radius = radius;
+
+            for (ts, font) in style.text_styles.iter_mut() {
+                *font = match ts {
+                    egui::TextStyle::Heading => semibold(18.0),
+                    egui::TextStyle::Small => FontId::proportional(SMALL),
+                    egui::TextStyle::Monospace => FontId::monospace(12.5),
+                    _ => FontId::proportional(BODY),
+                };
             }
-            for w in [
-                &mut v.widgets.inactive,
-                &mut v.widgets.hovered,
-                &mut v.widgets.active,
-                &mut v.widgets.open,
-                &mut v.widgets.noninteractive,
-            ] {
-                w.corner_radius = CornerRadius::same(6);
-            }
-            // Fields, checkboxes and buttons get a hairline border, so a text field doesn't
-            // look like plain text; it darkens on hover and turns blue while focused.
-            let (border, border_hover) = if dark {
-                (
-                    Color32::from_rgb(0x3b, 0x40, 0x4a),
-                    Color32::from_rgb(0x55, 0x5c, 0x68),
-                )
-            } else {
-                (
-                    Color32::from_rgb(0xcc, 0xd0, 0xd6),
-                    Color32::from_rgb(0xa9, 0xaf, 0xb8),
-                )
-            };
-            if !dark {
-                // White buttons and menus with a hairline border, as on macOS.
-                v.widgets.inactive.weak_bg_fill = Color32::WHITE;
-                v.widgets.hovered.weak_bg_fill = Color32::from_rgb(0xf3, 0xf4, 0xf6);
-                v.widgets.active.weak_bg_fill = Color32::from_rgb(0xe6, 0xe8, 0xeb);
-                v.widgets.open.weak_bg_fill = Color32::from_rgb(0xf3, 0xf4, 0xf6);
-            }
-            // Separators and table lines stay quiet.
-            v.widgets.noninteractive.bg_stroke = Stroke::new(
-                1.0,
-                if dark {
-                    Color32::from_rgb(0x2e, 0x32, 0x3a)
-                } else {
-                    Color32::from_rgb(0xdf, 0xe2, 0xe6)
-                },
-            );
-            v.widgets.inactive.bg_stroke = Stroke::new(1.0, border);
-            v.widgets.hovered.bg_stroke = Stroke::new(1.0, border_hover);
-            v.widgets.active.bg_stroke = Stroke::new(1.0, ACCENT);
-            v.widgets.open.bg_stroke = Stroke::new(1.0, border_hover);
         });
     }
 }
 
 /// Warning text: amber, dark enough to read on a light background.
 pub fn warn_text(v: &egui::Visuals) -> Color32 {
-    if v.dark_mode {
-        AMBER
-    } else {
-        Color32::from_rgb(0x8f, 0x5b, 0x00)
-    }
+    palette(v.dark_mode).warn
 }
 
-/// The blue ring around a focused text field or checkbox.
+/// The accent ring around a focused checkbox.
 pub fn focus_ring(v: &egui::Visuals) -> Stroke {
-    Stroke::new(
-        1.5,
-        if v.dark_mode {
-            Color32::from_rgb(0x6c, 0xa8, 0xff)
-        } else {
-            Color32::from_rgb(0x1d, 0x6f, 0xe0)
-        },
-    )
+    Stroke::new(1.5, palette(v.dark_mode).accent)
 }
 
-/// The colors of a file list: it sits a shade apart from the panel, with faint stripes.
-pub struct ListColors {
-    pub bg: Color32,
-    pub stripe: Color32,
-    pub hover: Color32,
-    /// While files from the other side are dragged over it.
-    pub drop: Color32,
-}
-
-pub fn list_colors(v: &egui::Visuals) -> ListColors {
-    if v.dark_mode {
-        ListColors {
-            bg: v.extreme_bg_color,
-            stripe: Color32::from_rgb(0x1c, 0x1f, 0x25),
-            hover: Color32::from_rgb(0x27, 0x2b, 0x33),
-            drop: Color32::from_rgb(0x1a, 0x2a, 0x3d),
-        }
-    } else {
-        ListColors {
-            bg: v.extreme_bg_color,
-            stripe: Color32::from_rgb(0xf5, 0xf6, 0xf8),
-            hover: Color32::from_rgb(0xea, 0xee, 0xf3),
-            drop: Color32::from_rgb(0xe3, 0xef, 0xfe),
-        }
-    }
+/// Focus of an input drawn by hand: a 1 px accent border and a soft accent halo just outside it
+/// (calmer than a thick ring, which reads like an error).
+pub fn focus_halo(ui: &Ui, rect: egui::Rect, radius: u8) {
+    let p = pal(ui);
+    let halo = soft(p.accent, if ui.visuals().dark_mode { 0.30 } else { 0.22 });
+    let painter = ui.painter();
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(radius),
+        Stroke::new(3.0, halo),
+        egui::StrokeKind::Outside,
+    );
+    painter.rect_stroke(
+        rect,
+        CornerRadius::same(radius),
+        Stroke::new(1.0, p.accent),
+        egui::StrokeKind::Inside,
+    );
 }
 
 /// Width of the label column in forms.
@@ -201,9 +340,7 @@ pub fn input_multiline(text: &mut dyn egui::TextBuffer) -> Field<'_> {
     )
 }
 
-/// A text field with a blue focus ring. egui rings a focused field with `selection.stroke`,
-/// which is also the color of selected text and so has to stay readable on the selection; the
-/// blue ring is painted over it.
+/// A text field with a soft accent focus ring painted over egui's own.
 pub struct Field<'t>(pub egui::TextEdit<'t>);
 
 impl Field<'_> {
@@ -234,30 +371,33 @@ impl egui::Widget for Field<'_> {
         if response.has_focus() {
             // Where egui drew its ring: a focused field is drawn as active.
             let active = ui.visuals().widgets.active;
-            ui.painter().rect_stroke(
-                response.rect.expand(active.expansion),
-                active.corner_radius,
-                focus_ring(ui.visuals()),
-                egui::StrokeKind::Inside,
-            );
+            focus_halo(ui, response.rect.expand(active.expansion), RADIUS);
         }
         response
     }
 }
 
-/// The main button of a dialog (blue).
-pub fn primary(text: impl Into<String>) -> egui::Button<'static> {
-    egui::Button::new(RichText::new(text.into()).color(Color32::WHITE)).fill(ACCENT)
+/// The main button of a dialog (filled accent).
+pub fn primary(text: impl Into<String>) -> Primary {
+    Primary(text.into())
+}
+
+/// See [`primary`]: drawn by `kit::button_ex` once the theme is known.
+pub struct Primary(String);
+
+impl egui::Widget for Primary {
+    fn ui(self, ui: &mut Ui) -> egui::Response {
+        super::kit::button_ex(ui, super::kit::Kind::Primary, None, &self.0, false)
+    }
 }
 
 /// A section title in a form.
 pub fn section(ui: &mut Ui, title: &str) {
-    ui.add_space(10.0);
+    ui.add_space(12.0);
     ui.label(
-        RichText::new(title.to_uppercase())
-            .small()
-            .strong()
-            .color(ui.visuals().weak_text_color()),
+        egui::RichText::new(title)
+            .font(semibold(13.0))
+            .color(pal(ui).text),
     );
 }
 
@@ -269,7 +409,7 @@ pub fn row<R>(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
             Layout::left_to_right(Align::Center),
             |ui| {
                 ui.set_min_size(vec2(LABEL_W, CONTROL_H));
-                ui.label(label);
+                ui.label(egui::RichText::new(label).color(pal(ui).text_muted));
             },
         );
         ui.vertical(|ui| {
@@ -281,68 +421,64 @@ pub fn row<R>(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
     .inner
 }
 
-/// A segmented control (macOS style): one of `options`, the chosen one raised. Returns each
+/// A segmented control: one of `options`, the chosen one raised on a quiet track. Returns each
 /// segment's response.
 pub fn segmented<T: PartialEq + Copy>(
     ui: &mut Ui,
     value: &mut T,
     options: &[(T, &str)],
 ) -> Vec<egui::Response> {
-    let dark = ui.visuals().dark_mode;
-    let (track, raised, border) = if dark {
-        (
-            Color32::from_rgb(0x1a, 0x1c, 0x21),
-            Color32::from_rgb(0x3a, 0x3f, 0x4a),
-            Color32::from_rgb(0x4a, 0x50, 0x5b),
-        )
-    } else {
-        (
-            Color32::from_rgb(0xe4, 0xe6, 0xea),
-            Color32::WHITE,
-            Color32::from_rgb(0xc8, 0xcc, 0xd2),
-        )
-    };
-    let (strong, normal) = (ui.visuals().strong_text_color(), ui.visuals().text_color());
-    egui::Frame::NONE
-        .fill(track)
-        .corner_radius(7)
-        .inner_margin(Margin::same(2))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 2.0;
-                ui.spacing_mut().button_padding = vec2(14.0, 3.0);
-                options
-                    .iter()
-                    .map(|(option, label)| {
-                        let selected = *value == *option;
-                        let button = egui::Button::new(RichText::new(*label).color(if selected {
-                            strong
-                        } else {
-                            normal
-                        }))
-                        .fill(if selected {
-                            raised
-                        } else {
-                            Color32::TRANSPARENT
-                        })
-                        .stroke(if selected {
-                            Stroke::new(1.0, border)
-                        } else {
-                            Stroke::NONE
-                        })
-                        .corner_radius(5)
-                        .min_size(vec2(0.0, CONTROL_H - 4.0));
-                        let r = ui.add(button);
-                        if r.clicked() {
-                            *value = *option;
-                        }
-                        r
-                    })
-                    .collect()
-            })
-            .inner
+    let p = pal(ui);
+    let font = medium(SMALL + 1.0);
+    let galleys: Vec<_> = options
+        .iter()
+        .map(|(_, label)| {
+            ui.painter()
+                .layout_no_wrap(label.to_string(), font.clone(), Color32::PLACEHOLDER)
         })
-        .inner
+        .collect();
+    let seg_w: Vec<f32> = galleys.iter().map(|g| g.size().x + 24.0).collect();
+    let total = seg_w.iter().sum::<f32>() + 4.0;
+    let (rect, base) = ui.allocate_exact_size(vec2(total, CONTROL_H), egui::Sense::hover());
+    ui.painter()
+        .rect_filled(rect, CornerRadius::same(RADIUS + 1), p.subtle);
+    let mut x = rect.left() + 2.0;
+    let mut responses = Vec::with_capacity(options.len());
+    for (i, ((option, label), galley)) in options.iter().zip(galleys).enumerate() {
+        let seg = egui::Rect::from_min_size(
+            egui::pos2(x, rect.top() + 2.0),
+            vec2(seg_w[i], rect.height() - 4.0),
+        );
+        x += seg_w[i];
+        let resp = ui.interact(seg, base.id.with(("segment", i)), egui::Sense::click());
+        let selected = *value == *option;
+        resp.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::RadioButton, true, selected, *label)
+        });
+        if resp.clicked() {
+            *value = *option;
+        }
+        let painter = ui.painter();
+        if selected {
+            painter.rect(
+                seg,
+                CornerRadius::same(RADIUS - 1),
+                p.surface,
+                Stroke::new(1.0, p.border),
+                egui::StrokeKind::Inside,
+            );
+        } else if resp.hovered() {
+            painter.rect_filled(seg, CornerRadius::same(RADIUS - 1), p.hover);
+        }
+        let color = if selected || resp.hovered() {
+            p.text
+        } else {
+            p.text_muted
+        };
+        painter.galley(seg.center() - galley.size() / 2.0, galley, color);
+        responses.push(resp);
+    }
+    responses
 }
 
 /// Lays widgets out from the right, in a band one control high (a plain right-to-left layout
@@ -357,7 +493,7 @@ pub fn right_to_left<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> R {
     .inner
 }
 
-/// A checkbox drawn as on macOS: a blue box with a white check when on.
+/// A checkbox: an accent box with a white check when on.
 pub fn checkbox(
     ui: &mut Ui,
     checked: &mut bool,
@@ -392,7 +528,7 @@ pub fn checkbox(
         )
     });
     if ui.is_rect_visible(rect) {
-        let visuals = ui.style().interact(&response);
+        let p = pal(ui);
         let box_rect = egui::Rect::from_center_size(
             egui::pos2(rect.left() + BOX / 2.0, rect.top() + line / 2.0),
             vec2(BOX, BOX),
@@ -400,31 +536,31 @@ pub fn checkbox(
         let painter = ui.painter();
         if on {
             let fill = if response.hovered() {
-                ACCENT.gamma_multiply(0.85)
+                p.accent_hover
             } else {
-                ACCENT
+                p.accent
             };
             painter.rect_filled(box_rect, 4.0, fill);
-            let (l, t, r, b) = (
-                box_rect.left(),
-                box_rect.top(),
-                box_rect.right(),
-                box_rect.bottom(),
+            painter.text(
+                box_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                super::icons::CHECK,
+                icon_font(12.0),
+                p.on_accent,
             );
-            painter.add(egui::Shape::line(
-                vec![
-                    egui::pos2(l + 3.8, t + 8.2),
-                    egui::pos2(l + 6.8, b - 4.2),
-                    egui::pos2(r - 3.6, t + 4.4),
-                ],
-                Stroke::new(1.8, Color32::WHITE),
-            ));
         } else {
             painter.rect(
                 box_rect,
                 4.0,
-                ui.visuals().extreme_bg_color,
-                visuals.bg_stroke,
+                p.surface,
+                Stroke::new(
+                    1.0,
+                    if response.hovered() {
+                        p.text_faint
+                    } else {
+                        p.border_strong
+                    },
+                ),
                 egui::StrokeKind::Inside,
             );
         }
@@ -440,7 +576,12 @@ pub fn checkbox(
             box_rect.right() + GAP,
             box_rect.center().y - galley.rows.first().map_or(galley.size().y, |r| r.height()) / 2.0,
         );
-        painter.galley(text_pos, galley, visuals.text_color());
+        let text_color = if ui.is_enabled() {
+            p.text
+        } else {
+            p.text_faint
+        };
+        painter.galley(text_pos, galley, text_color);
     }
     response
 }
@@ -456,37 +597,11 @@ pub fn text_width(ui: &Ui, text: &str) -> f32 {
 
 /// A small explanation under a control.
 pub fn hint(ui: &mut Ui, text: impl Into<String>) {
-    ui.label(RichText::new(text.into()).small().weak());
-}
-
-/// Background for the sidebar and tab strip (slightly different from the content area).
-pub fn chrome_fill(dark: bool) -> Color32 {
-    if dark {
-        Color32::from_rgb(0x19, 0x1b, 0x20)
-    } else {
-        Color32::from_rgb(0xe9, 0xeb, 0xee)
-    }
-}
-
-/// Tab strip fills: the active tab is raised clearly above the strip (it also gets an accent
-/// underline and bright text), a hovered one only slightly.
-pub struct TabColors {
-    pub active: Color32,
-    pub hover: Color32,
-}
-
-pub fn tab_colors(dark: bool) -> TabColors {
-    if dark {
-        TabColors {
-            active: Color32::from_rgb(0x2c, 0x30, 0x38),
-            hover: Color32::from_rgb(0x22, 0x25, 0x2b),
-        }
-    } else {
-        TabColors {
-            active: Color32::WHITE,
-            hover: Color32::from_rgb(0xf2, 0xf3, 0xf5),
-        }
-    }
+    ui.label(
+        egui::RichText::new(text.into())
+            .small()
+            .color(pal(ui).text_muted),
+    );
 }
 
 /// A small ring that fills clockwise with `fraction`.
@@ -497,21 +612,17 @@ pub fn progress_ring(
     fraction: f32,
     dark: bool,
 ) {
-    let track = if dark {
-        Color32::from_gray(80)
-    } else {
-        Color32::from_gray(200)
-    };
-    painter.circle_stroke(center, radius, egui::Stroke::new(2.0, track));
+    let p = palette(dark);
+    painter.circle_stroke(center, radius, Stroke::new(2.0, p.border_strong));
     let steps = (fraction.clamp(0.0, 1.0) * 32.0).ceil() as usize;
     if steps > 0 {
         let points: Vec<egui::Pos2> = (0..=steps)
             .map(|i| {
                 let a = -std::f32::consts::FRAC_PI_2
                     + std::f32::consts::TAU * fraction.clamp(0.0, 1.0) * i as f32 / steps as f32;
-                center + egui::vec2(a.cos(), a.sin()) * radius
+                center + vec2(a.cos(), a.sin()) * radius
             })
             .collect();
-        painter.add(egui::Shape::line(points, egui::Stroke::new(2.0, ACCENT)));
+        painter.add(egui::Shape::line(points, Stroke::new(2.0, p.accent)));
     }
 }

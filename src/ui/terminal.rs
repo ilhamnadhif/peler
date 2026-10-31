@@ -27,7 +27,7 @@ pub const TERM_FILTER: EventFilter = EventFilter {
     vertical_arrows: true,
     escape: true,
 };
-pub const PAD: f32 = 6.0;
+pub const PAD: f32 = 10.0;
 const DIM_FACTOR: f32 = 0.66;
 
 pub struct TermStyle<'a> {

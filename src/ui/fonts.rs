@@ -86,7 +86,17 @@ const CJK_FALLBACKS: &[(&str, &str)] = &[
     ("cjk-ko", "/System/Library/Fonts/AppleSDGothicNeo.ttc"),
 ];
 const SYMBOLS: (&str, &str) = ("symbols", "/System/Library/Fonts/Apple Symbols.ttf");
-const UI_FONT: (&str, &str) = ("ui-sf", "/System/Library/Fonts/SFNS.ttf");
+
+/// The UI fonts, bundled: Inter in three weights and the Phosphor icons.
+const INTER: &[u8] = include_bytes!("../../assets/fonts/Inter-Regular.ttf");
+const INTER_MEDIUM: &[u8] = include_bytes!("../../assets/fonts/Inter-Medium.ttf");
+const INTER_SEMIBOLD: &[u8] = include_bytes!("../../assets/fonts/Inter-SemiBold.ttf");
+const PHOSPHOR: &[u8] = include_bytes!("../../assets/fonts/Phosphor.ttf");
+
+/// Font families of the UI beyond egui's two: Inter Medium and SemiBold, and the icons alone.
+pub const MEDIUM: &str = "ui-medium";
+pub const SEMIBOLD: &str = "ui-semibold";
+pub const ICONS: &str = "ui-icons";
 
 /// Largest font file loaded.
 const MAX_FONT_BYTES: u64 = 64 * 1024 * 1024;
@@ -213,14 +223,32 @@ pub fn definitions(choice: &FontChoice, load_cjk: bool) -> FontDefinitions {
     mono.dedup();
     defs.families.insert(FontFamily::Monospace, mono);
 
-    // UI: the macOS system font when available.
-    let mut proportional = Vec::new();
-    if add_face(&mut defs, UI_FONT.0, Path::new(UI_FONT.1), 0) {
-        proportional.push(UI_FONT.0.to_string());
-    }
-    proportional.push("Ubuntu-Light".into());
-    proportional.extend(fallbacks.iter().cloned());
-    defs.families.insert(FontFamily::Proportional, proportional);
+    // UI: Inter, with the icon font right behind it so icons can sit inside ordinary text.
+    // The icons live in the Private Use Area, like the Powerline and Nerd Font glyphs that
+    // remote prompts print, so they stay out of the terminal and monospace families above.
+    let font = |bytes: &'static [u8]| Arc::new(FontData::from_static(bytes));
+    defs.font_data.insert("Inter".into(), font(INTER));
+    defs.font_data.insert("Inter-Medium".into(), font(INTER_MEDIUM));
+    defs.font_data.insert("Inter-SemiBold".into(), font(INTER_SEMIBOLD));
+    let mut phosphor = FontData::from_static(PHOSPHOR);
+    // Icons sit a little high next to Inter's x-height.
+    phosphor.tweak.y_offset_factor = 0.08;
+    defs.font_data.insert("Phosphor".into(), Arc::new(phosphor));
+    let ui_family = |first: &str| {
+        let mut family = vec![first.to_string(), "Phosphor".to_string()];
+        family.extend(fallbacks.iter().cloned());
+        family
+    };
+    defs.families
+        .insert(FontFamily::Proportional, ui_family("Inter"));
+    defs.families
+        .insert(FontFamily::Name(MEDIUM.into()), ui_family("Inter-Medium"));
+    defs.families
+        .insert(FontFamily::Name(SEMIBOLD.into()), ui_family("Inter-SemiBold"));
+    defs.families.insert(
+        FontFamily::Name(ICONS.into()),
+        vec!["Phosphor".into(), "Inter".into()],
+    );
     defs
 }
 

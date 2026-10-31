@@ -22,8 +22,8 @@ use crate::sftp::remote::{self, Sftp};
 use crate::sftp::transfer::{Direction, Summary, Transfer, TransferState, Transfers};
 use crate::ssh::session::SftpOpener;
 use crate::ui::file_editor::{EditorOutput, FileEditor};
-use crate::ui::icons::{self, Icon};
-use crate::ui::style;
+use crate::ui::kit::{self, Segment};
+use crate::ui::{icons, style};
 
 enum Session {
     Opening(oneshot::Receiver<Result<SftpSession, String>>),
@@ -732,21 +732,23 @@ impl SftpPanel {
 
         match &self.session {
             Session::Opening(_) => {
-                ui.centered_and_justified(|ui| {
-                    ui.horizontal(|ui| {
-                        ui.spinner();
-                        ui.label(t("Opening SFTP…"));
-                    });
+                let p = style::pal(ui);
+                ui.vertical_centered(|ui| {
+                    ui.add_space((ui.available_height() * 0.4).max(8.0));
+                    ui.add(egui::Spinner::new().size(18.0).color(p.text_muted));
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(t("Opening SFTP…")).color(p.text_muted));
                 });
                 return output;
             }
             Session::Failed(e) => {
                 let e = e.clone();
-                ui.centered_and_justified(|ui| {
-                    ui.colored_label(
-                        ui.visuals().error_fg_color,
-                        tf("SFTP unavailable: {}", &[&e]),
-                    );
+                let p = style::pal(ui);
+                ui.vertical_centered(|ui| {
+                    ui.add_space((ui.available_height() * 0.3).max(8.0));
+                    kit::icon_badge(ui, icons::WARNING_CIRCLE, p.err, 40.0);
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(tf("SFTP unavailable: {}", &[&e])).color(p.text));
                 });
                 return output;
             }
@@ -774,7 +776,7 @@ impl SftpPanel {
                     ui.painter().vline(
                         rect.center().x,
                         rect.y_range(),
-                        ui.visuals().widgets.noninteractive.bg_stroke,
+                        egui::Stroke::new(1.0, style::pal(ui).border),
                     );
                     ui.allocate_ui(egui::vec2(half, lists_height), |ui| {
                         remote_actions = self.side_ui(ui, true, input_enabled);
@@ -822,6 +824,7 @@ impl SftpPanel {
 
     fn side_ui(&mut self, ui: &mut Ui, is_remote: bool, input_enabled: bool) -> Vec<SideAction> {
         let mut actions = Vec::new();
+        let uid = self.uid;
         let menu_target = self.menu_target.clone().filter(|m| m.remote == is_remote);
         let is_root_now = self.is_root;
         let reopening = self.reopening.is_some();
@@ -833,38 +836,69 @@ impl SftpPanel {
         let show_hidden = side.show_hidden;
         let mut path_focused = false;
         ui.vertical(|ui| {
-            // Toolbar: each action is a proper button with a hairline border, a clean icon and a
-            // label, matching the Root and Upload buttons on the path row. Spacing groups them:
-            // navigation first, then the folder actions.
-            ui.horizontal_wrapped(|ui| {
+            // Header: which side this is, then the navigation and the folder actions as two
+            // grouped controls (bordered, so they read as buttons, without a row of boxes), and
+            // on the remote side the Root and Upload buttons at the right.
+            let p = style::pal(ui);
+            ui.horizontal(|ui| {
+                ui.set_height(style::CONTROL_H);
                 ui.spacing_mut().item_spacing.x = 6.0;
-                ui.spacing_mut().button_padding.x = 9.0;
-                ui.label(RichText::new(if is_remote { t("Remote") } else { t("Local") }).strong());
-                ui.add_space(2.0);
-                if ui
-                    .button(format!("⬆ {}", t("Up")))
-                    .on_hover_text(t("Parent folder"))
-                    .clicked()
-                {
+                kit::icon(
+                    ui,
+                    if is_remote { icons::HARD_DRIVES } else { icons::LAPTOP },
+                    15.0,
+                    p.text_muted,
+                );
+                ui.label(
+                    RichText::new(if is_remote { t("Remote") } else { t("Local") })
+                        .font(style::semibold(13.0))
+                        .color(p.text),
+                );
+                ui.add_space(4.0);
+                let nav = kit::button_group(
+                    ui,
+                    &[
+                        Segment {
+                            icon: icons::ARROW_UP,
+                            tooltip: t("Parent folder"),
+                            on: false,
+                        },
+                        Segment {
+                            icon: icons::HOUSE,
+                            tooltip: t("Home folder"),
+                            on: false,
+                        },
+                        Segment {
+                            icon: icons::ARROWS_CLOCKWISE,
+                            tooltip: t("Refresh"),
+                            on: false,
+                        },
+                    ],
+                );
+                if nav[0].clicked() {
                     actions.push(SideAction::Up(is_remote));
                 }
-                if ui
-                    .button(format!("⌂ {}", t("Home")))
-                    .on_hover_text(t("Home folder"))
-                    .clicked()
-                {
+                if nav[1].clicked() {
                     actions.push(SideAction::Home(is_remote));
                 }
-                if ui.button(format!("⟳ {}", t("Refresh"))).clicked() {
+                if nav[2].clicked() {
                     actions.push(SideAction::Refresh(is_remote));
                 }
-                ui.add_space(6.0);
-                if ui.button(format!("+ {}", t("New folder"))).clicked() {
-                    actions.push(SideAction::Mkdir(is_remote));
-                }
-                let hidden_btn = ui
-                    .add(egui::Button::new(t("Hidden")).selected(show_hidden))
-                    .on_hover_text(t("Show hidden files"));
+                let folder = kit::button_group(
+                    ui,
+                    &[
+                        Segment {
+                            icon: icons::FOLDER_PLUS,
+                            tooltip: t("New folder"),
+                            on: false,
+                        },
+                        Segment {
+                            icon: if show_hidden { icons::EYE } else { icons::EYE_SLASH },
+                            tooltip: t("Show hidden files"),
+                            on: show_hidden,
+                        },
+                    ],
+                );
                 #[cfg(debug_assertions)]
                 crate::devtest::record(
                     if is_remote {
@@ -872,55 +906,53 @@ impl SftpPanel {
                     } else {
                         "local-hidden"
                     },
-                    hidden_btn.rect,
+                    folder[1].rect,
                 );
-                if hidden_btn.clicked() {
+                if folder[0].clicked() {
+                    actions.push(SideAction::Mkdir(is_remote));
+                }
+                if folder[1].clicked() {
                     actions.push(SideAction::ToggleHidden(is_remote));
                 }
                 if side.loading {
-                    ui.add_space(4.0);
-                    ui.spinner();
+                    ui.add(egui::Spinner::new().size(14.0).color(p.text_muted));
                 }
-            });
-            // Path: a full-width field with a leading folder icon. On the remote side the Root
-            // toggle and the Upload menu sit at the right, so both headers stay one row high and
-            // the two lists line up.
-            ui.horizontal(|ui| {
-                let (icon_rect, _) = ui.allocate_exact_size(egui::vec2(18.0, 18.0), Sense::hover());
-                icons::paint(
-                    ui.painter(),
-                    Icon::Folder,
-                    icon_rect.center(),
-                    13.0,
-                    icons::folder_color(ui.visuals().dark_mode),
-                );
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if is_remote {
-                        let upload = ui
-                            .menu_button(t("Upload…"), |ui| {
-                                if ui.button(t("Files…")).clicked() {
-                                    actions.push(SideAction::PickUpload { folders: false });
-                                    ui.close();
-                                }
-                                if ui.button(t("Folders…")).clicked() {
-                                    actions.push(SideAction::PickUpload { folders: true });
-                                    ui.close();
-                                }
-                            })
-                            .response
-                            .on_hover_text(t(
-                                "Choose files on this Mac to upload into this folder",
-                            ));
+                if is_remote {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 6.0;
+                        let upload = kit::button_ex(
+                            ui,
+                            kit::Kind::Secondary,
+                            Some(icons::UPLOAD_SIMPLE),
+                            t("Upload…"),
+                            true,
+                        )
+                        .on_hover_text(t("Choose files on this Mac to upload into this folder"));
                         #[cfg(debug_assertions)]
                         crate::devtest::record("upload-button", upload.rect);
-                        let _ = upload;
-                        ui.add_space(6.0);
+                        egui::Popup::menu(&upload).show(|ui| {
+                            if ui.button(kit::with_icon(icons::FILES, t("Files…"))).clicked() {
+                                actions.push(SideAction::PickUpload { folders: false });
+                                ui.close();
+                            }
+                            if ui.button(kit::with_icon(icons::FOLDERS, t("Folders…"))).clicked() {
+                                actions.push(SideAction::PickUpload { folders: true });
+                                ui.close();
+                            }
+                        });
                         // Browse and transfer as root through sudo.
                         let root = ui
-                            .add_enabled(
-                                !reopening,
-                                egui::Button::new(t("Root")).selected(is_root_now),
-                            )
+                            .add_enabled_ui(!reopening, |ui| {
+                                kit::button_full(
+                                    ui,
+                                    kit::Kind::Secondary,
+                                    Some(icons::SHIELD_CHECK),
+                                    t("Root"),
+                                    true,
+                                    is_root_now,
+                                )
+                            })
+                            .inner
                             .on_hover_text(if is_root_now {
                                 t("Running as root — click to go back to your user")
                             } else {
@@ -931,20 +963,30 @@ impl SftpPanel {
                         if root.clicked() {
                             actions.push(SideAction::Root);
                         }
-                        ui.add_space(6.0);
-                    }
-                    let edit = ui.add(style::Field(
-                        egui::TextEdit::singleline(&mut side.path_edit)
-                            .desired_width(f32::INFINITY),
-                    ));
-                    if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                        actions.push(SideAction::Cd(is_remote, side.path_edit.clone()));
-                    }
-                    path_focused = edit.has_focus();
-                });
+                    });
+                }
             });
+            ui.add_space(2.0);
+            // Path: a full-width field with a folder icon inside it.
+            let width = ui.available_width();
+            let edit = kit::field_with_icon(
+                ui,
+                egui::Id::new(("sftp-path", uid, is_remote)),
+                &mut side.path_edit,
+                "",
+                width,
+                icons::FOLDER_OPEN,
+                false,
+            );
+            if edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                actions.push(SideAction::Cd(is_remote, side.path_edit.clone()));
+            }
+            path_focused = edit.has_focus();
             if let Some(err) = &side.error {
-                ui.colored_label(ui.visuals().error_fg_color, err);
+                ui.horizontal(|ui| {
+                    kit::icon(ui, icons::WARNING_CIRCLE, 14.0, p.err);
+                    ui.add(egui::Label::new(RichText::new(err).color(p.err)).wrap());
+                });
             }
             // A quiet line summarising the selection, only while something is selected.
             let sel: Vec<&FileEntry> = side
@@ -965,8 +1007,9 @@ impl SftpPanel {
                         tf("{} folder(s)", &[&folders.to_string()])
                     ));
                 }
-                ui.label(RichText::new(text).weak().small());
+                ui.label(RichText::new(text).small().color(p.text_muted));
             }
+            ui.add_space(2.0);
 
             let visible: Vec<usize> = side
                 .entries
@@ -975,7 +1018,7 @@ impl SftpPanel {
                 .filter(|(_, e)| show_hidden || !e.is_hidden())
                 .map(|(i, _)| i)
                 .collect();
-            let row_h = 20.0;
+            let row_h = 26.0;
             // The list fills all the height left under the header, right to the bottom.
             let list_size = egui::vec2(ui.available_width(), ui.available_height().max(60.0));
             let list = ui.allocate_ui(list_size, |ui| {
@@ -995,7 +1038,7 @@ impl SftpPanel {
                         } else {
                             "sftp-local"
                         })
-                        .striped(true)
+                        .striped(false)
                         // Rows take both clicks and drags: a separate drag-only area on top of a
                         // row would swallow its clicks.
                         .sense(Sense::click_and_drag())
@@ -1015,18 +1058,24 @@ impl SftpPanel {
                     }
                     let arrow = |k: SortKey| {
                         if side.sort == k {
-                            if side.descending { " ▼" } else { " ▲" }
+                            if side.descending {
+                                format!("  {}", icons::CARET_DOWN)
+                            } else {
+                                format!("  {}", icons::CARET_UP)
+                            }
                         } else {
-                            ""
+                            String::new()
                         }
                     };
                     let header_button =
                         |ui: &mut Ui, label: &str, key: SortKey, clicked: &mut Option<SortKey>| {
+                            let color = if side.sort == key { p.text } else { p.text_muted };
                             if ui
                                 .add(
                                     egui::Button::new(
                                         RichText::new(format!("{label}{}", arrow(key)))
-                                            .color(ui.visuals().weak_text_color()),
+                                            .font(style::medium(style::SMALL + 0.5))
+                                            .color(color),
                                     )
                                     .frame(false),
                                 )
@@ -1037,7 +1086,7 @@ impl SftpPanel {
                         };
                     let mut header_rect = egui::Rect::NOTHING;
                     table
-                        .header(row_h, |mut header| {
+                        .header(24.0, |mut header| {
                             header.col(|ui| {
                                 header_button(ui, t("Name"), SortKey::Name, &mut sort_clicked)
                             });
@@ -1058,7 +1107,8 @@ impl SftpPanel {
                                     ui.add(
                                         egui::Button::new(
                                             RichText::new(t("Permissions"))
-                                                .color(ui.visuals().weak_text_color()),
+                                                .font(style::medium(style::SMALL + 0.5))
+                                                .color(p.text_muted),
                                         )
                                         .frame(false)
                                         .sense(Sense::hover()),
@@ -1074,22 +1124,15 @@ impl SftpPanel {
                                 row.set_selected(selected);
                                 // Names in the text color, details a step quieter (as in
                                 // Finder); a selected row is all in the selection's text color.
-                                let detail = |ui: &Ui| {
-                                    if selected {
-                                        ui.visuals().selection.stroke.color
-                                    } else {
-                                        ui.visuals().weak_text_color()
-                                    }
+                                let detail = |_: &Ui| {
+                                    if selected { p.accent_text } else { p.text_muted }
                                 };
                                 row.col(|ui| {
-                                    let icon = if e.is_dir {
-                                        Icon::Folder
-                                    } else if e.is_symlink {
-                                        Icon::Link
-                                    } else {
-                                        Icon::File
-                                    };
-                                    icons::icon_label(ui, icon, &e.name);
+                                    ui.add_space(4.0);
+                                    let (icon, color) =
+                                        icons::file_icon(&e.name, e.is_dir, e.is_symlink, &p);
+                                    let color = if selected && !e.is_dir { p.accent_text } else { color };
+                                    icons::icon_label(ui, icon, color, &e.name);
                                 });
                                 row.col(|ui| {
                                     if !e.is_dir {
@@ -1191,7 +1234,7 @@ impl SftpPanel {
                                     if is_remote
                                         && !target.entry.is_dir
                                         && target.names.len() == 1
-                                        && ui.button(t("Edit")).clicked()
+                                        && ui.button(kit::with_icon(icons::PENCIL_SIMPLE, t("Edit"))).clicked()
                                     {
                                         actions.push(SideAction::Edit {
                                             dir: target.dir.clone(),
@@ -1204,7 +1247,12 @@ impl SftpPanel {
                                     } else {
                                         t("Upload")
                                     };
-                                    if ui.button(label).clicked() {
+                                    let icon = if is_remote {
+                                        icons::DOWNLOAD_SIMPLE
+                                    } else {
+                                        icons::UPLOAD_SIMPLE
+                                    };
+                                    if ui.button(kit::with_icon(icon, label)).clicked() {
                                         actions.push(SideAction::Transfer {
                                             from_remote: is_remote,
                                             dir: target.dir.clone(),
@@ -1212,7 +1260,9 @@ impl SftpPanel {
                                         });
                                         ui.close();
                                     }
-                                    if target.entry.is_dir && ui.button(t("Open")).clicked() {
+                                    if target.entry.is_dir
+                                        && ui.button(kit::with_icon(icons::FOLDER_OPEN, t("Open"))).clicked()
+                                    {
                                         actions.push(SideAction::Open {
                                             remote: is_remote,
                                             dir: target.dir.clone(),
@@ -1220,7 +1270,7 @@ impl SftpPanel {
                                         });
                                         ui.close();
                                     }
-                                    if ui.button(t("Select All")).clicked() {
+                                    if ui.button(kit::with_icon(icons::LIST, t("Select All"))).clicked() {
                                         actions.push(SideAction::SelectAll(is_remote));
                                         ui.close();
                                     }
@@ -1228,7 +1278,7 @@ impl SftpPanel {
                                     if ui
                                         .add_enabled(
                                             target.names.len() == 1,
-                                            egui::Button::new(t("Rename…")),
+                                            egui::Button::new(kit::with_icon(icons::PENCIL_SIMPLE, t("Rename…"))),
                                         )
                                         .clicked()
                                     {
@@ -1245,7 +1295,7 @@ impl SftpPanel {
                                         if ui
                                             .add_enabled(
                                                 can_chmod,
-                                                egui::Button::new(t("Permissions…")),
+                                                egui::Button::new(kit::with_icon(icons::LOCK_KEY, t("Permissions…"))),
                                             )
                                             .clicked()
                                         {
@@ -1256,7 +1306,13 @@ impl SftpPanel {
                                             ui.close();
                                         }
                                     }
-                                    if ui.button(t("Delete…")).clicked() {
+                                    if ui
+                                        .button(
+                                            RichText::new(kit::with_icon(icons::TRASH, t("Delete…")))
+                                                .color(p.err),
+                                        )
+                                        .clicked()
+                                    {
                                         actions.push(SideAction::Delete {
                                             remote: is_remote,
                                             dir: target.dir.clone(),
@@ -1265,7 +1321,7 @@ impl SftpPanel {
                                         ui.close();
                                     }
                                     ui.separator();
-                                    if ui.button(t("Copy Path")).clicked() {
+                                    if ui.button(kit::with_icon(icons::CLIPBOARD, t("Copy Path"))).clicked() {
                                         let p = if is_remote {
                                             remote_join(&target.dir, &target.entry.name)
                                         } else {
@@ -1277,7 +1333,11 @@ impl SftpPanel {
                                         ui.ctx().copy_text(p);
                                         ui.close();
                                     }
-                                    if !is_remote && ui.button(t("Show in Finder")).clicked() {
+                                    if !is_remote
+                                        && ui
+                                            .button(kit::with_icon(icons::ARROW_SQUARE_OUT, t("Show in Finder")))
+                                            .clicked()
+                                    {
                                         let p = Path::new(&target.dir).join(&target.entry.name);
                                         let _ = std::process::Command::new("open")
                                             .arg("-R")
@@ -1294,7 +1354,7 @@ impl SftpPanel {
                         ui.painter().hline(
                             ui.max_rect().x_range(),
                             y,
-                            ui.visuals().widgets.noninteractive.bg_stroke,
+                            egui::Stroke::new(1.0, p.border),
                         );
                     }
                     if let Some(k) = sort_clicked {
@@ -1582,27 +1642,25 @@ impl SftpPanel {
             egui::Id::new("sftp-drag"),
         ));
         let visuals = ctx.global_style().visuals.clone();
+        let p = style::palette(visuals.dark_mode);
         let galley = painter.layout_no_wrap(
-            label.clone(),
-            egui::FontId::proportional(13.0),
-            visuals.strong_text_color(),
+            format!("{}  {label}", icons::FILES),
+            style::medium(13.0),
+            p.text,
         );
         let r = egui::Rect::from_min_size(
             pos + egui::vec2(14.0, 6.0),
-            galley.size() + egui::vec2(14.0, 8.0),
+            galley.size() + egui::vec2(18.0, 10.0),
         );
-        painter.rect_filled(r, egui::CornerRadius::same(5), visuals.window_fill);
-        painter.rect_stroke(
+        painter.add(visuals.popup_shadow.as_shape(r, egui::CornerRadius::same(6)));
+        painter.rect(
             r,
-            egui::CornerRadius::same(5),
-            visuals.window_stroke,
+            egui::CornerRadius::same(6),
+            p.surface,
+            egui::Stroke::new(1.0, p.border_strong),
             egui::StrokeKind::Inside,
         );
-        painter.galley(
-            r.min + egui::vec2(7.0, 4.0),
-            galley,
-            visuals.strong_text_color(),
-        );
+        painter.galley(r.min + egui::vec2(9.0, 5.0), galley, p.text);
     }
 
     /// The floating popup for transfers and errors: it opens on new activity and can be hidden
@@ -1620,16 +1678,26 @@ impl SftpPanel {
         // Closed, but something is still happening: a small pill to bring the popup back.
         if !self.show_activity {
             let pill = egui::Area::new(egui::Id::new(("sftp-activity-pill", self.uid)))
-                .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-14.0, -14.0))
+                .anchor(egui::Align2::RIGHT_BOTTOM, ACTIVITY_OFFSET)
                 .order(egui::Order::Foreground)
                 .show(ctx, |ui| {
-                    let label = match &running {
-                        Some(s) => format!("⇅  {}", summary_title(s)),
-                        None if has_msg => format!("⚠  {}", t("Details")),
-                        None => format!("⇅  {}", t("Transfers")),
+                    let p = style::pal(ui);
+                    let (label, color) = match &running {
+                        Some(s) => (format!("{}  {}", icons::ARROWS_DOWN_UP, summary_title(s)), p.accent_text),
+                        None if has_msg => (format!("{}  {}", icons::WARNING_CIRCLE, t("Details")), p.warn),
+                        None => (format!("{}  {}", icons::ARROWS_DOWN_UP, t("Transfers")), p.text),
                     };
                     egui::Frame::popup(ui.style())
-                        .show(ui, |ui| ui.add(egui::Button::new(label).frame(false)))
+                        .corner_radius(egui::CornerRadius::same(16))
+                        .inner_margin(egui::Margin::symmetric(10, 4))
+                        .show(ui, |ui| {
+                            ui.add(
+                                egui::Button::new(
+                                    RichText::new(label).font(style::medium(12.5)).color(color),
+                                )
+                                .frame(false),
+                            )
+                        })
                         .inner
                 });
             if pill.inner.clicked() {
@@ -1643,32 +1711,47 @@ impl SftpPanel {
             None => t("Activity"),
         };
         let mut open = true;
+        let frame = egui::Frame::window(&ctx.global_style())
+            .inner_margin(egui::Margin::symmetric(14, 10));
         egui::Window::new(title)
             .id(egui::Id::new(("sftp-activity", self.uid)))
-            .open(&mut open)
-            .collapsible(true)
+            .title_bar(false)
+            .frame(frame)
             .resizable(true)
-            .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-14.0, -14.0))
-            .default_width(360.0)
-            .min_width(260.0)
+            .anchor(egui::Align2::RIGHT_BOTTOM, ACTIVITY_OFFSET)
+            .default_width(460.0)
+            .min_width(320.0)
             .max_height(340.0)
             .show(ctx, |ui| {
+                let p = style::pal(ui);
+                // Header: what this is, and a button that hides it (back to the pill).
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 8.0;
+                    let icon = if running.is_some() { icons::ARROWS_DOWN_UP } else { icons::LIST };
+                    kit::icon(ui, icon, 15.0, p.text_muted);
+                    ui.label(RichText::new(title).font(style::semibold(13.5)).color(p.text));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if kit::icon_button_ex(ui, icons::X, t("Hide"), false, 22.0).clicked() {
+                            open = false;
+                        }
+                    });
+                });
+                ui.add_space(2.0);
                 // The latest error or status, dismissible on its own.
                 if let Some((msg, is_err)) = self.message.clone() {
-                    let color = if is_err {
-                        ui.visuals().error_fg_color
+                    let (icon, color) = if is_err {
+                        (icons::WARNING_CIRCLE, p.err)
                     } else {
-                        ui.visuals().text_color()
+                        (icons::INFO, p.text)
                     };
                     ui.horizontal(|ui| {
-                        if ui
-                            .add(egui::Button::new("×").frame(false))
-                            .on_hover_text(t("Dismiss"))
-                            .clicked()
-                        {
-                            self.message = None;
-                        }
-                        ui.add(egui::Label::new(RichText::new(msg).color(color)).wrap());
+                        kit::icon(ui, icon, 15.0, color);
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
+                            if kit::icon_button_ex(ui, icons::X, t("Dismiss"), false, 20.0).clicked() {
+                                self.message = None;
+                            }
+                            ui.add(egui::Label::new(RichText::new(msg).color(color)).wrap());
+                        });
                     });
                     if has_items {
                         ui.separator();
@@ -1677,42 +1760,40 @@ impl SftpPanel {
                 if !has_items {
                     return;
                 }
-                ui.horizontal(|ui| {
-                    match &running {
-                        Some(s) => {
-                            ui.label(RichText::new(summary_title(s)).strong());
-                            ui.add(
-                                egui::Label::new(RichText::new(summary_detail(s)).weak())
-                                    .truncate(),
-                            );
+                // The button goes in first, from the right, so the text can't run under it.
+                style::right_to_left(ui, |ui| {
+                    if running.is_some() {
+                        if kit::ghost(ui, Some(icons::STOP), t("Cancel all")).clicked() {
+                            self.transfers.cancel_all();
                         }
-                        None => {
-                            if let Some(s) = &summary {
-                                ui.label(RichText::new(finished_detail(s)).weak());
-                            }
-                        }
+                    } else if kit::ghost(ui, Some(icons::BROOM), t("Clear"))
+                        .on_hover_text(t("Remove finished transfers from the list"))
+                        .clicked()
+                    {
+                        self.transfers.clear_finished();
                     }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if running.is_some() {
-                            if ui.button(t("Cancel all")).clicked() {
-                                self.transfers.cancel_all();
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        match &running {
+                            Some(s) => {
+                                ui.label(RichText::new(summary_title(s)).font(style::medium(13.0)));
+                                ui.add(
+                                    egui::Label::new(
+                                        RichText::new(summary_detail(s)).small().color(p.text_muted),
+                                    )
+                                    .truncate(),
+                                )
+                                .on_hover_text(summary_detail(s));
                             }
-                        } else if ui
-                            .button(t("Clear"))
-                            .on_hover_text(t("Remove finished transfers from the list"))
-                            .clicked()
-                        {
-                            self.transfers.clear_finished();
+                            None => {
+                                if let Some(s) = &summary {
+                                    ui.label(RichText::new(finished_detail(s)).color(p.text_muted));
+                                }
+                            }
                         }
                     });
                 });
                 if let Some(s) = &running {
-                    ui.add(
-                        egui::ProgressBar::new(s.fraction())
-                            .desired_width(ui.available_width())
-                            .desired_height(5.0)
-                            .fill(crate::ui::style::ACCENT),
-                    );
+                    progress_bar(ui, s.fraction(), ui.available_width());
                 }
                 ui.add_space(2.0);
                 let mut remove = None;
@@ -1721,8 +1802,8 @@ impl SftpPanel {
                     .auto_shrink([false, true])
                     .max_height(240.0)
                     .show(ui, |ui| {
-                        for (i, tr) in self.transfers.items.iter().rev().enumerate() {
-                            if let Some(id) = transfer_row(ui, tr, i % 2 == 1) {
+                        for tr in self.transfers.items.iter().rev() {
+                            if let Some(id) = transfer_row(ui, tr) {
                                 remove = Some(id);
                             }
                         }
@@ -2010,11 +2091,23 @@ impl SftpPanel {
     }
 }
 
-const TRANSFER_ROW_H: f32 = 26.0;
+const TRANSFER_ROW_H: f32 = 28.0;
+/// Where the transfers popup (and its pill) sit: the bottom right corner, above the status bar.
+const ACTIVITY_OFFSET: egui::Vec2 = egui::vec2(-14.0, -40.0);
 
 /// One transfer: direction, name, status (bar while running), details, and cancel/remove.
 /// Returns the id to remove when its × was clicked after it finished.
-fn transfer_row(ui: &mut Ui, tr: &Transfer, striped: bool) -> Option<u64> {
+/// A thin accent bar on a quiet track.
+fn progress_bar(ui: &mut Ui, fraction: f32, width: f32) {
+    let p = style::pal(ui);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 4.0), Sense::hover());
+    ui.painter().rect_filled(rect, 2.0, p.subtle);
+    let mut done = rect;
+    done.set_width(rect.width() * fraction.clamp(0.0, 1.0));
+    ui.painter().rect_filled(done, 2.0, p.accent);
+}
+
+fn transfer_row(ui: &mut Ui, tr: &Transfer) -> Option<u64> {
     let mut remove = None;
     let state = tr.state();
     let done = tr.done.load(std::sync::atomic::Ordering::Relaxed);
@@ -2024,11 +2117,10 @@ fn transfer_row(ui: &mut Ui, tr: &Transfer, striped: bool) -> Option<u64> {
         egui::vec2(ui.available_width(), TRANSFER_ROW_H),
         Sense::hover(),
     );
-    if striped {
-        ui.painter()
-            .rect_filled(rect, 3.0, ui.visuals().faint_bg_color);
+    let p = style::pal(ui);
+    if ui.rect_contains_pointer(rect) {
+        ui.painter().rect_filled(rect, 6.0, p.faint_row());
     }
-    let green = egui::Color32::from_rgb(0x3f, 0xb9, 0x50);
     let mut row = ui.new_child(
         egui::UiBuilder::new()
             .max_rect(rect.shrink2(egui::vec2(6.0, 0.0)))
@@ -2036,15 +2128,21 @@ fn transfer_row(ui: &mut Ui, tr: &Transfer, striped: bool) -> Option<u64> {
     );
     let ui = &mut row;
     let (arrow, arrow_color) = match tr.direction {
-        Direction::Upload => ("⬆", crate::ui::style::ACCENT),
-        Direction::Download => ("⬇", green),
+        Direction::Upload => (icons::ARROW_UP, p.accent_text),
+        Direction::Download => (icons::ARROW_DOWN, p.ok),
     };
-    ui.label(RichText::new(arrow).color(arrow_color));
-    // Right part, laid out from the right edge: action, details, status.
-    const STATUS_W: f32 = 150.0;
-    const DETAIL_W: f32 = 190.0;
-    let right_w = 24.0 + DETAIL_W + STATUS_W + 3.0 * ui.spacing().item_spacing.x;
-    let name_w = (ui.available_width() - right_w).max(60.0);
+    kit::icon(ui, arrow, 14.0, arrow_color);
+    // Right part, laid out from the right edge: action, details, status. The details narrow
+    // (and finally go, into the name's tooltip) when the popup is too narrow for all of it, so
+    // nothing is drawn over the name.
+    const STATUS_W: f32 = 120.0;
+    const NAME_MIN: f32 = 110.0;
+    let gap = ui.spacing().item_spacing.x;
+    let avail = ui.available_width();
+    let detail_room = avail - 20.0 - STATUS_W - NAME_MIN - 4.0 * gap;
+    let detail_w = if detail_room >= 90.0 { detail_room.min(190.0) } else { 0.0 };
+    let right_w = 20.0 + STATUS_W + 3.0 * gap + if detail_w > 0.0 { detail_w + gap } else { 0.0 };
+    let name_w = (avail - right_w).max(40.0);
     let name = ui
         .allocate_ui_with_layout(
             egui::vec2(name_w, TRANSFER_ROW_H),
@@ -2053,7 +2151,7 @@ fn transfer_row(ui: &mut Ui, tr: &Transfer, striped: bool) -> Option<u64> {
                 ui.set_width(name_w);
                 let text = RichText::new(&tr.name);
                 let text = if matches!(state, TransferState::Running) {
-                    text.strong()
+                    text.font(style::medium(13.0))
                 } else {
                     text
                 };
@@ -2068,18 +2166,10 @@ fn transfer_row(ui: &mut Ui, tr: &Transfer, striped: bool) -> Option<u64> {
     name.on_hover_text(format!("{from}\n→ {to}"));
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         if !tr.is_finished() {
-            if ui
-                .add(egui::Button::new("×").frame(false))
-                .on_hover_text(t("Cancel"))
-                .clicked()
-            {
+            if kit::icon_button_ex(ui, icons::X, t("Cancel"), false, 20.0).clicked() {
                 tr.cancel();
             }
-        } else if ui
-            .add(egui::Button::new("×").frame(false))
-            .on_hover_text(t("Remove"))
-            .clicked()
-        {
+        } else if kit::icon_button_ex(ui, icons::X, t("Remove"), false, 20.0).clicked() {
             remove = Some(tr.id);
         }
         // Details: sizes and speed.
@@ -2104,14 +2194,19 @@ fn transfer_row(ui: &mut Ui, tr: &Transfer, striped: bool) -> Option<u64> {
                 }
             }
         };
-        ui.allocate_ui_with_layout(
-            egui::vec2(DETAIL_W, TRANSFER_ROW_H),
-            egui::Layout::right_to_left(egui::Align::Center),
-            |ui| {
-                ui.set_width(DETAIL_W);
-                ui.add(egui::Label::new(RichText::new(detail).weak().small()).truncate());
-            },
-        );
+        if detail_w > 0.0 {
+            ui.allocate_ui_with_layout(
+                egui::vec2(detail_w, TRANSFER_ROW_H),
+                egui::Layout::right_to_left(egui::Align::Center),
+                |ui| {
+                    ui.set_width(detail_w);
+                    ui.add(
+                        egui::Label::new(RichText::new(detail).small().color(p.text_muted))
+                            .truncate(),
+                    );
+                },
+            );
+        }
         // Status: a bar while running, a word otherwise.
         ui.allocate_ui_with_layout(
             egui::vec2(STATUS_W, TRANSFER_ROW_H),
@@ -2120,29 +2215,30 @@ fn transfer_row(ui: &mut Ui, tr: &Transfer, striped: bool) -> Option<u64> {
                 ui.set_width(STATUS_W);
                 match &state {
                     TransferState::Running => {
-                        ui.add(
-                            egui::ProgressBar::new(tr.fraction())
-                                .desired_width(STATUS_W - 44.0)
-                                .desired_height(6.0)
-                                .fill(crate::ui::style::ACCENT),
-                        );
+                        progress_bar(ui, tr.fraction(), STATUS_W - 44.0);
                         ui.label(
-                            RichText::new(format!("{}%", (tr.fraction() * 100.0).floor())).small(),
+                            RichText::new(format!("{}%", (tr.fraction() * 100.0).floor()))
+                                .small()
+                                .color(p.text_muted),
                         );
                     }
                     TransferState::Queued => {
-                        ui.label(RichText::new(t("Waiting…")).weak());
+                        ui.label(RichText::new(t("Waiting…")).color(p.text_muted));
                     }
                     TransferState::Done if skipped.is_empty() => {
-                        ui.label(RichText::new(format!("✓ {}", t("Done"))).color(green));
+                        ui.label(
+                            RichText::new(format!("{}  {}", icons::CHECK_CIRCLE, t("Done")))
+                                .color(p.ok),
+                        );
                     }
                     TransferState::Done => {
                         ui.label(
                             RichText::new(format!(
-                                "⚠ {}",
+                                "{}  {}",
+                                icons::WARNING,
                                 tf("{} skipped", &[&skipped.len().to_string()])
                             ))
-                            .color(ui.visuals().warn_fg_color),
+                            .color(p.warn),
                         )
                         .on_hover_text(
                             skipped
@@ -2156,15 +2252,15 @@ fn transfer_row(ui: &mut Ui, tr: &Transfer, striped: bool) -> Option<u64> {
                     TransferState::Failed(e) => {
                         ui.add(
                             egui::Label::new(
-                                RichText::new(format!("✕ {}", t("Failed")))
-                                    .color(ui.visuals().error_fg_color),
+                                RichText::new(format!("{}  {}", icons::X_CIRCLE, t("Failed")))
+                                    .color(p.err),
                             )
                             .truncate(),
                         )
                         .on_hover_text(e.as_str());
                     }
                     TransferState::Cancelled => {
-                        ui.label(RichText::new(t("Cancelled")).weak());
+                        ui.label(RichText::new(t("Cancelled")).color(p.text_muted));
                     }
                 }
             },
@@ -2247,22 +2343,25 @@ fn file_drop_zone<R>(
     is_remote: bool,
     add_contents: impl FnOnce(&mut Ui) -> R,
 ) -> (R, Option<Arc<DragFiles>>) {
-    let colors = style::list_colors(ui.visuals());
-    let mut frame = egui::Frame::NONE.begin(ui);
+    let p = style::pal(ui);
+    let mut frame = egui::Frame::NONE
+        .corner_radius(egui::CornerRadius::same(8))
+        .inner_margin(egui::Margin::symmetric(2, 4))
+        .begin(ui);
     let v = frame.content_ui.visuals_mut();
-    v.faint_bg_color = colors.stripe;
-    v.widgets.hovered.bg_fill = colors.hover;
+    v.widgets.hovered.bg_fill = p.faint_row();
+    v.selection.bg_fill = p.accent_soft;
     let inner = add_contents(&mut frame.content_ui);
     let response = frame.allocate_space(ui);
     // `contains_pointer`, not `hovered`: nothing counts as hovered while something is dragged.
     let target = response.contains_pointer()
         && egui::DragAndDrop::payload::<DragFiles>(ui.ctx())
-            .is_some_and(|p| p.from_remote != is_remote);
-    frame.frame.fill = if target { colors.drop } else { colors.bg };
+            .is_some_and(|d| d.from_remote != is_remote);
+    frame.frame.fill = if target { style::soft(p.accent, 0.10) } else { p.surface };
     frame.frame.stroke = if target {
-        egui::Stroke::new(1.0, style::ACCENT)
+        egui::Stroke::new(1.5, p.accent)
     } else {
-        ui.visuals().widgets.noninteractive.bg_stroke
+        egui::Stroke::new(1.0, p.border)
     };
     frame.paint(ui);
     (inner, response.dnd_release_payload::<DragFiles>())

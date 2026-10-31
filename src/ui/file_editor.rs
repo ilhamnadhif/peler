@@ -294,13 +294,16 @@ impl FileEditor {
 
         egui::Modal::new(Id::new(("file-editor", &self.path))).show(ctx, |ui| {
             ui.set_width(size.x);
+            let p = style::pal(ui);
             ui.horizontal(|ui| {
-                ui.label(RichText::new(self.name()).strong());
+                ui.set_height(style::CONTROL_H);
+                let (icon, color) = super::icons::file_icon(self.name(), false, false, &p);
+                super::kit::icon(ui, icon, 16.0, color);
+                ui.label(RichText::new(self.name()).font(style::semibold(14.0)).color(p.text));
                 if self.is_dirty() {
-                    ui.label(RichText::new("●").color(style::ACCENT))
-                        .on_hover_text(t("Unsaved changes"));
+                    super::kit::dot(ui, p.accent, 3.5).on_hover_text(t("Unsaved changes"));
                 }
-                ui.label(RichText::new(remote_parent(&self.path)).weak().small());
+                ui.label(RichText::new(remote_parent(&self.path)).small().color(p.text_faint));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button(t("Close")).clicked() {
                         close_clicked = true;
@@ -308,10 +311,16 @@ impl FileEditor {
                     let saving = self.saving_text.is_some();
                     let can_save = matches!(self.state, State::Ready) && !saving;
                     if ui
-                        .add_enabled(
-                            can_save,
-                            egui::Button::new(RichText::new(format!("{}  ⌘S", t("Save"))).strong()),
-                        )
+                        .add_enabled_ui(can_save, |ui| {
+                            super::kit::button_ex(
+                                ui,
+                                super::kit::Kind::Primary,
+                                Some(super::icons::FLOPPY_DISK),
+                                &format!("{}   ⌘S", t("Save")),
+                                false,
+                            )
+                        })
+                        .inner
                         .clicked()
                     {
                         save_clicked = true;
@@ -490,10 +499,7 @@ impl FileEditor {
                         {
                             choice = Some(false);
                         }
-                        if ui
-                            .button(RichText::new(t("Discard")).color(style::RED))
-                            .clicked()
-                        {
+                        if super::kit::danger(ui, t("Discard")).clicked() {
                             choice = Some(true);
                         }
                     });
@@ -541,7 +547,7 @@ impl FileEditor {
                         if ui.button(RichText::new(t("Cancel")).strong()).clicked() {
                             choice = Some(false);
                         }
-                        if ui.button(RichText::new(button).color(style::RED)).clicked() {
+                        if super::kit::danger(ui, button).clicked() {
                             choice = Some(true);
                         }
                     });

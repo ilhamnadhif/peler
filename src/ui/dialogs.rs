@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use eframe::egui::{self, Align2, Color32, Key, RichText, vec2};
 use uuid::Uuid;
 
-use super::{fonts, style};
+use super::{fonts, icons, kit, style};
 use crate::bookmarks::transfer::{
     ExportScope, ImportPlan, ItemStatus, MatchedBy, Resolution, SourceKind,
 };
@@ -49,14 +49,37 @@ impl Palette {
             .anchor(Align2::CENTER_TOP, vec2(0.0, 90.0));
         let modal = egui::Modal::new(egui::Id::new("palette"))
             .area(area)
+            .frame(
+                egui::Frame::popup(&ctx.global_style())
+                    .inner_margin(egui::Margin::same(10))
+                    .corner_radius(egui::CornerRadius::same(12)),
+            )
             .show(ctx, |ui| {
-                ui.set_width(520.0);
-                let edit = egui::TextEdit::singleline(&mut self.query)
-                    .hint_text(t("Connect to… (type to search connections)"))
-                    .font(egui::TextStyle::Heading)
-                    .margin(egui::Margin::symmetric(10, 8))
-                    .desired_width(f32::INFINITY);
-                let r = ui.add(style::Field(edit));
+                ui.set_width(560.0);
+                let p = style::pal(ui);
+                let r = ui
+                    .horizontal(|ui| {
+                        ui.add_space(6.0);
+                        kit::icon(ui, icons::MAGNIFYING_GLASS, 18.0, p.text_muted);
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.query)
+                                .hint_text(
+                                    RichText::new(t("Connect to… (type to search connections)"))
+                                        .color(p.text_faint),
+                                )
+                                .font(egui::FontId::proportional(16.0))
+                                .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(4, 10)))
+                                .desired_width(f32::INFINITY),
+                        )
+                    })
+                    .inner;
+                let line_y = r.rect.bottom() + 4.0;
+                ui.painter().hline(
+                    (ui.max_rect().left() - 10.0)..=(ui.max_rect().right() + 10.0),
+                    line_y,
+                    egui::Stroke::new(1.0, p.border),
+                );
+                ui.add_space(10.0);
                 if !self.focused {
                     r.request_focus();
                     self.focused = true;
@@ -95,45 +118,43 @@ impl Palette {
                         (None, None) => PaletteResult::Close,
                     };
                 }
-                ui.add_space(6.0);
                 if let Some(a) = &address {
-                    let resp = ui.add(
-                        egui::Button::selectable(true, RichText::new(tf("Connect to {}", &[a])))
-                            .min_size(vec2(ui.available_width(), 26.0)),
-                    );
-                    if resp.clicked() {
+                    if palette_row(ui, true, icons::ARROW_RIGHT, &tf("Connect to {}", &[a]), "", "")
+                        .clicked()
+                    {
                         result = PaletteResult::ConnectTo(a.clone());
                     }
                 } else if hits.is_empty() {
-                    ui.label(
-                        RichText::new(if store.bookmarks.is_empty() {
-                            t("No connections yet")
-                        } else {
-                            t("No matches")
-                        })
-                        .weak(),
-                    );
+                    ui.add_space(8.0);
+                    ui.vertical_centered(|ui| {
+                        ui.label(
+                            RichText::new(if store.bookmarks.is_empty() {
+                                t("No connections yet")
+                            } else {
+                                t("No matches")
+                            })
+                            .color(p.text_muted),
+                        )
+                    });
+                    ui.add_space(8.0);
                 }
                 egui::ScrollArea::vertical()
-                    .max_height(360.0)
+                    .max_height(380.0)
                     .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
                         for (i, id) in hits.iter().enumerate() {
                             let Some(b) = store.bookmark(*id) else {
                                 continue;
                             };
                             let selected = i == self.index;
                             let path = store.group_path(b.group);
-                            let resp = ui.add(
-                                egui::Button::selectable(
-                                    selected,
-                                    egui::RichText::new(format!(
-                                        "{}    {}",
-                                        b.display_name(),
-                                        b.address()
-                                    )),
-                                )
-                                .right_text(RichText::new(path).weak())
-                                .min_size(vec2(ui.available_width(), 26.0)),
+                            let resp = palette_row(
+                                ui,
+                                selected,
+                                icons::HARD_DRIVES,
+                                &b.display_name(),
+                                &b.address(),
+                                &path,
                             );
                             if selected && (down || up) {
                                 resp.scroll_to_me(None);
@@ -143,12 +164,99 @@ impl Palette {
                             }
                         }
                     });
+                // Key hints along the bottom.
+                ui.add_space(8.0);
+                let hint_top = ui.cursor().top();
+                ui.painter().hline(
+                    (ui.max_rect().left() - 10.0)..=(ui.max_rect().right() + 10.0),
+                    hint_top,
+                    egui::Stroke::new(1.0, p.border),
+                );
+                ui.add_space(8.0);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 6.0;
+                    for (keys, what) in [("↑↓", t("navigate")), ("↩", t("connect")), ("esc", t("close"))] {
+                        kit::kbd(ui, keys);
+                        ui.label(RichText::new(what).small().color(p.text_faint));
+                        ui.add_space(8.0);
+                    }
+                });
             });
         if modal.should_close() && matches!(result, PaletteResult::Open) {
             result = PaletteResult::Close;
         }
         result
     }
+}
+
+/// One result of the palette: an icon, the name, the address and the group on the right.
+fn palette_row(
+    ui: &mut egui::Ui,
+    selected: bool,
+    icon: &str,
+    name: &str,
+    address: &str,
+    group: &str,
+) -> egui::Response {
+    let p = style::pal(ui);
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 38.0), egui::Sense::click());
+    let painter = ui.painter();
+    if selected {
+        painter.rect_filled(rect, egui::CornerRadius::same(7), p.accent_soft);
+    } else if resp.hovered() {
+        painter.rect_filled(rect, egui::CornerRadius::same(7), p.hover);
+    }
+    let cy = rect.center().y;
+    painter.text(
+        egui::pos2(rect.left() + 18.0, cy),
+        Align2::CENTER_CENTER,
+        icon,
+        style::icon_font(16.0),
+        if selected { p.accent_text } else { p.text_muted },
+    );
+    let name_g = painter.layout_no_wrap(name.to_string(), style::medium(14.0), p.text);
+    let x = rect.left() + 36.0;
+    let group_g = painter.layout_no_wrap(group.to_string(), egui::FontId::proportional(12.0), p.text_faint);
+    let right = rect.right() - 12.0 - group_g.size().x - 12.0;
+    let clip = egui::Rect::from_min_max(rect.min, egui::pos2(right, rect.bottom()));
+    let name_w = name_g.size().x;
+    painter
+        .with_clip_rect(clip)
+        .galley(egui::pos2(x, cy - name_g.size().y / 2.0), name_g, p.text);
+    if !address.is_empty() {
+        painter.with_clip_rect(clip).text(
+            egui::pos2(x + name_w + 10.0, cy),
+            Align2::LEFT_CENTER,
+            address,
+            egui::FontId::proportional(12.5),
+            p.text_muted,
+        );
+    }
+    painter.galley(
+        egui::pos2(rect.right() - 12.0 - group_g.size().x, cy - group_g.size().y / 2.0),
+        group_g,
+        p.text_faint,
+    );
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, name));
+    resp
+}
+
+/// A tinted note with an icon (warnings in dialogs).
+fn callout(ui: &mut egui::Ui, icon: &str, color: Color32, text: &str) {
+    let dark = ui.visuals().dark_mode;
+    egui::Frame::NONE
+        .fill(style::soft(color, if dark { 0.12 } else { 0.08 }))
+        .stroke(egui::Stroke::new(1.0, style::soft(color, 0.35)))
+        .corner_radius(egui::CornerRadius::same(8))
+        .inner_margin(egui::Margin::symmetric(12, 10))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                kit::icon(ui, icon, 16.0, color);
+                ui.add(egui::Label::new(RichText::new(text).color(style::pal(ui).text)).wrap());
+            });
+        });
 }
 
 // ----- simple dialogs -------------------------------------------------------------------------
@@ -264,14 +372,27 @@ impl Dialog {
                         })
                     });
                 let modal = egui::Modal::new(id).show(ctx, |ui| {
-                    ui.set_width(380.0);
-                    ui.heading(title.as_str());
-                    ui.add_space(4.0);
-                    ui.label(message.as_str());
+                    ui.set_width(400.0);
+                    let p = style::pal(ui);
+                    let destructive = matches!(
+                        action,
+                        ConfirmAction::DeleteBookmark(_) | ConfirmAction::DeleteGroup(_)
+                    );
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 12.0;
+                        let (icon, color) = if destructive {
+                            (icons::TRASH, p.err)
+                        } else {
+                            (icons::QUESTION, p.accent)
+                        };
+                        kit::icon_badge(ui, icon, color, 40.0);
+                        ui.add(egui::Label::new(RichText::new(title.as_str()).font(style::semibold(17.0))).wrap());
+                    });
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(message.as_str()).color(p.text_muted));
                     if let Some(ticked) = dont_ask {
                         ui.add_space(6.0);
-                        let r = ui
-                            .checkbox(ticked, t("Don't ask again"))
+                        let r = style::checkbox(ui, ticked, t("Don't ask again"))
                             .on_hover_text(t("You can turn it back on in Settings."));
                         #[cfg(debug_assertions)]
                         crate::devtest::record("confirm-dont-ask", r.rect);
@@ -282,7 +403,11 @@ impl Dialog {
                     }
                     ui.add_space(10.0);
                     style::right_to_left(ui, |ui| {
-                        let ok = ui.add(style::primary(button.as_str()));
+                        let ok = if destructive {
+                            kit::danger(ui, button.as_str())
+                        } else {
+                            ui.add(style::primary(button.as_str()))
+                        };
                         #[cfg(debug_assertions)]
                         crate::devtest::record("confirm-ok", ok.rect);
                         if ok.clicked() || enter {
@@ -312,7 +437,7 @@ impl Dialog {
                 let mut result = DialogResult::Open;
                 let mut submit = false;
                 let modal = egui::Modal::new(egui::Id::new("group-name")).show(ctx, |ui| {
-                    ui.set_width(320.0);
+                    ui.set_width(340.0);
                     ui.heading(match target {
                         GroupTarget::New { .. } => t("New Group"),
                         GroupTarget::Rename(_) => t("Rename Group"),
@@ -354,13 +479,12 @@ impl Dialog {
 fn shortcuts(ctx: &egui::Context) -> DialogResult {
     let mut close = false;
     let modal = egui::Modal::new(egui::Id::new("shortcuts")).show(ctx, |ui| {
-        ui.set_width(420.0);
+        ui.set_width(440.0);
         ui.heading(t("Keyboard Shortcuts"));
-        ui.add_space(6.0);
+        ui.add_space(8.0);
         egui::Grid::new("shortcuts-grid")
             .num_columns(2)
-            .striped(true)
-            .spacing([24.0, 6.0])
+            .spacing([24.0, 8.0])
             .show(ui, |ui| {
                 for (keys, what) in [
                     ("⌘K", t("Search connections and connect")),
@@ -379,15 +503,22 @@ fn shortcuts(ctx: &egui::Context) -> DialogResult {
                     ("⇧PageUp / ⇧PageDown", t("Scroll back")),
                     ("⌘,", t("Settings…")),
                 ] {
-                    ui.monospace(keys);
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 4.0;
+                        for key in keys.split("  ") {
+                            kit::kbd(ui, key);
+                        }
+                    });
                     ui.label(what);
                     ui.end_row();
                 }
             });
-        ui.add_space(8.0);
-        if ui.button(t("Close")).clicked() {
-            close = true;
-        }
+        ui.add_space(12.0);
+        style::right_to_left(ui, |ui| {
+            if ui.button(t("Close")).clicked() {
+                close = true;
+            }
+        });
     });
     if close || modal.should_close() {
         DialogResult::Close
@@ -423,7 +554,7 @@ impl ExportDialog {
             ui.set_width(460.0);
             ui.heading(t("Export Connections"));
             ui.add_space(6.0);
-            ui.label(RichText::new(t("What to export")).strong());
+            ui.label(kit::section_title(t("What to export")));
             let is_all = self.scope == ExportScope::All;
             if ui.radio(is_all, tf("All connections ({})", &[&store.bookmarks.len().to_string()])).clicked() {
                 self.scope = ExportScope::All;
@@ -439,7 +570,7 @@ impl ExportDialog {
                     }
                 ui.add_enabled_ui(!store.groups.is_empty(), |ui| {
                     let label = group.map(|g| store.group_path(Some(g))).unwrap_or_else(|| t("(choose)").into());
-                    egui::ComboBox::from_id_salt("export-group").selected_text(label).width(260.0).show_ui(ui, |ui| {
+                    egui::ComboBox::from_id_salt("export-group").icon(super::kit::combo_caret).selected_text(label).width(260.0).show_ui(ui, |ui| {
                         for g in &store.groups {
                             if ui.selectable_label(group == Some(g.id), store.group_path(Some(g.id))).clicked() {
                                 self.scope = ExportScope::Group(g.id);
@@ -471,13 +602,13 @@ impl ExportDialog {
             // Everything a connection needs goes along, as it is, so the file opens on another
             // Mac as it was here.
             ui.add_space(8.0);
-            ui.label(RichText::new(t("Passwords and keys")).strong());
-            ui.label(RichText::new(format!("⚠ {}", t("Saved passwords, passphrases and keys (key files too) are written into the file as plain text. Anyone who gets the file can log in to these servers: keep it safe, and delete it once it is imported."))).color(style::warn_text(ui.visuals())));
+            ui.label(kit::section_title(t("Passwords and keys")));
+            callout(ui, icons::WARNING, style::pal(ui).warn, t("Saved passwords, passphrases and keys (key files too) are written into the file as plain text. Anyone who gets the file can log in to these servers: keep it safe, and delete it once it is imported."));
             if let Some(e) = &self.error {
                 ui.colored_label(ui.visuals().error_fg_color, e);
             }
             ui.add_space(10.0);
-            ui.horizontal(|ui| {
+            style::right_to_left(ui, |ui| {
                 if ui.add(style::primary(t("Export…"))).clicked() {
                     if matches!(&self.scope, ExportScope::Selected(ids) if ids.is_empty()) {
                         self.error = Some(t("Select at least one connection.").into());
@@ -573,9 +704,9 @@ impl ImportDialog {
                 SourceKind::SshConfig => "SSH config",
             };
             ui.heading(t("Import Connections"));
-            ui.label(RichText::new(format!("{} · {kind}", self.source)).weak());
+            ui.label(RichText::new(format!("{} · {kind}", self.source)).color(style::pal(ui).text_muted));
             for w in &self.plan.warnings {
-                ui.label(RichText::new(format!("⚠ {w}")).color(style::warn_text(ui.visuals())));
+                callout(ui, icons::WARNING, style::pal(ui).warn, w);
             }
             if self.plan.encrypted_credentials.is_some() {
                 ui.add_space(4.0);
@@ -596,12 +727,12 @@ impl ImportDialog {
                 });
             }
             if let Some((msg, err)) = &self.unlock_message {
-                let color = if *err { ui.visuals().error_fg_color } else { Color32::from_rgb(0x3f, 0xb9, 0x50) };
+                let color = if *err { style::pal(ui).err } else { style::pal(ui).ok };
                 ui.colored_label(color, msg);
             }
             let missing = self.plan.keys_missing();
             if missing > 0 {
-                ui.label(RichText::new(format!("⚠ {}", tf("{} connection(s) log in with a pasted key that this file doesn't include. Paste the key again in Edit Connection before connecting (or choose a key file).", &[&missing.to_string()]))).color(style::warn_text(ui.visuals())));
+                callout(ui, icons::WARNING, style::pal(ui).warn, &tf("{} connection(s) log in with a pasted key that this file doesn't include. Paste the key again in Edit Connection before connecting (or choose a key file).", &[&missing.to_string()]));
             }
 
             let commands = self.plan.startup_command_count();
@@ -618,7 +749,7 @@ impl ImportDialog {
 
             let (add, change, skip) = self.plan.summary();
             ui.add_space(6.0);
-            ui.label(RichText::new(tf("{} to add · {} to update · {} to skip", &[&add.to_string(), &change.to_string(), &skip.to_string()])).strong());
+            ui.label(RichText::new(tf("{} to add · {} to update · {} to skip", &[&add.to_string(), &change.to_string(), &skip.to_string()])).font(style::medium(13.5)));
             if self.plan.conflicts() > 0 {
                 ui.horizontal(|ui| {
                     ui.label(tf("{} conflict(s). For all:", &[&self.plan.conflicts().to_string()]));
@@ -635,21 +766,21 @@ impl ImportDialog {
             }
             ui.add_space(4.0);
             egui::ScrollArea::vertical().max_height(320.0).auto_shrink([false, true]).show(ui, |ui| {
-                egui::Grid::new("import-items").num_columns(4).striped(true).spacing([12.0, 4.0]).show(ui, |ui| {
-                    ui.label(RichText::new(t("Connection")).strong());
-                    ui.label(RichText::new(t("Address")).strong());
-                    ui.label(RichText::new(t("Group")).strong());
-                    ui.label(RichText::new(t("Action")).strong());
+                let pal = style::pal(ui);
+                egui::Grid::new("import-items").num_columns(4).striped(true).spacing([12.0, 6.0]).show(ui, |ui| {
+                    for head in [t("Connection"), t("Address"), t("Group"), t("Action")] {
+                        ui.label(RichText::new(head).font(style::medium(12.0)).color(pal.text_muted));
+                    }
                     ui.end_row();
                     for (i, item) in self.plan.items.iter_mut().enumerate() {
                         let mut name = item.incoming.display_name();
                         if !item.secrets.is_empty() {
-                            name.push_str("  🔑");
+                            name.push_str(&format!("  {}", icons::KEY));
                         }
                         ui.label(name);
                         match (&item.status, &item.existing_address) {
                             (ItemStatus::Conflict { .. }, Some(old)) => {
-                                ui.label(RichText::new(format!("{old} → {}", item.incoming.address())).color(Color32::from_rgb(0xd0, 0x9a, 0x2a)))
+                                ui.label(RichText::new(format!("{old} → {}", item.incoming.address())).color(pal.warn))
                                     .on_hover_text(t("Overwriting changes the address; the credentials saved for the old address are removed."));
                             }
                             _ => {
@@ -659,7 +790,7 @@ impl ImportDialog {
                         ui.label(RichText::new(&item.group_path).weak());
                         match item.status {
                             ItemStatus::New => {
-                                ui.label(RichText::new(t("Add")).color(Color32::from_rgb(0x3f, 0xb9, 0x50)));
+                                ui.label(RichText::new(t("Add")).color(pal.ok));
                             }
                             ItemStatus::Identical { .. } => {
                                 ui.label(RichText::new(t("Already present")).weak());
@@ -670,7 +801,7 @@ impl ImportDialog {
                                     MatchedBy::Endpoint => t("same host, port and user"),
                                 };
                                 ui.horizontal(|ui| {
-                                    egui::ComboBox::from_id_salt(("res", i))
+                                    egui::ComboBox::from_id_salt(("res", i)).icon(super::kit::combo_caret)
                                         .selected_text(match item.resolution {
                                             Resolution::Skip => t("Skip"),
                                             Resolution::Overwrite => t("Overwrite"),
@@ -692,7 +823,7 @@ impl ImportDialog {
                 });
             });
             ui.add_space(10.0);
-            ui.horizontal(|ui| {
+            style::right_to_left(ui, |ui| {
                 let (add, change, _) = self.plan.summary();
                 let import = ui.add_enabled(add + change > 0 && self.unlocking.is_none(), style::primary(t("Import")));
                 #[cfg(debug_assertions)]
@@ -734,14 +865,14 @@ impl SettingsDialog {
             ui.set_width(600.0);
             style::form_spacing(ui);
             ui.horizontal(|ui| {
-                ui.heading(RichText::new(t("Settings")).strong());
+                ui.heading(t("Settings"));
                 style::right_to_left(ui, |ui| {
                     if ui.add(style::primary(t("Done"))).clicked() {
                         close = true;
                     }
                 });
             });
-            let _tabs = style::segmented(
+            let _tabs = kit::tab_strip(
                 ui,
                 &mut self.tab,
                 &[
@@ -755,7 +886,7 @@ impl SettingsDialog {
                 crate::devtest::record("settings-terminal", _tabs[1].rect);
                 crate::devtest::record("settings-commands", _tabs[2].rect);
             }
-            ui.separator();
+            ui.add_space(4.0);
             egui::ScrollArea::vertical()
                 .max_height((ctx.content_rect().height() - 160.0).clamp(240.0, 640.0))
                 .auto_shrink([false, true])
@@ -780,7 +911,7 @@ impl SettingsDialog {
 fn general(ui: &mut egui::Ui, s: &mut Settings) {
     style::section(ui, t("Appearance"));
     style::row(ui, t("Language"), |ui| {
-        egui::ComboBox::from_id_salt("lang")
+        egui::ComboBox::from_id_salt("lang").icon(super::kit::combo_caret)
             .width(220.0)
             .selected_text(match s.language {
                 Language::System => t("System"),
@@ -850,7 +981,7 @@ fn terminal(ui: &mut egui::Ui, s: &mut Settings) {
     style::row(ui, t("Font"), |ui| {
         ui.horizontal(|ui| {
             let current = fonts::effective_choice(&s.font);
-            egui::ComboBox::from_id_salt("font")
+            egui::ComboBox::from_id_salt("font").icon(super::kit::combo_caret)
                 .selected_text(current.name.clone())
                 .width(220.0)
                 .show_ui(ui, |ui| {
@@ -909,7 +1040,7 @@ fn terminal(ui: &mut egui::Ui, s: &mut Settings) {
         (t("Colors (light)"), &mut s.scheme_light, false),
     ] {
         style::row(ui, label, |ui| {
-            egui::ComboBox::from_id_salt(("scheme", dark))
+            egui::ComboBox::from_id_salt(("scheme", dark)).icon(super::kit::combo_caret)
                 .selected_text(value.clone())
                 .width(220.0)
                 .show_ui(ui, |ui| {
@@ -973,11 +1104,12 @@ fn terminal(ui: &mut egui::Ui, s: &mut Settings) {
 }
 
 fn quick_commands(ui: &mut egui::Ui, s: &mut Settings) {
+    ui.add_space(8.0);
     ui.label(
         RichText::new(t(
             "Commands you can send to the active terminal from the toolbar.",
         ))
-        .weak(),
+        .color(style::pal(ui).text_muted),
     );
     ui.add_space(6.0);
     let mut remove = None;
@@ -987,9 +1119,10 @@ fn quick_commands(ui: &mut egui::Ui, s: &mut Settings) {
         .num_columns(5)
         .spacing([8.0, 6.0])
         .show(ui, |ui| {
-            ui.label(RichText::new(t("Name")).strong());
-            ui.label(RichText::new(t("Command")).strong());
-            ui.label(RichText::new(t("Run")).strong());
+            let muted = style::pal(ui).text_muted;
+            ui.label(RichText::new(t("Name")).font(style::medium(12.0)).color(muted));
+            ui.label(RichText::new(t("Command")).font(style::medium(12.0)).color(muted));
+            ui.label(RichText::new(t("Run")).font(style::medium(12.0)).color(muted));
             ui.label("");
             ui.label("");
             ui.end_row();
@@ -1002,20 +1135,23 @@ fn quick_commands(ui: &mut egui::Ui, s: &mut Settings) {
                 );
                 style::checkbox(ui, &mut qc.run, "").on_hover_text(t("Press Enter after sending"));
                 ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(i > 0, egui::Button::new("▲").small())
-                        .clicked()
-                    {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    let up = ui
+                        .add_enabled_ui(i > 0, |ui| kit::icon_button_ex(ui, icons::CARET_UP, t("Move up"), false, 24.0))
+                        .inner;
+                    if up.clicked() {
                         swap = Some((i, i - 1));
                     }
-                    if ui
-                        .add_enabled(i + 1 < n, egui::Button::new("▼").small())
-                        .clicked()
-                    {
+                    let down = ui
+                        .add_enabled_ui(i + 1 < n, |ui| {
+                            kit::icon_button_ex(ui, icons::CARET_DOWN, t("Move down"), false, 24.0)
+                        })
+                        .inner;
+                    if down.clicked() {
                         swap = Some((i, i + 1));
                     }
                 });
-                if ui.small_button("×").clicked() {
+                if kit::icon_button_ex(ui, icons::TRASH, t("Remove"), false, 24.0).clicked() {
                     remove = Some(i);
                 }
                 ui.end_row();
@@ -1027,7 +1163,8 @@ fn quick_commands(ui: &mut egui::Ui, s: &mut Settings) {
     if let Some((a, b)) = swap {
         s.quick_commands.swap(a, b);
     }
-    if ui.button(format!("+ {}", t("Add command"))).clicked() {
+    ui.add_space(4.0);
+    if kit::secondary(ui, Some(icons::PLUS), t("Add command")).clicked() {
         s.quick_commands.push(QuickCommand::new("", ""));
     }
 }
@@ -1064,27 +1201,33 @@ impl Toasts {
         }
         ctx.request_repaint_after(Duration::from_millis(500));
         egui::Area::new(egui::Id::new("toasts"))
-            .anchor(Align2::RIGHT_BOTTOM, vec2(-16.0, -16.0))
+            // Above the status bar.
+            .anchor(Align2::RIGHT_BOTTOM, vec2(-16.0, -40.0))
             .order(egui::Order::Foreground)
             .show(ctx, |ui| {
                 let mut dismiss = None;
+                let p = style::pal(ui);
                 for (i, (msg, err, _)) in self.items.iter().enumerate() {
-                    egui::Frame::popup(ui.style()).show(ui, |ui| {
-                        ui.set_max_width(360.0);
-                        ui.horizontal(|ui| {
-                            let color = if *err {
-                                ui.visuals().error_fg_color
-                            } else {
-                                ui.visuals().text_color()
-                            };
-                            ui.label(RichText::new(if *err { "⚠" } else { "✓" }).color(color));
-                            ui.label(RichText::new(msg).color(color));
-                            if ui.small_button("×").clicked() {
-                                dismiss = Some(i);
-                            }
+                    egui::Frame::popup(ui.style())
+                        .corner_radius(egui::CornerRadius::same(10))
+                        .inner_margin(egui::Margin::symmetric(12, 10))
+                        .show(ui, |ui| {
+                            ui.set_max_width(380.0);
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 10.0;
+                                let (icon, color) = if *err {
+                                    (icons::WARNING_CIRCLE, p.err)
+                                } else {
+                                    (icons::CHECK_CIRCLE, p.ok)
+                                };
+                                kit::icon(ui, icon, 17.0, color);
+                                ui.add(egui::Label::new(RichText::new(msg).color(p.text)).wrap());
+                                if kit::icon_button_ex(ui, icons::X, t("Dismiss"), false, 20.0).clicked() {
+                                    dismiss = Some(i);
+                                }
+                            });
                         });
-                    });
-                    ui.add_space(4.0);
+                    ui.add_space(6.0);
                 }
                 if let Some(i) = dismiss {
                     self.items.remove(i);
