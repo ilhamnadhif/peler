@@ -283,8 +283,8 @@ Meta key** dinyalakan di Pengaturan. Semua perintah juga ada di menu: menu bar d
 
 Diukur di MacBook Apple Silicon dengan macOS 14.6, memakai build rilis. Di Windows dan Linux Peler
 menggambar dengan OpenGL, yang membuka jendela lebih cepat dan membuat binary lebih kecil daripada
-Vulkan atau Direct3D (Windows memakai Direct3D 12 bila OpenGL tidak ada); binary Linux sekitar
-16 MB dan paketnya sekitar 8 MB.
+Vulkan atau Direct3D (Windows memakai Direct3D 12 bila OpenGL tidak ada). Binary Linux sekitar
+16 MB dan paketnya sekitar 8 MB; di Windows `peler.exe` sekitar 21 MB dan installernya 8 MB.
 
 | | Hasil |
 | --- | --- |

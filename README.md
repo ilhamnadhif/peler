@@ -282,8 +282,9 @@ as Meta key** is on in Settings. Every command is also in the menu: the menu bar
 
 Measured on an Apple Silicon MacBook running macOS 14.6, with the release build. On Windows and
 Linux Peler draws with OpenGL, which opens a window faster and keeps the binary smaller than
-Vulkan or Direct3D (Windows falls back to Direct3D 12 where OpenGL is missing); the Linux binary
-is about 16 MB and its packages about 8 MB.
+Vulkan or Direct3D (Windows falls back to Direct3D 12 where OpenGL is missing). The Linux binary
+is about 16 MB and its packages about 8 MB; on Windows `peler.exe` is about 21 MB and its installer
+8 MB.
 
 | | Result |
 | --- | --- |
