@@ -175,8 +175,15 @@ for _ in $(seq 1 30); do
     sleep 5
 done
 if [ -n "$run" ]; then
-    gh run watch "$run" --exit-status --interval 30 >/dev/null ||
-        fail "CI failed for $TAG: $REPO_URL/actions/runs/$run (fix it and push the tag again, or run this script again)"
+    # Polled rather than watched: a dropped connection must not read as a failed run.
+    while :; do
+        state="$(gh run view "$run" --json status,conclusion --jq '.status + " " + .conclusion' 2>/dev/null || echo "unknown")"
+        case "$state" in
+            "completed success") break ;;
+            completed*) fail "CI failed for $TAG: $REPO_URL/actions/runs/$run (rerun the failed jobs there, or fix it and run this script again)" ;;
+        esac
+        sleep 30
+    done
 fi
 [ "$(release_state)" = "published" ] || fail "$TAG is not published yet: see $REPO_URL/actions"
 echo

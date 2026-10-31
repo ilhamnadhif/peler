@@ -386,13 +386,9 @@ fn network_errors_are_classified() {
         known_hosts: known.clone(),
         save_secrets: true,
     };
-    // A port with nothing listening.
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let conn = Connection::start(rt.handle(), ctx.clone(), mk("127.0.0.1", port));
+    // A port with nothing listening. Not a port that was free a moment ago: another test's
+    // server can be given it in between (Linux hands freed ports out again soon).
+    let conn = Connection::start(rt.handle(), ctx.clone(), mk("127.0.0.1", 1));
     assert_eq!(
         wait_state(&conn, ConnState::is_closed),
         ConnState::Closed(Some(ConnError::Refused))
