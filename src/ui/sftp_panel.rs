@@ -1004,27 +1004,6 @@ impl SftpPanel {
                     ui.add(egui::Label::new(RichText::new(err).color(p.err)).wrap());
                 });
             }
-            // A quiet line summarising the selection, only while something is selected.
-            let sel: Vec<&FileEntry> = side
-                .entries
-                .iter()
-                .filter(|e| side.selected.contains(&e.name) && (show_hidden || !e.is_hidden()))
-                .collect();
-            if !sel.is_empty() {
-                let bytes: u64 = sel.iter().filter(|e| !e.is_dir).map(|e| e.size).sum();
-                let folders = sel.iter().filter(|e| e.is_dir).count();
-                let mut text = tf("{} selected", &[&sel.len().to_string()]);
-                if bytes > 0 {
-                    text.push_str(&format!(" · {}", entry::human_size(bytes)));
-                }
-                if folders > 0 {
-                    text.push_str(&format!(
-                        " · {}",
-                        tf("{} folder(s)", &[&folders.to_string()])
-                    ));
-                }
-                ui.label(RichText::new(text).small().color(p.text_muted));
-            }
             ui.add_space(2.0);
 
             let visible: Vec<usize> = side

@@ -1016,8 +1016,6 @@ const ID: &[(&str, &str)] = &[
     ("Upload…", "Unggah…"),
     ("about {} left", "sisa sekitar {}"),
     ("{} done", "{} selesai"),
-    ("{} folder(s)", "{} folder"),
-    ("{} selected", "{} dipilih"),
     ("{} transfer(s) failed.", "{} transfer gagal."),
     (
         "⌘-click or ⇧-click to select several",
