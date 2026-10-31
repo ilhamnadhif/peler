@@ -116,7 +116,7 @@ Saved passwords are Keychain items with the service name `peler`; remove them in
 - **Jump hosts** (`ssh -J`): reach a server through another saved connection, also several in a
   row. Each hop checks its own host key and logs in with its own method.
 - **Port forwarding** per connection, started when it connects: local (`-L`), remote (`-R`) and a
-  SOCKS proxy (`-D`). The toolbar shows the forwards (⇄) and says when a port is already in use.
+  SOCKS proxy (`-D`). The status bar shows the forwards and says when a port is already in use.
 - Nested groups, closed when Peler opens; drag and drop to reorder or regroup.
 - Fuzzy search over name, host, user, tags and group. Press Enter to connect.
 - `⌘K` opens a command palette. Typing `user@host:port` there (IPv6 as `[::1]:22`) connects without
@@ -142,15 +142,16 @@ Saved passwords are Keychain items with the service name `peler`; remove them in
   scrollback.
 - Option as Meta (optional) for readline and Emacs. It works with any keyboard layout, and only
   while a terminal has focus.
-- Quick commands (⚡), nine colour schemes, and a choice of fonts (or your own font file).
+- Quick commands (the lightning button), nine colour schemes, and a choice of fonts (or your own
+  font file).
 
 ### SFTP (`⇧⌘F`)
 
-![Dual-pane SFTP with labelled toolbars and the transfers popup](docs/screenshots/sftp.png)
+![Dual-pane SFTP with grouped toolbar buttons and the transfers popup](docs/screenshots/sftp.png)
 
-- Local and remote lists side by side, over the same SSH connection. Each side has a labelled
-  toolbar (**Up**, **Home**, **Refresh**, **New folder**, **Hidden**) and a full-width path field;
-  the lists run to the bottom of the panel.
+- Local and remote lists side by side, over the same SSH connection. Each side has two button
+  groups (**Up**, **Home**, **Refresh**, then **New folder** and **Show hidden files**) and a
+  full-width path field; the lists run to the bottom of the panel.
 - **Upload, download, rename, delete (recursive), new folder, chmod.**
 - **Many files at once**: select with ⌘-click, ⇧-click or `⌘A` over a list, then drag between the
   lists, drop files from Finder, or use the right-click menu. **Upload…** on the remote side opens
@@ -161,7 +162,7 @@ Saved passwords are Keychain items with the service name `peler`; remove them in
   sudo for your user. Click **Root** again to go back.
 - **Transfers you can follow**: a floating popup (which you can hide or close) shows the whole batch:
   files done, percent, size, speed and time left, with each row's own progress, and any errors. While
-  the panel is hidden, the tab shows a progress ring and the toolbar shows **SFTP ⬆ 45%**. A
+  the panel is hidden, the tab shows a progress ring and the SFTP button shows **SFTP 45%**. A
   notification tells you when everything has finished or something failed.
 - Files are written under a temporary name and renamed into place when complete. Cancelling, closing
   the tab or quitting removes partial files, on the server too. Sizes are verified, and permissions
@@ -347,7 +348,8 @@ src/
   ssh/                russh connection, authentication, known_hosts, shells
   sftp/               remote operations, background transfers, editor load/save
   term/               terminal core (alacritty_terminal), key/mouse encoding, colour schemes
-  ui/                 terminal widget, sidebar, editors, dialogs, SFTP panel, menu, fonts
+  ui/                 terminal widget, sidebar, editors, dialogs, SFTP panel, menu, fonts,
+                      design tokens (style.rs) and shared components (kit.rs)
   crypto.rs           export encryption
   secrets.rs          Keychain
   i18n.rs             English/Indonesian strings (a test checks every UI string is translated)
@@ -355,7 +357,7 @@ src/
   netwatch.rs         notices network changes (VPN, Wi-Fi, sleep) so connections get checked
   update.rs           update check, download, verification and install
 tests/                integration tests (local sshd, in-process server, 1 GiB SFTP)
-scripts/              package.sh, release.sh, install.sh, dev-sshd.sh
+scripts/              package.sh, release.sh, install.sh, dev-sshd.sh, build-fonts.py
 vendor/ssh-key/       ssh-key with a fix for some ECDSA keys (see PELER-PATCH.md there)
 ```
 

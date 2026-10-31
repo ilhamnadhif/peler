@@ -119,7 +119,7 @@ Password yang tersimpan adalah item Keychain dengan service `peler`; hapus lewat
 - **Jump host** (`ssh -J`): sambung ke server lewat koneksi tersimpan lain, juga beberapa
   berturut-turut. Setiap hop memeriksa host key-nya sendiri dan login dengan metodenya sendiri.
 - **Port forwarding** per koneksi, aktif saat tersambung: lokal (`-L`), remote (`-R`), dan proxy
-  SOCKS (`-D`). Toolbar menampilkan forward-nya (⇄) dan memberi tahu kalau port sudah dipakai.
+  SOCKS (`-D`). Status bar menampilkan forward-nya dan memberi tahu kalau port sudah dipakai.
 - Grup bertingkat, tertutup saat Peler dibuka; drag and drop untuk mengurutkan atau memindah grup.
 - Pencarian fuzzy pada nama, host, user, tag, dan grup. Tekan Enter untuk konek.
 - `⌘K` membuka palet perintah. Mengetik `user@host:port` di sana (IPv6 sebagai `[::1]:22`) langsung
@@ -144,15 +144,15 @@ Password yang tersimpan adalah item Keychain dengan service `peler`; hapus lewat
   tab dan mempertahankan scrollback.
 - Option sebagai Meta (opsional) untuk readline dan Emacs. Bekerja dengan layout keyboard apa pun,
   dan hanya aktif saat terminal yang memegang keyboard.
-- Quick commands (⚡), sembilan skema warna, dan pilihan font (atau file font sendiri).
+- Quick commands (tombol petir), sembilan skema warna, dan pilihan font (atau file font sendiri).
 
 ### SFTP (`⇧⌘F`)
 
-![SFTP dua panel dengan toolbar berlabel dan popup transfer](docs/screenshots/sftp.png)
+![SFTP dua panel dengan grup tombol toolbar dan popup transfer](docs/screenshots/sftp.png)
 
-- Daftar lokal dan remote berdampingan, di atas koneksi SSH yang sama. Tiap sisi punya toolbar
-  berlabel (**Naik**, **Beranda**, **Muat ulang**, **Folder baru**, **Tersembunyi**) dan kolom path
-  selebar panel; daftar file memenuhi panel sampai ke bawah.
+- Daftar lokal dan remote berdampingan, di atas koneksi SSH yang sama. Tiap sisi punya dua grup
+  tombol (**Naik**, **Beranda**, **Muat ulang**, lalu **Folder baru** dan **Tampilkan file
+  tersembunyi**) dan kolom path selebar panel; daftar file memenuhi panel sampai ke bawah.
 - **Upload, download, ganti nama, hapus (rekursif), folder baru, chmod.**
 - **Banyak file sekaligus**: pilih dengan ⌘-klik, ⇧-klik, atau `⌘A` saat kursor di atas daftar, lalu
   drag antar daftar, drop file dari Finder, atau pakai menu klik-kanan. **Unggah…** di sisi remote
@@ -163,8 +163,8 @@ Password yang tersimpan adalah item Keychain dengan service `peler`; hapus lewat
   Anda. Server harus mengizinkan sudo untuk user Anda. Klik **Root** lagi untuk kembali.
 - **Transfer yang bisa dipantau**: popup mengambang (bisa disembunyikan atau ditutup) menampilkan
   seluruh batch: file selesai, persen, ukuran, kecepatan, dan sisa waktu, dengan progres tiap baris,
-  dan error bila ada. Saat panel disembunyikan, tab menampilkan cincin progres dan toolbar
-  menampilkan **SFTP ⬆ 45%**. Notifikasi muncul saat semuanya selesai atau ada yang gagal.
+  dan error bila ada. Saat panel disembunyikan, tab menampilkan cincin progres dan tombol SFTP
+  menampilkan **SFTP 45%**. Notifikasi muncul saat semuanya selesai atau ada yang gagal.
 - File ditulis dengan nama sementara, lalu di-rename ke nama aslinya setelah lengkap. Membatalkan,
   menutup tab, atau quit akan menghapus file setengah jadi, termasuk di server. Ukuran diverifikasi,
   dan permission serta bit executable dipertahankan.
@@ -350,7 +350,8 @@ src/
   ssh/                koneksi russh, autentikasi, known_hosts, shell
   sftp/               operasi remote, transfer latar belakang, muat/simpan editor
   term/               inti terminal (alacritty_terminal), encoding key/mouse, skema warna
-  ui/                 widget terminal, sidebar, editor, dialog, panel SFTP, menu, font
+  ui/                 widget terminal, sidebar, editor, dialog, panel SFTP, menu, font,
+                      token desain (style.rs) dan komponen bersama (kit.rs)
   crypto.rs           enkripsi export
   secrets.rs          Keychain
   i18n.rs             teks Inggris/Indonesia (ada tes yang memastikan semua teks UI diterjemahkan)
@@ -358,7 +359,7 @@ src/
   netwatch.rs         mendeteksi perubahan jaringan (VPN, Wi-Fi, sleep) supaya koneksi dicek
   update.rs           cek update, unduh, verifikasi, dan pasang
 tests/                tes integrasi (sshd lokal, server in-process, SFTP 1 GiB)
-scripts/              package.sh, release.sh, install.sh, dev-sshd.sh
+scripts/              package.sh, release.sh, install.sh, dev-sshd.sh, build-fonts.py
 vendor/ssh-key/       ssh-key dengan perbaikan untuk sebagian kunci ECDSA (lihat PELER-PATCH.md di sana)
 ```
 
