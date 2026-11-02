@@ -8,9 +8,9 @@ mod common;
 
 use common::{TestServer, user, wait_for};
 use eframe::egui;
-use peler::bookmarks::{Auth, Bookmark};
-use peler::ssh::session::{ConnectSpec, Connection};
-use peler::ssh::types::{ConnError, ConnState, Prompt};
+use ternaryshell::bookmarks::{Auth, Bookmark};
+use ternaryshell::ssh::session::{ConnectSpec, Connection};
+use ternaryshell::ssh::types::{ConnError, ConnState, Prompt};
 
 fn spec(server: &TestServer, known: &std::path::Path) -> ConnectSpec {
     ConnectSpec {

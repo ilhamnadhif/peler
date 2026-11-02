@@ -15,33 +15,35 @@ fn main() -> eframe::Result {
         .skip(1)
         .any(|a| a == "--version" || a == "-V")
     {
-        println!("Peler {}", env!("CARGO_PKG_VERSION"));
+        println!("TernaryShell {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
-    peler::app::mark_process_start();
+    ternaryshell::app::mark_process_start();
     install_crash_log();
     // Window position and size from the last run (the app checks it is on a screen).
-    let saved = peler::settings::Settings::load(&peler::paths::settings_file())
+    let saved = ternaryshell::settings::Settings::load(&ternaryshell::paths::settings_file())
         .ok()
         .and_then(|s| s.window_frame());
     // Arguments: bookmark names or user@host[:port] to open on launch.
-    let targets = peler::instance::targets(std::env::args().skip(1));
+    let targets = ternaryshell::instance::targets(std::env::args().skip(1));
     // A second launch hands its arguments to the running app instead of opening another
     // window on the same bookmarks file.
-    let (lock, inbox) = match peler::instance::acquire(&targets) {
-        peler::instance::Instance::Forwarded => return Ok(()),
-        peler::instance::Instance::Primary { lock, inbox } => (lock, inbox),
+    let (lock, inbox) = match ternaryshell::instance::acquire(&targets) {
+        ternaryshell::instance::Instance::Forwarded => return Ok(()),
+        ternaryshell::instance::Instance::Primary { lock, inbox } => (lock, inbox),
     };
     // The app is created by whichever attempt opens a window.
     let start = std::rc::Rc::new(std::cell::RefCell::new(Some((targets, inbox))));
     let attempt = |renderer: eframe::Renderer| {
         let start = start.clone();
         eframe::run_native(
-            "Peler",
+            "TernaryShell",
             native_options(saved, renderer),
             Box::new(move |cc| {
                 let (targets, inbox) = start.borrow_mut().take().expect("the app starts once");
-                Ok(Box::new(peler::app::PelerApp::new(cc, targets, inbox)))
+                Ok(Box::new(ternaryshell::app::TernaryShellApp::new(
+                    cc, targets, inbox,
+                )))
             }),
         )
     };
@@ -62,12 +64,12 @@ fn main() -> eframe::Result {
 
 fn native_options(saved: Option<[f32; 4]>, renderer: eframe::Renderer) -> eframe::NativeOptions {
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Peler")
-        // On Linux the id ties the window to peler.desktop (its name and icon in the dock).
+        .with_title("TernaryShell")
+        // On Linux the id ties the window to ternaryshell.desktop (its name and icon in the dock).
         .with_app_id(if cfg!(target_os = "linux") {
-            "peler"
+            "ternaryshell"
         } else {
-            "dev.peler.app"
+            "dev.ternaryshell.app"
         })
         .with_inner_size([1180.0, 760.0])
         .with_min_inner_size([640.0, 400.0])
@@ -90,13 +92,15 @@ fn native_options(saved: Option<[f32; 4]>, renderer: eframe::Renderer) -> eframe
 
 /// A window that can't open is said in a dialog: on Windows and Linux nobody sees the console.
 fn report_start_failure(error: &eframe::Error) {
-    eprintln!("Peler could not open its window: {error}");
+    eprintln!("TernaryShell could not open its window: {error}");
     #[cfg(not(target_os = "macos"))]
     {
         let _ = rfd::MessageDialog::new()
             .set_level(rfd::MessageLevel::Error)
-            .set_title("Peler")
-            .set_description(format!("Peler could not open its window:\n\n{error}"))
+            .set_title("TernaryShell")
+            .set_description(format!(
+                "TernaryShell could not open its window:\n\n{error}"
+            ))
             .show();
     }
 }
@@ -110,19 +114,19 @@ fn window_icon() -> egui::IconData {
     eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon_256.png")).unwrap_or_default()
 }
 
-/// Writes a report to the logs folder (`peler::paths::logs_dir`) when something panics
+/// Writes a report to the logs folder (`ternaryshell::paths::logs_dir`) when something panics
 /// (including inside a connection task, which the app survives), then runs the default hook.
 fn install_crash_log() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let dir = peler::paths::logs_dir();
+        let dir = ternaryshell::paths::logs_dir();
         if std::fs::create_dir_all(&dir).is_ok() {
             let thread = std::thread::current()
                 .name()
                 .unwrap_or("unnamed")
                 .to_string();
             let report = format!(
-                "Peler {} panicked on thread '{thread}' at {}\n{info}\n\n{}\n",
+                "TernaryShell {} panicked on thread '{thread}' at {}\n{info}\n\n{}\n",
                 env!("CARGO_PKG_VERSION"),
                 chrono::Local::now().to_rfc3339(),
                 std::backtrace::Backtrace::force_capture(),

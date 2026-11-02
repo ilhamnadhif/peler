@@ -1,27 +1,27 @@
-# Peler
+# TernaryShell
 
 **A lightweight SSH & SFTP client for macOS, Windows and Linux, written entirely in Rust.**
 
-Peler is a native replacement for Electron-based SSH clients such as Electerm: one small binary,
+TernaryShell is a native replacement for Electron-based SSH clients such as Electerm: one small binary,
 no Chromium, no Node.js. It starts in about 0.1 s, idles at 0 % CPU and uses around 70 MB of
 memory with a session open.
 
 [Bahasa Indonesia](README.id.md)
 
-![Peler: saved connections, tabs and split panes over one SSH connection](docs/screenshots/terminal.png)
+![TernaryShell: saved connections, tabs and split panes over one SSH connection](docs/screenshots/terminal.png)
 
 ## Highlights
 
 - **Saved connections** in nested groups, with drag and drop, fuzzy search and quick connect
   (`⌘K`, `Ctrl+Shift+K` on Windows and Linux). Passwords and passphrases live in the system's
   keychain (the macOS Keychain, Windows Credential Manager, the Secret Service on Linux), not in
-  Peler's files. **Show** in Edit
+  TernaryShell's files. **Show** in Edit
   Connection reveals a saved one.
 - **A real terminal** (alacritty_terminal): 24-bit colour, mouse reporting for vim/htop/tmux, IME,
   CJK, and box drawing drawn pixel-exact.
 - **Tabs and split panes** that share one SSH connection.
 - **Notices dead connections**: after the network changes (a VPN turned on or off, another Wi-Fi,
-  waking from sleep), or when typed keys get no reply, Peler checks the server. A connection that
+  waking from sleep), or when typed keys get no reply, TernaryShell checks the server. A connection that
   no longer answers says so within seconds and offers **Reconnect**, instead of hanging.
 - **Dual-pane SFTP**: transfer many files at once in the background, with progress, speed and time
   left. Folders transfer recursively, permissions are kept, and you can browse as root over sudo.
@@ -36,112 +36,112 @@ memory with a session open.
 
 ## Install
 
-Download from the [latest release](https://github.com/ilhamnadhif/peler/releases/latest):
+Download from the [latest release](https://github.com/ilhamnadhif/ternaryshell/releases/latest):
 
 | System | Download |
 | --- | --- |
-| macOS 12 Monterey or later (Apple Silicon, Intel) | one-line installer below, `Peler-<version>.pkg` or `.dmg` |
-| Windows 10 (1809) or later, x64 | `Peler-<version>-windows-x64-setup.exe`, or the portable `-windows-x64.zip` |
-| Debian, Ubuntu, Mint, Pop!_OS | `Peler-<version>-linux-amd64.deb` (`-arm64.deb` on ARM) |
-| Fedora, RHEL, Rocky, AlmaLinux, openSUSE | `Peler-<version>-linux-x86_64.rpm` (`-aarch64.rpm`) |
-| Any Linux (Arch, Manjaro …) | `Peler-<version>-linux-x86_64.AppImage` or `.tar.gz` (`-aarch64` on ARM) |
+| macOS 12 Monterey or later (Apple Silicon, Intel) | one-line installer below, `TernaryShell-<version>.pkg` or `.dmg` |
+| Windows 10 (1809) or later, x64 | `TernaryShell-<version>-windows-x64-setup.exe`, or the portable `-windows-x64.zip` |
+| Debian, Ubuntu, Mint, Pop!_OS | `TernaryShell-<version>-linux-amd64.deb` (`-arm64.deb` on ARM) |
+| Fedora, RHEL, Rocky, AlmaLinux, openSUSE | `TernaryShell-<version>-linux-x86_64.rpm` (`-aarch64.rpm`) |
+| Any Linux (Arch, Manjaro …) | `TernaryShell-<version>-linux-x86_64.AppImage` or `.tar.gz` (`-aarch64` on ARM) |
 
 ### macOS
 
 #### One-line installer (recommended)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/peler/master/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/ternaryshell/master/scripts/install.sh | bash
 ```
 
-The script downloads the latest release, installs `Peler.app` into `/Applications`, and opens it.
+The script downloads the latest release, installs `TernaryShell.app` into `/Applications`, and opens it.
 Run it again to update. To install a specific version, pass it as an argument:
-`… | bash -s -- v1.0.0`.
+`… | bash -s -- v1.4.2`.
 
 #### Installer package or disk image
 
-Download one of these from the [latest release](https://github.com/ilhamnadhif/peler/releases/latest):
+Download one of these from the [latest release](https://github.com/ilhamnadhif/ternaryshell/releases/latest):
 
-- **`Peler-<version>.pkg`**: a regular macOS installer that puts Peler in `/Applications`.
-- **`Peler-<version>.dmg`**: open it and drag **Peler** onto **Applications**.
+- **`TernaryShell-<version>.pkg`**: a regular macOS installer that puts TernaryShell in `/Applications`.
+- **`TernaryShell-<version>.dmg`**: open it and drag **TernaryShell** onto **Applications**.
 
-> **“Peler” Not Opened / “Apple could not verify…”?** Release builds are not notarized by Apple
+> **“TernaryShell” Not Opened / “Apple could not verify…”?** Release builds are not notarized by Apple
 > yet, so macOS blocks apps and installers downloaded with a browser. Since macOS 15, the old
 > right-click → Open trick no longer works. Do one of these:
 >
 > - **Use the one-line installer** above. Nothing downloaded with `curl` is blocked.
 > - **Allow it once in Settings**: click **Done** in the warning, open **System Settings → Privacy &
->   Security**, scroll down to **Security**, and click **Open Anyway** next to “Peler was blocked…”.
->   Confirm with your password, then open Peler (or the `.pkg`) again.
+>   Security**, scroll down to **Security**, and click **Open Anyway** next to “TernaryShell was blocked…”.
+>   Confirm with your password, then open TernaryShell (or the `.pkg`) again.
 > - **Or in Terminal**, after dragging the app to Applications:
->   `xattr -dr com.apple.quarantine /Applications/Peler.app`
+>   `xattr -dr com.apple.quarantine /Applications/TernaryShell.app`
 
 #### Homebrew
 
-Each release includes a cask file, `peler.rb`:
+Each release includes a cask file, `ternaryshell.rb`:
 
 ```sh
-curl -fsSLO https://github.com/ilhamnadhif/peler/releases/latest/download/peler.rb
-brew install --cask ./peler.rb
-xattr -dr com.apple.quarantine /Applications/Peler.app   # until releases are notarized
+curl -fsSLO https://github.com/ilhamnadhif/ternaryshell/releases/latest/download/ternaryshell.rb
+brew install --cask ./ternaryshell.rb
+xattr -dr com.apple.quarantine /Applications/TernaryShell.app   # until releases are notarized
 ```
 
 ### Windows
 
-Run **`Peler-<version>-windows-x64-setup.exe`**. It installs for your user, without administrator
-rights (choose **Install for all users** in its first window to put Peler in Program Files), adds
-Peler to the Start menu, and can put `peler` on the PATH so `peler web-01` opens a saved connection
-from a terminal. Or unpack the portable **`.zip`** anywhere and run `peler.exe`.
+Run **`TernaryShell-<version>-windows-x64-setup.exe`**. It installs for your user, without administrator
+rights (choose **Install for all users** in its first window to put TernaryShell in Program Files), adds
+TernaryShell to the Start menu, and can put `ternaryshell` on the PATH so `ternaryshell web-01` opens a saved connection
+from a terminal. Or unpack the portable **`.zip`** anywhere and run `ternaryshell.exe`.
 
 > **“Windows protected your PC”?** The builds are not code-signed yet, so SmartScreen warns about a
 > new download. Click **More info**, then **Run anyway**.
 
 ### Linux
 
-Peler runs on X11 and Wayland with OpenGL (a software renderer is fine) and needs glibc 2.28 or
+TernaryShell runs on X11 and Wayland with OpenGL (a software renderer is fine) and needs glibc 2.28 or
 later (RHEL 8, Debian 10, Ubuntu 18.10 and newer). Saved passwords go to the Secret Service
 (GNOME Keyring, KWallet, KeePassXC); file dialogs use the desktop portal.
 
 ```sh
-sudo apt install ./Peler-<version>-linux-amd64.deb              # Debian, Ubuntu, Mint, Pop!_OS
-sudo dnf install ./Peler-<version>-linux-x86_64.rpm             # Fedora, RHEL, Rocky, AlmaLinux
-sudo zypper install --allow-unsigned-rpm ./Peler-<version>-linux-x86_64.rpm   # openSUSE
-chmod +x Peler-<version>-linux-x86_64.AppImage && ./Peler-<version>-linux-x86_64.AppImage
-tar -xzf Peler-<version>-linux-x86_64.tar.gz -C ~/.local --strip-components=1   # then run: peler
+sudo apt install ./TernaryShell-<version>-linux-amd64.deb              # Debian, Ubuntu, Mint, Pop!_OS
+sudo dnf install ./TernaryShell-<version>-linux-x86_64.rpm             # Fedora, RHEL, Rocky, AlmaLinux
+sudo zypper install --allow-unsigned-rpm ./TernaryShell-<version>-linux-x86_64.rpm   # openSUSE
+chmod +x TernaryShell-<version>-linux-x86_64.AppImage && ./TernaryShell-<version>-linux-x86_64.AppImage
+tar -xzf TernaryShell-<version>-linux-x86_64.tar.gz -C ~/.local --strip-components=1   # then run: ternaryshell
 ```
 
-The `.tar.gz` unpacks into `~/.local` as it is (`bin/peler`, its menu entry and icons).
+The `.tar.gz` unpacks into `~/.local` as it is (`bin/ternaryshell`, its menu entry and icons).
 
 ### Automatic updates
 
-Every time Peler starts, it checks GitHub for a new release. When one is out, the update window
+Every time TernaryShell starts, it checks GitHub for a new release. When one is out, the update window
 opens with the current and new version and what's new. **Install Update** then downloads the
 latest version, even one released after the window opened (so 1.2.3 goes straight to the newest,
 never one version at a time), verifies it (its size and the SHA-256 GitHub publishes, plus what
-each system allows), quits Peler and installs it:
+each system allows), quits TernaryShell and installs it:
 
 - **macOS**: checks the bundle id, version and code signature, replaces the app and opens the new
-  version. If Peler was installed with the `.pkg` (the app is then owned by root), macOS asks for
+  version. If TernaryShell was installed with the `.pkg` (the app is then owned by root), macOS asks for
   an administrator password.
 - **Windows** (installed with the setup): runs the new setup silently over the installed version,
-  then opens Peler again. An installation for all users asks for administrator rights.
+  then opens TernaryShell again. An installation for all users asks for administrator rights.
 - **Linux AppImage and `.tar.gz`**: checks that the new version runs, puts it in place and opens it.
 - **The `.deb`, `.rpm` and the portable Windows `.zip`** are updated by downloading the new
   package from GitHub (the update window says so and opens the page).
 
 **Close** asks again at the next start; tick **Don't show again for version …** to skip that
-version. While Peler stays open it checks again every 6 hours and shows an **Update** button in
-the toolbar instead of interrupting you. You can also use **Check for Updates…** (in the **Peler**
+version. While TernaryShell stays open it checks again every 6 hours and shows an **Update** button in
+the toolbar instead of interrupting you. You can also use **Check for Updates…** (in the **TernaryShell**
 menu on macOS, in the **☰** menu elsewhere), or turn automatic checks off in **Settings → General**.
-The update check is the only connection Peler makes besides your own servers.
+The update check is the only connection TernaryShell makes besides your own servers.
 
 ### Uninstall
 
 | System | Remove |
 | --- | --- |
-| macOS | `rm -rf /Applications/Peler.app ~/Library/Application\ Support/peler`; saved passwords are Keychain items named `peler` |
-| Windows | **Settings → Apps → Peler → Uninstall**; then delete `%APPDATA%\peler`; saved passwords are in Credential Manager (`peler`) |
-| Linux | `sudo apt remove peler` / `sudo dnf remove peler`, or delete the AppImage or `~/.local/bin/peler`; then `rm -rf ~/.local/share/peler` |
+| macOS | `rm -rf /Applications/TernaryShell.app ~/Library/Application\ Support/ternaryshell`; saved passwords are Keychain items named `ternaryshell` |
+| Windows | **Settings → Apps → TernaryShell → Uninstall**; then delete `%APPDATA%\ternaryshell`; saved passwords are in Credential Manager (`ternaryshell`) |
+| Linux | `sudo apt remove ternaryshell` / `sudo dnf remove ternaryshell`, or delete the AppImage or `~/.local/bin/ternaryshell`; then `rm -rf ~/.local/share/ternaryshell` |
 
 The data folder holds the connections, settings and known hosts.
 
@@ -152,21 +152,21 @@ The data folder holds the connections, settings and known hosts.
 - Name, host, port, user, group, tags, notes, remote and local start folders, startup commands, and
   legacy algorithms per server.
 - Log in with a password or a private key. **Paste the key** (OpenSSH or PEM; RSA, ECDSA or
-  Ed25519, encrypted or not), and Peler checks it as you paste and keeps it in the system's keychain. Or
+  Ed25519, encrypted or not), and TernaryShell checks it as you paste and keeps it in the system's keychain. Or
   point to a key file in `~/.ssh`.
 - **SSH agent**: log in with the keys of the system agent (`ssh-add`), 1Password, Secretive,
   Bitwarden, GNOME Keyring or a YubiKey agent; on Windows the OpenSSH agent or Pageant. The agent
-  signs; the keys never leave it. Peler finds the usual agents by itself.
+  signs; the keys never leave it. TernaryShell finds the usual agents by itself.
 - **Jump hosts** (`ssh -J`): reach a server through another saved connection, also several in a
   row. Each hop checks its own host key and logs in with its own method.
 - **Port forwarding** per connection, started when it connects: local (`-L`), remote (`-R`) and a
   SOCKS proxy (`-D`). The status bar shows the forwards and says when a port is already in use.
-- Nested groups, closed when Peler opens; drag and drop to reorder or regroup.
+- Nested groups, closed when TernaryShell opens; drag and drop to reorder or regroup.
 - Fuzzy search over name, host, user, tags and group. Press Enter to connect.
 - `⌘K` (`Ctrl+Shift+K`) opens a command palette. Typing `user@host:port` there (IPv6 as `[::1]:22`) connects without
   a saved connection.
-- Open from the command line: `open -a Peler --args web-01` or `--args deploy@10.0.0.5:2222`.
-  Peler runs as a single instance: launching it again opens the tab in the window that is already
+- Open from the command line: `open -a TernaryShell --args web-01` or `--args deploy@10.0.0.5:2222`.
+  TernaryShell runs as a single instance: launching it again opens the tab in the window that is already
   open.
 
 ### Terminal
@@ -239,7 +239,7 @@ Double-click a remote file (or right-click → **Edit**) to edit it in place:
   servers, so keep it safe and delete it once it is imported. The file can only be read by your
   user account.
 - On import, a connection keeps its key file on a Mac that has the same file at that path;
-  elsewhere its key is kept in the Keychain. Encrypted exports from Peler 1.2.3 and earlier still
+  elsewhere its key is kept in the Keychain. Encrypted exports from TernaryShell 1.2.3 and earlier still
   import: enter their passphrase in the import window.
 - **Import** shows a preview of what will be added, updated or skipped. Each conflict can be
   skipped, overwritten or kept as both. Importing the same file twice changes nothing. Startup
@@ -281,9 +281,9 @@ as Meta key** is on in Settings. Every command is also in the menu: the menu bar
 ## Performance
 
 Measured on an Apple Silicon MacBook running macOS 14.6, with the release build. On Windows and
-Linux Peler draws with OpenGL, which opens a window faster and keeps the binary smaller than
+Linux TernaryShell draws with OpenGL, which opens a window faster and keeps the binary smaller than
 Vulkan or Direct3D (Windows falls back to Direct3D 12 where OpenGL is missing). The Linux binary
-is about 16 MB and its packages about 8 MB; on Windows `peler.exe` is about 21 MB and its installer
+is about 16 MB and its packages about 8 MB; on Windows `ternaryshell.exe` is about 21 MB and its installer
 8 MB.
 
 | | Result |
@@ -302,14 +302,14 @@ history, add up to about 210 MB. Lower **Scrollback** in Settings if you keep ma
 
 | What | macOS | Windows | Linux |
 | --- | --- | --- | --- |
-| Data folder: connections (`bookmarks.json`), settings, trusted host keys (`known_hosts`) | `~/Library/Application Support/peler` | `%APPDATA%\peler` | `~/.local/share/peler` |
-| Passwords, passphrases, imported keys (service `peler`) | Keychain | Credential Manager | Secret Service (GNOME Keyring, KWallet …) |
-| Crash reports (`panic-*.log`) | `~/Library/Logs/Peler` | `%LOCALAPPDATA%\Peler\Logs` | `~/.local/state/peler/logs` |
+| Data folder: connections (`bookmarks.json`), settings, trusted host keys (`known_hosts`) | `~/Library/Application Support/ternaryshell` | `%APPDATA%\ternaryshell` | `~/.local/share/ternaryshell` |
+| Passwords, passphrases, imported keys (service `ternaryshell`) | Keychain | Credential Manager | Secret Service (GNOME Keyring, KWallet …) |
+| Crash reports (`panic-*.log`) | `~/Library/Logs/TernaryShell` | `%LOCALAPPDATA%\TernaryShell\Logs` | `~/.local/state/ternaryshell/logs` |
 
 Files in the data folder are private to your user (mode 0600 on macOS and Linux; Windows keeps the
 user's AppData private).
 
-- **Host keys**: Peler checks the app's own `known_hosts` and, read-only, `~/.ssh/known_hosts`,
+- **Host keys**: TernaryShell checks the app's own `known_hosts` and, read-only, `~/.ssh/known_hosts`,
   including hashed entries, wildcards, negation and `@revoked`.
   - A new host must be trusted with a click; Enter never accepts a key.
   - A changed key, or a key of a different type than the one on record, triggers a red warning that
@@ -331,11 +331,11 @@ Command Line Tools on macOS, the MSVC build tools on Windows, `gcc` on Linux (no
 X11, Wayland and OpenGL are loaded at run time).
 
 ```sh
-git clone https://github.com/ilhamnadhif/peler.git && cd peler
+git clone https://github.com/ilhamnadhif/ternaryshell.git && cd ternaryshell
 cargo run --release                       # build and run
 cargo run --release -- web-01             # open a saved connection (or user@host[:port])
-scripts/package.sh                        # macOS: universal Peler.app, .dmg, .pkg and Homebrew cask in dist/
-PELER_ARCHS=aarch64 scripts/package.sh    # macOS: Apple Silicon only (faster)
+scripts/package.sh                        # macOS: universal TernaryShell.app, .dmg, .pkg and Homebrew cask in dist/
+TERNARYSHELL_ARCHS=aarch64 scripts/package.sh    # macOS: Apple Silicon only (faster)
 scripts/package-linux.sh                  # Linux: .tar.gz, .deb, .rpm and .AppImage in dist/
 pwsh scripts/package-windows.ps1          # Windows: setup (Inno Setup 6) and portable .zip in dist/
 ```
@@ -365,11 +365,11 @@ clean working tree. CI also runs the tests and lints on Linux and Windows for ev
 With an Apple Developer account:
 
 ```sh
-xcrun notarytool store-credentials peler-notary --apple-id <email> --team-id <TEAMID>   # once
+xcrun notarytool store-credentials ternaryshell-notary --apple-id <email> --team-id <TEAMID>   # once
 
-PELER_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
-PELER_INSTALLER_IDENTITY="Developer ID Installer: Your Name (TEAMID)" \
-PELER_NOTARY_PROFILE=peler-notary scripts/package.sh
+TERNARYSHELL_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+TERNARYSHELL_INSTALLER_IDENTITY="Developer ID Installer: Your Name (TEAMID)" \
+TERNARYSHELL_NOTARY_PROFILE=ternaryshell-notary scripts/package.sh
 ```
 
 The script signs with the hardened runtime, then notarizes and staples both the DMG and the package.
@@ -396,12 +396,12 @@ window, through the same path as user input (menu, winit, egui); elsewhere it ru
 checks only:
 
 ```sh
-PELER_DATA_DIR=/tmp/peler-e2e PELER_SECRETS=memory \
-PELER_DEV_SCRIPT='sleep 1500;; connect local dev;; sleep 2500;; keys echo hi\r;; expect-screen hi;; key cmd+d;; expect-panes 2;; quit' \
-  target/debug/peler
+TERNARYSHELL_DATA_DIR=/tmp/ternaryshell-e2e TERNARYSHELL_SECRETS=memory \
+TERNARYSHELL_DEV_SCRIPT='sleep 1500;; connect local dev;; sleep 2500;; keys echo hi\r;; expect-screen hi;; key cmd+d;; expect-panes 2;; quit' \
+  target/debug/ternaryshell
 ```
 
-Results are printed as `DEVTEST PASS/FAIL` lines. `PELER_DATA_DIR` and `PELER_SECRETS` only work in
+Results are printed as `DEVTEST PASS/FAIL` lines. `TERNARYSHELL_DATA_DIR` and `TERNARYSHELL_SECRETS` only work in
 debug builds. `scripts/dev-sshd.sh` starts a local sshd to try the app against.
 
 ## Project layout
@@ -427,7 +427,7 @@ scripts/              package.sh (macOS), package-linux.sh, package-windows.ps1,
                       ci-publish.sh, install.sh, dev-sshd.sh, build-fonts.py
 packaging/            Windows installer (Inno Setup) and icon, Linux desktop entry and icons
 .github/workflows/    CI: tests on Linux and Windows, packages and publishing for releases
-vendor/ssh-key/       ssh-key with a fix for some ECDSA keys (see PELER-PATCH.md there)
+vendor/ssh-key/       ssh-key with a fix for some ECDSA keys (see TERNARYSHELL-PATCH.md there)
 ```
 
 Built with [egui](https://github.com/emilk/egui) (Metal through wgpu on macOS, OpenGL on Windows and
@@ -440,7 +440,7 @@ Linux),
 
 - Release builds are not signed and notarized with an Apple Developer ID, nor code-signed for
   Windows, yet: macOS and SmartScreen warn when they are downloaded with a browser; see *Install*.
-- On Windows, Peler is built and tested by CI (unit tests, the installer); the end-to-end driver and
+- On Windows, TernaryShell is built and tested by CI (unit tests, the installer); the end-to-end driver and
   the OpenSSH integration tests run on macOS and Linux.
 - Files dragged from the file manager onto the window work on macOS, Windows and X11, not on
   Wayland (not supported by the windowing library yet).

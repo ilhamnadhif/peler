@@ -37,9 +37,9 @@ impl AppMenu {
         let alt_cmd = CMD | Modifiers::ALT;
 
         let about = PredefinedMenuItem::about(
-            Some(t("About Peler")),
+            Some(t("About TernaryShell")),
             Some(AboutMetadata {
-                name: Some("Peler".into()),
+                name: Some("TernaryShell".into()),
                 version: Some(env!("CARGO_PKG_VERSION").into()),
                 comments: Some(t("Lightweight SSH and SFTP client").into()),
                 ..Default::default()
@@ -47,9 +47,9 @@ impl AppMenu {
         );
         let settings = item(t("Settings…"), acc(CMD, Code::Comma), Action::Settings);
         let updates = item(t("Check for Updates…"), None, Action::CheckForUpdates);
-        let quit = item(t("Quit Peler"), acc(CMD, Code::KeyQ), Action::Quit);
+        let quit = item(t("Quit TernaryShell"), acc(CMD, Code::KeyQ), Action::Quit);
         let app_menu = Submenu::with_items(
-            "Peler",
+            "TernaryShell",
             true,
             &[
                 &about,
@@ -59,7 +59,7 @@ impl AppMenu {
                 &PredefinedMenuItem::separator(),
                 &PredefinedMenuItem::services(Some(t("Services"))),
                 &PredefinedMenuItem::separator(),
-                &PredefinedMenuItem::hide(Some(t("Hide Peler"))),
+                &PredefinedMenuItem::hide(Some(t("Hide TernaryShell"))),
                 &PredefinedMenuItem::hide_others(Some(t("Hide Others"))),
                 &PredefinedMenuItem::show_all(Some(t("Show All"))),
                 &PredefinedMenuItem::separator(),

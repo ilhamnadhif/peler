@@ -84,7 +84,7 @@ enum PromptView {
     },
 }
 
-pub struct PelerApp {
+pub struct TernaryShellApp {
     rt: tokio::runtime::Runtime,
     store: BookmarkStore,
     /// False when the bookmarks file must not be overwritten (written by a newer version, or
@@ -142,7 +142,7 @@ pub struct PelerApp {
 
 static PROCESS_START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 
-/// Records the launch time (for `PELER_STARTUP_LOG=1`).
+/// Records the launch time (for `TERNARYSHELL_STARTUP_LOG=1`).
 pub fn mark_process_start() {
     PROCESS_START.get_or_init(Instant::now);
 }
@@ -183,7 +183,7 @@ const TAB_H: f32 = 38.0;
 /// Height of the status bar along the bottom of the window.
 const STATUS_H: f32 = 26.0;
 
-impl PelerApp {
+impl TernaryShellApp {
     /// `targets` are command-line arguments: bookmark names or `user@host[:port]`.
     pub fn new(
         cc: &eframe::CreationContext<'_>,
@@ -247,7 +247,7 @@ impl PelerApp {
         let menu_rx = menu::event_channel(ctx);
         let rt = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(2)
-            .thread_name("peler-io")
+            .thread_name("ternaryshell-io")
             .enable_all()
             .build()
             .expect("tokio runtime");
@@ -296,7 +296,7 @@ impl PelerApp {
         }
     }
 
-    /// Debug builds only: one step of `PELER_DEV_SCRIPT` (see `crate::devtest`).
+    /// Debug builds only: one step of `TERNARYSHELL_DEV_SCRIPT` (see `crate::devtest`).
     #[cfg(debug_assertions)]
     fn run_dev_script(&mut self, ctx: &egui::Context) {
         use crate::devtest;
@@ -583,7 +583,7 @@ impl PelerApp {
         self.store_mtime = file_mtime(&paths::bookmarks_file());
     }
 
-    /// Another Peler window may have changed the bookmarks: reload them when this window gets
+    /// Another TernaryShell window may have changed the bookmarks: reload them when this window gets
     /// focus again, so the next save doesn't overwrite those changes.
     fn reload_store_if_changed(&mut self, ctx: &egui::Context) {
         let focused_now = ctx.input(|i| {
@@ -719,7 +719,7 @@ impl PelerApp {
         {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.dialog = Some(dialogs::confirm(
-                t("Quit Peler?"),
+                t("Quit TernaryShell?"),
                 message,
                 t("Quit"),
                 ConfirmAction::Quit,
@@ -1305,7 +1305,7 @@ impl PelerApp {
                         self.dialog_below = self.dialog.take();
                     }
                     self.dialog = Some(dialogs::confirm(
-                        t("Quit Peler?"),
+                        t("Quit TernaryShell?"),
                         message,
                         t("Quit"),
                         ConfirmAction::Quit,
@@ -1352,7 +1352,7 @@ impl PelerApp {
 
     fn do_export(&mut self, scope: ExportScope) {
         let default_name = format!(
-            "peler-connections-{}.json",
+            "ternaryshell-connections-{}.json",
             chrono::Local::now().format("%Y-%m-%d")
         );
         let Some(path) = rfd::FileDialog::new()
@@ -2041,7 +2041,7 @@ impl PelerApp {
             item(
                 ui,
                 icons::SIGN_OUT,
-                t("Quit Peler"),
+                t("Quit TernaryShell"),
                 Some(S::Quit),
                 Action::Quit,
                 true,
@@ -2167,7 +2167,7 @@ impl PelerApp {
             icons::paint_logo(ui.painter(), rect);
             ui.add_space(14.0);
             ui.label(
-                RichText::new("Peler")
+                RichText::new("TernaryShell")
                     .font(style::semibold(24.0))
                     .color(p.text),
             );
@@ -3228,10 +3228,10 @@ impl PelerApp {
                     .filter(|t| !t.trim().is_empty());
                 match remote {
                     Some(r) => format!("{} — {r}", tab.title()),
-                    None => format!("{} — Peler", tab.title()),
+                    None => format!("{} — TernaryShell", tab.title()),
                 }
             }
-            None => "Peler".to_string(),
+            None => "TernaryShell".to_string(),
         };
         if title != self.title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
@@ -3240,7 +3240,7 @@ impl PelerApp {
     }
 }
 
-impl eframe::App for PelerApp {
+impl eframe::App for TernaryShellApp {
     fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         // A bug that panics while drawing must not take the whole app (and every open session)
         // down: the panic hook has already written a report; the frame is skipped and the app
@@ -3254,7 +3254,7 @@ impl eframe::App for PelerApp {
                 .is_none_or(|t| now.duration_since(t) > Duration::from_secs(10))
             {
                 self.toasts.error(tf(
-                    "Something went wrong and Peler recovered. A report was saved in {}.",
+                    "Something went wrong and TernaryShell recovered. A report was saved in {}.",
                     &[&paths::contract_tilde(&paths::logs_dir())],
                 ));
             }
@@ -3277,7 +3277,7 @@ impl eframe::App for PelerApp {
     }
 }
 
-impl PelerApp {
+impl TernaryShellApp {
     /// egui hands the focused widget to accessibility clients without checking that it was drawn
     /// this frame, and a focus outside the tree aborts the app (accesskit panics) whenever
     /// VoiceOver, a window manager or a writing assistant is attached. Such focus is dropped
@@ -3318,7 +3318,7 @@ impl PelerApp {
             self.open_startup_targets(&ctx);
         }
         if self.first_frame
-            && std::env::var_os("PELER_STARTUP_LOG").is_some()
+            && std::env::var_os("TERNARYSHELL_STARTUP_LOG").is_some()
             && let Some(start) = PROCESS_START.get()
         {
             eprintln!("first frame after {} ms", start.elapsed().as_millis());

@@ -11,13 +11,13 @@ use alacritty_terminal::grid::Dimensions;
 
 use common::{TestServer, user, wait_for};
 use eframe::egui;
-use peler::bookmarks::{Auth, Bookmark};
-use peler::settings::Settings;
-use peler::ssh::session::{ConnectSpec, Connection, PaneStatus};
-use peler::ssh::types::{HostKeyStatus, Prompt};
-use peler::term::core::GridSize;
-use peler::term::scheme::SCHEMES;
-use peler::ui::tabs::{Env, Tab};
+use ternaryshell::bookmarks::{Auth, Bookmark};
+use ternaryshell::settings::Settings;
+use ternaryshell::ssh::session::{ConnectSpec, Connection, PaneStatus};
+use ternaryshell::ssh::types::{HostKeyStatus, Prompt};
+use ternaryshell::term::core::GridSize;
+use ternaryshell::term::scheme::SCHEMES;
+use ternaryshell::ui::tabs::{Env, Tab};
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()
@@ -46,7 +46,7 @@ fn user_known_hosts_mismatch_and_reconnect() {
     let fake_home = tempfile::tempdir().unwrap();
     // SAFETY: set before any other thread in this test binary reads the environment.
     unsafe {
-        std::env::set_var("PELER_SECRETS", "memory");
+        std::env::set_var("TERNARYSHELL_SECRETS", "memory");
         std::env::set_var("HOME", fake_home.path());
     }
     let rt = runtime();

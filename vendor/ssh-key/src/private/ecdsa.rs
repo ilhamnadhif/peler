@@ -62,7 +62,7 @@ impl<const SIZE: usize> Decode for EcdsaPrivateKey<SIZE> {
 
             // OpenSSH writes the scalar as an `mpint` without leading zero bytes, so it can be
             // shorter than the field size: a P-256 key is 31 bytes about once in 256 keys.
-            // (Peler patch; upstream refuses anything under 32 bytes.)
+            // (TernaryShell patch; upstream refuses anything under 32 bytes.)
             if len == 0 || len > SIZE {
                 return Err(encoding::Error::Length.into());
             }

@@ -32,7 +32,7 @@ pub struct NewerSchema(pub u32);
 impl std::fmt::Display for NewerSchema {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&crate::i18n::tf(
-            "The connections were saved by a newer version of Peler (schema {}). Please update the app; until then changes to connections are not saved.",
+            "The connections were saved by a newer version of TernaryShell (schema {}). Please update the app; until then changes to connections are not saved.",
             &[&self.0.to_string()],
         ))
     }

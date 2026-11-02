@@ -19,8 +19,17 @@ pub struct TestServer {
 
 pub fn keygen(path: &Path, kind: &str, pass: &str) {
     let mut cmd = Command::new("ssh-keygen");
-    cmd.args(["-q", "-t", kind, "-N", pass, "-C", "peler-test", "-f"])
-        .arg(path);
+    cmd.args([
+        "-q",
+        "-t",
+        kind,
+        "-N",
+        pass,
+        "-C",
+        "ternaryshell-test",
+        "-f",
+    ])
+    .arg(path);
     if kind == "rsa" {
         cmd.args(["-b", "3072"]);
     }

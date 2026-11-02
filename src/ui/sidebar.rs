@@ -43,7 +43,7 @@ pub struct Sidebar {
     pub search: String,
     pub selected: Option<Uuid>,
     pub focus_search: bool,
-    /// Groups opened in this run: every group starts closed when Peler opens.
+    /// Groups opened in this run: every group starts closed when TernaryShell opens.
     expanded: HashSet<Uuid>,
     search_index: usize,
 }

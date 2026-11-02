@@ -173,7 +173,7 @@ mod tests {
     }
 
     /// About one P-256 key in 256 has a private scalar OpenSSH stores in 31 bytes (no leading
-    /// zero); such keys must load too (patched ssh-key, see vendor/ssh-key/PELER-PATCH.md).
+    /// zero); such keys must load too (patched ssh-key, see vendor/ssh-key/TERNARYSHELL-PATCH.md).
     #[test]
     fn ecdsa_key_with_a_short_scalar() {
         const KEY: &str = "-----BEGIN OPENSSH PRIVATE KEY-----

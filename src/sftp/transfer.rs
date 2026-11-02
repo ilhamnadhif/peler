@@ -56,7 +56,7 @@ pub struct Transfer {
     /// Entries inside a folder that were skipped, with the reason.
     pub skipped: Mutex<Vec<String>>,
     cancel: AtomicBool,
-    /// Makes temporary names unique, also against other apps or Peler on another Mac.
+    /// Makes temporary names unique, also against other apps or TernaryShell on another Mac.
     token: String,
     started: Mutex<Option<Instant>>,
     finished: Mutex<Option<Instant>>,
@@ -155,7 +155,7 @@ impl Transfer {
 
     /// Temporary name for a file being written by this transfer.
     fn partial_name(&self, name: &str) -> String {
-        format!(".{name}.peler-part-{}", self.token)
+        format!(".{name}.ternaryshell-part-{}", self.token)
     }
 }
 

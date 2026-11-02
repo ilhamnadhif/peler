@@ -818,7 +818,7 @@ impl Editor {
         } else if paths::expand_tilde(socket).exists() {
             (
                 true,
-                t("Agent found. It signs for Peler; the keys never leave it.").to_string(),
+                t("Agent found. It signs for TernaryShell; the keys never leave it.").to_string(),
             )
         } else {
             (false, t("No agent socket at this path.").to_string())

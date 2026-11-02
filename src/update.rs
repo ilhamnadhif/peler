@@ -2,16 +2,16 @@
 //!
 //! The app asks GitHub for the latest release, and when it is newer than this build downloads
 //! the file that matches how this copy was installed, checks its size and the SHA-256 GitHub
-//! published for it, and installs it once Peler has quit:
+//! published for it, and installs it once TernaryShell has quit:
 //!
-//! - macOS: `Peler-<version>.zip`, also checked for bundle id, version, code signature and the
+//! - macOS: `TernaryShell-<version>.zip`, also checked for bundle id, version, code signature and the
 //!   same signing team when this build has one; the installed app is replaced and opened again.
 //!   When the app is not writable by the user (installed by the .pkg as root), macOS asks for
 //!   an administrator password.
 //! - Windows, installed with the setup: the new setup runs silently over it (asking for
-//!   administrator rights only for an installation for all users) and opens Peler again.
+//!   administrator rights only for an installation for all users) and opens TernaryShell again.
 //! - Linux AppImage, or the .tar.gz unpacked where the user can write: the file is replaced and
-//!   Peler opens again. Copies from a .deb or .rpm are updated by downloading the new package.
+//!   TernaryShell opens again. Copies from a .deb or .rpm are updated by downloading the new package.
 //!
 //! The outcome is left in the data folder for the next launch to report. The system's own
 //! tools do the work (`curl`, and on macOS `ditto`, `codesign`, `plutil`; `tar` on Linux), so
@@ -33,14 +33,14 @@ use sha2::{Digest, Sha256};
 use crate::i18n::t;
 
 /// The GitHub repository releases come from.
-pub const REPO: &str = "ilhamnadhif/peler";
+pub const REPO: &str = "ilhamnadhif/ternaryshell";
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
 #[cfg(target_os = "macos")]
-const BUNDLE_ID: &str = "dev.peler.app";
+const BUNDLE_ID: &str = "dev.ternaryshell.app";
 /// Name prefix of the old app while the new one is moved in (next to it, so a crash in between
 /// never loses it).
 #[cfg(target_os = "macos")]
-const ASIDE_PREFIX: &str = ".Peler.app.old-";
+const ASIDE_PREFIX: &str = ".TernaryShell.app.old-";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Asset {
@@ -92,7 +92,7 @@ struct ApiAsset {
 /// Where to look for the latest release. Debug builds can point it elsewhere (tests).
 fn feed_url() -> String {
     if cfg!(debug_assertions)
-        && let Ok(url) = std::env::var("PELER_UPDATE_FEED")
+        && let Ok(url) = std::env::var("TERNARYSHELL_UPDATE_FEED")
     {
         return url;
     }
@@ -145,7 +145,7 @@ fn curl(args: &[&str]) -> Result<Vec<u8>, String> {
             protocols(),
         ])
         .args(["--max-time", "30"])
-        .args(["-H", &format!("User-Agent: Peler/{CURRENT}")])
+        .args(["-H", &format!("User-Agent: TernaryShell/{CURRENT}")])
         .args(args)
         .stdin(Stdio::null())
         .output()
@@ -180,10 +180,10 @@ pub fn is_newer(candidate: &str, current: &str) -> bool {
 fn asset_name(kind: &Install, version: &str) -> Option<String> {
     let arch = std::env::consts::ARCH;
     Some(match kind {
-        Install::MacApp(_) => format!("Peler-{version}.zip"),
-        Install::WindowsSetup { .. } => format!("Peler-{version}-windows-x64-setup.exe"),
-        Install::AppImage(_) => format!("Peler-{version}-linux-{arch}.AppImage"),
-        Install::LinuxArchive(_) => format!("Peler-{version}-linux-{arch}.tar.gz"),
+        Install::MacApp(_) => format!("TernaryShell-{version}.zip"),
+        Install::WindowsSetup { .. } => format!("TernaryShell-{version}-windows-x64-setup.exe"),
+        Install::AppImage(_) => format!("TernaryShell-{version}-linux-{arch}.AppImage"),
+        Install::LinuxArchive(_) => format!("TernaryShell-{version}-linux-{arch}.tar.gz"),
         Install::Manual => return None,
     })
 }
@@ -223,10 +223,10 @@ pub fn check() -> Result<Option<Release>, String> {
     Ok(is_newer(&release.version, CURRENT).then_some(release))
 }
 
-/// How this copy of Peler was installed, which decides how it updates.
+/// How this copy of TernaryShell was installed, which decides how it updates.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Install {
-    /// `Peler.app` (macOS).
+    /// `TernaryShell.app` (macOS).
     MacApp(PathBuf),
     /// By the Windows setup; `all_users` when it went to Program Files.
     WindowsSetup { exe: PathBuf, all_users: bool },
@@ -247,7 +247,7 @@ impl Install {
         else {
             return Install::Manual;
         };
-        if cfg!(debug_assertions) && std::env::var_os("PELER_UPDATE_FEED").is_none() {
+        if cfg!(debug_assertions) && std::env::var_os("TERNARYSHELL_UPDATE_FEED").is_none() {
             return Install::Manual;
         }
         Self::detect(&exe)
@@ -298,7 +298,7 @@ impl Install {
 /// Whether the user can create files in `dir` (and so replace one there).
 #[cfg(target_os = "linux")]
 fn writable(dir: &Path) -> bool {
-    let p = dir.join(format!(".peler-write-test-{}", std::process::id()));
+    let p = dir.join(format!(".ternaryshell-write-test-{}", std::process::id()));
     let ok = std::fs::File::create(&p).is_ok();
     let _ = std::fs::remove_file(&p);
     ok
@@ -313,20 +313,20 @@ pub fn installable(release: &Release) -> bool {
 pub fn manual_reason() -> &'static str {
     if cfg!(target_os = "macos") {
         t(
-            "Automatic installation needs Peler in the Applications folder. Download the new version from GitHub instead.",
+            "Automatic installation needs TernaryShell in the Applications folder. Download the new version from GitHub instead.",
         )
     } else if cfg!(windows) {
         t(
-            "This copy of Peler was not installed with its setup. Download the new version from GitHub instead.",
+            "This copy of TernaryShell was not installed with its setup. Download the new version from GitHub instead.",
         )
     } else {
         t(
-            "Peler was installed from a package (or where you can't change it). Download the new version from GitHub and install it the same way.",
+            "TernaryShell was installed from a package (or where you can't change it). Download the new version from GitHub and install it the same way.",
         )
     }
 }
 
-/// The installed `Peler.app` this process runs from, when it can be updated in place: not a
+/// The installed `TernaryShell.app` this process runs from, when it can be updated in place: not a
 /// development build, not a disk image, not a translocated copy macOS made read-only.
 #[cfg(target_os = "macos")]
 pub fn installed_bundle() -> Option<PathBuf> {
@@ -357,7 +357,7 @@ pub struct Prepared {
     pub version: String,
     /// The download's private folder.
     pub dir: PathBuf,
-    /// What gets installed: `Peler.app` (macOS), the setup (Windows), the new AppImage or
+    /// What gets installed: `TernaryShell.app` (macOS), the setup (Windows), the new AppImage or
     /// binary (Linux).
     pub file: PathBuf,
 }
@@ -401,7 +401,7 @@ fn signature_valid(app: &Path) -> bool {
 }
 
 /// A new folder for one download, private to this user and never shared with another download
-/// or another running Peler.
+/// or another running TernaryShell.
 fn new_download_dir() -> Result<PathBuf, String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let nanos = std::time::SystemTime::now()
@@ -409,7 +409,7 @@ fn new_download_dir() -> Result<PathBuf, String> {
         .map_or(0, |d| d.subsec_nanos());
     loop {
         let dir = std::env::temp_dir().join(format!(
-            "peler-update-{}-{nanos}-{}",
+            "ternaryshell-update-{}-{nanos}-{}",
             std::process::id(),
             COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
@@ -485,7 +485,7 @@ fn fetch(asset: &Asset, dir: &Path, stage: &Arc<Mutex<Stage>>) -> Result<PathBuf
             protocols(),
         ])
         .args(["--max-time", "1800"])
-        .args(["-H", &format!("User-Agent: Peler/{CURRENT}")])
+        .args(["-H", &format!("User-Agent: TernaryShell/{CURRENT}")])
         .arg("-o")
         .arg(&archive)
         .arg(&asset.url)
@@ -532,7 +532,7 @@ fn fetch(asset: &Asset, dir: &Path, stage: &Arc<Mutex<Stage>>) -> Result<PathBuf
     Ok(archive)
 }
 
-/// macOS: unpacks the app and checks it is the right, intact Peler.
+/// macOS: unpacks the app and checks it is the right, intact TernaryShell.
 #[cfg(target_os = "macos")]
 fn prepare(release: &Release, archive: &Path, dir: &Path) -> Result<Prepared, String> {
     let unpacked = dir.join("app");
@@ -546,9 +546,9 @@ fn prepare(release: &Release, archive: &Path, dir: &Path) -> Result<Prepared, St
     if !ok {
         return Err("the archive could not be unpacked".into());
     }
-    let app = unpacked.join("Peler.app");
+    let app = unpacked.join("TernaryShell.app");
     if plist_value(&app, "CFBundleIdentifier").as_deref() != Some(BUNDLE_ID) {
-        return Err("the download is not Peler".into());
+        return Err("the download is not TernaryShell".into());
     }
     if plist_value(&app, "CFBundleShortVersionString").as_deref() != Some(&release.version) {
         return Err("the downloaded version does not match the release".into());
@@ -581,7 +581,7 @@ fn prepare(release: &Release, setup: &Path, dir: &Path) -> Result<Prepared, Stri
     })
 }
 
-/// Linux: an AppImage is used as it is; from the .tar.gz, its `bin/peler`. Either must run and
+/// Linux: an AppImage is used as it is; from the .tar.gz, its `bin/ternaryshell`. Either must run and
 /// say it is this version.
 #[cfg(target_os = "linux")]
 fn prepare(release: &Release, download: &Path, dir: &Path) -> Result<Prepared, String> {
@@ -603,9 +603,9 @@ fn prepare(release: &Release, download: &Path, dir: &Path) -> Result<Prepared, S
         let bin = std::fs::read_dir(&unpacked)
             .map_err(|e| e.to_string())?
             .flatten()
-            .map(|e| e.path().join("bin/peler"))
+            .map(|e| e.path().join("bin/ternaryshell"))
             .find(|p| p.is_file())
-            .ok_or("the archive has no Peler in it")?;
+            .ok_or("the archive has no TernaryShell in it")?;
         let _ = std::fs::remove_file(download);
         bin
     } else {
@@ -634,7 +634,7 @@ fn prepare(release: &Release, download: &Path, dir: &Path) -> Result<Prepared, S
 #[cfg(target_os = "macos")]
 fn user_can_replace(bundle: &Path) -> bool {
     let probe = |dir: &Path| {
-        let p = dir.join(format!(".peler-write-test-{}", std::process::id()));
+        let p = dir.join(format!(".ternaryshell-write-test-{}", std::process::id()));
         let ok = std::fs::File::create(&p).is_ok();
         let _ = std::fs::remove_file(&p);
         ok
@@ -656,9 +656,9 @@ fail() { echo "$1" >&2; exit 1; }
 src=$1 app=$2 version=$3 team=$4 id=$5
 umask 022
 [ -d "$app" ] || fail "the installed app was not found"
-stage=$(/usr/bin/mktemp -d /private/tmp/peler-update.XXXXXXXX) || fail "no folder for the update could be created"
+stage=$(/usr/bin/mktemp -d /private/tmp/ternaryshell-update.XXXXXXXX) || fail "no folder for the update could be created"
 trap '/bin/rm -rf "$stage"' EXIT
-new=$stage/Peler.app
+new=$stage/TernaryShell.app
 /usr/bin/ditto --norsrc --noextattr --noacl "$src" "$new" 2>/dev/null || fail "the update could not be copied"
 if [ "$(/usr/bin/id -u)" = 0 ]; then
     owner=$(/usr/bin/stat -f %u:%g "$app") && /usr/sbin/chown -R "$owner" "$new" ||
@@ -668,14 +668,14 @@ fi
 /bin/chmod -R u+rwX,go+rX,go-w,a-st "$new" || fail "the update's permissions could not be set"
 /usr/bin/codesign --verify --deep --strict "$new" 2>/dev/null || fail "the downloaded app's signature is not valid"
 plist() { /usr/bin/plutil -extract "$1" raw -o - "$new/Contents/Info.plist" 2>/dev/null; }
-[ "$(plist CFBundleIdentifier)" = "$id" ] || fail "the download is not Peler"
+[ "$(plist CFBundleIdentifier)" = "$id" ] || fail "the download is not TernaryShell"
 [ "$(plist CFBundleShortVersionString)" = "$version" ] || fail "the downloaded version does not match the release"
 if [ -n "$team" ]; then
     signer=$(/usr/bin/codesign -dv "$new" 2>&1 | /usr/bin/sed -n 's/^TeamIdentifier=//p')
     [ "$signer" = "$team" ] || fail "the downloaded app is signed by someone else"
 fi
 dir=$(/usr/bin/dirname "$app")
-old=$(/usr/bin/mktemp -u "$dir/.Peler.app.old-XXXXXXXX") || fail "the installed app could not be moved aside"
+old=$(/usr/bin/mktemp -u "$dir/.TernaryShell.app.old-XXXXXXXX") || fail "the installed app could not be moved aside"
 # -h: never move into a directory a link points to.
 /bin/mv -h "$app" "$old" 2>/dev/null || fail "the installed app could not be moved aside"
 if ! /bin/mv -h "$new" "$app" 2>/dev/null; then
@@ -685,13 +685,13 @@ if ! /bin/mv -h "$new" "$app" 2>/dev/null; then
 fi
 /bin/rm -rf "$old"
 # Old copies an interrupted update left behind; the app itself is in place and checked.
-for leftover in "$dir"/.Peler.app.old-*; do
+for leftover in "$dir"/.TernaryShell.app.old-*; do
     if [ -e "$leftover" ] || [ -L "$leftover" ]; then /bin/rm -rf "$leftover"; fi
 done
 exit 0
 "#;
 
-/// Waits for Peler (`$1`) to quit, runs the command after the first five arguments (the swap,
+/// Waits for TernaryShell (`$1`) to quit, runs the command after the first five arguments (the swap,
 /// directly or behind the administrator password prompt), records its outcome in `$2` for the
 /// next launch, opens the app (`$5`) and deletes the download (`$3`). It runs as the user, and
 /// nothing is spliced into the script: every value is an argument.
@@ -712,7 +712,7 @@ printf '%s\n%s\n%s\n' "$version" "$rc" "$out" > "$status.tmp" && /bin/mv -f "$st
 /// is declined. AppleScript quotes every argument, and no file the user can write is run.
 #[cfg(target_os = "macos")]
 const ADMIN_APPLESCRIPT: &str = r#"on run argv
-    set cmd to "/bin/sh -c " & quoted form of (item 2 of argv) & " peler-update"
+    set cmd to "/bin/sh -c " & quoted form of (item 2 of argv) & " ternaryshell-update"
     repeat with arg in rest of rest of argv
         set cmd to cmd & " " & quoted form of (contents of arg)
     end repeat
@@ -735,12 +735,12 @@ pub fn launch_installer(prepared: &Prepared) -> Result<(), String> {
         Install::AppImage(path) | Install::LinuxArchive(path) => {
             replace_and_relaunch(prepared, &path)
         }
-        _ => Err("this copy of Peler can't update itself".into()),
+        _ => Err("this copy of TernaryShell can't update itself".into()),
     }
 }
 
 /// Windows: runs the new setup silently over the installed version, once this process has quit
-/// (the setup closes it, and opens Peler again when done). An installation for all users asks
+/// (the setup closes it, and opens TernaryShell again when done). An installation for all users asks
 /// for administrator rights.
 #[cfg(windows)]
 fn launch_windows_setup(prepared: &Prepared, all_users: bool) -> Result<(), String> {
@@ -792,7 +792,7 @@ fn replace_and_relaunch(prepared: &Prepared, target: &Path) -> Result<(), String
         .args([
             "-c",
             r#"while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2""#,
-            "peler-update",
+            "ternaryshell-update",
         ])
         .arg(std::process::id().to_string())
         .arg(target)
@@ -827,13 +827,13 @@ fn launch_mac_installer(prepared: &Prepared, bundle: &Path) -> Result<(), String
         && !is_newer(&prepared.version, &installed)
     {
         return Err(format!(
-            "Peler {installed} is already installed; quit Peler and open it again"
+            "TernaryShell {installed} is already installed; quit TernaryShell and open it again"
         ));
     }
     let status = outcome_file();
     crate::paths::ensure_private_dir(crate::paths::data_dir()).map_err(|e| e.to_string())?;
     let mut swap: Vec<OsString> = if user_can_replace(bundle) {
-        ["/bin/sh", "-c", SWAP_SCRIPT, "peler-update"]
+        ["/bin/sh", "-c", SWAP_SCRIPT, "ternaryshell-update"]
             .map(OsString::from)
             .into()
     } else {
@@ -841,7 +841,7 @@ fn launch_mac_installer(prepared: &Prepared, bundle: &Path) -> Result<(), String
             "/usr/bin/osascript",
             "-e",
             ADMIN_APPLESCRIPT,
-            t("Peler wants to install an update."),
+            t("TernaryShell wants to install an update."),
             SWAP_SCRIPT,
         ]
         .map(OsString::from)
@@ -855,7 +855,7 @@ fn launch_mac_installer(prepared: &Prepared, bundle: &Path) -> Result<(), String
         BUNDLE_ID.into(),
     ]);
     Command::new("/bin/sh")
-        .args(["-c", HELPER_SCRIPT, "peler-update"])
+        .args(["-c", HELPER_SCRIPT, "ternaryshell-update"])
         .arg(std::process::id().to_string())
         .arg(&status)
         .arg(&prepared.dir)
@@ -930,7 +930,7 @@ fn parse_outcome(text: &str) -> Option<Outcome> {
     Some(Outcome::Failed(reason.chars().take(300).collect()))
 }
 
-/// Deletes old copies an interrupted update left next to the app (`.Peler.app.old-…`), but only
+/// Deletes old copies an interrupted update left next to the app (`.TernaryShell.app.old-…`), but only
 /// while the app itself is in place and intact, so the only copy is never removed. Copies owned
 /// by root stay until the next update that runs as root removes them.
 pub fn remove_leftovers() {
@@ -989,9 +989,9 @@ mod tests {
     #[test]
     fn release_json() {
         let json = br#"{"tag_name":"v1.2.0","body":"Notes","html_url":"https://github.com/x/y/releases/tag/v1.2.0","published_at":"2026-10-16T10:08:51Z","draft":false,"prerelease":false,
-            "assets":[{"name":"Peler-1.2.0.dmg","browser_download_url":"https://a/dmg","size":10,"digest":"sha256:AA"},
-                      {"name":"Peler-1.2.0.zip","browser_download_url":"https://a/zip","size":20,"digest":"sha256:ABCD"}]}"#;
-        let mac = Install::MacApp(PathBuf::from("/Applications/Peler.app"));
+            "assets":[{"name":"TernaryShell-1.2.0.dmg","browser_download_url":"https://a/dmg","size":10,"digest":"sha256:AA"},
+                      {"name":"TernaryShell-1.2.0.zip","browser_download_url":"https://a/zip","size":20,"digest":"sha256:ABCD"}]}"#;
+        let mac = Install::MacApp(PathBuf::from("/Applications/TernaryShell.app"));
         let r = parse_release(json, &mac).unwrap();
         assert_eq!(r.version, "1.2.0");
         assert_eq!(r.date.as_deref(), Some("2026-10-16"));
@@ -1006,9 +1006,9 @@ mod tests {
         let arch = std::env::consts::ARCH;
         let json = format!(
             r#"{{"tag_name":"v1.3.0","html_url":"u","assets":[
-                {{"name":"Peler-1.3.0-windows-x64-setup.exe","browser_download_url":"https://a/exe","size":1,"digest":"sha256:01"}},
-                {{"name":"Peler-1.3.0-linux-{arch}.AppImage","browser_download_url":"https://a/ai","size":2,"digest":"sha256:02"}},
-                {{"name":"Peler-1.3.0-linux-{arch}.tar.gz","browser_download_url":"https://a/tgz","size":3,"digest":"sha256:03"}}]}}"#
+                {{"name":"TernaryShell-1.3.0-windows-x64-setup.exe","browser_download_url":"https://a/exe","size":1,"digest":"sha256:01"}},
+                {{"name":"TernaryShell-1.3.0-linux-{arch}.AppImage","browser_download_url":"https://a/ai","size":2,"digest":"sha256:02"}},
+                {{"name":"TernaryShell-1.3.0-linux-{arch}.tar.gz","browser_download_url":"https://a/tgz","size":3,"digest":"sha256:03"}}]}}"#
         );
         let url = |kind: Install| {
             parse_release(json.as_bytes(), &kind)
@@ -1044,7 +1044,7 @@ mod tests {
     fn linux_updates_replace_the_running_file() {
         use std::os::unix::fs::PermissionsExt;
         let tmp = tempfile::tempdir().unwrap();
-        let script = |version: &str| format!("#!/bin/sh\necho 'Peler {version}'\n");
+        let script = |version: &str| format!("#!/bin/sh\necho 'TernaryShell {version}'\n");
         let asset = |name: &str, path: &Path| Asset {
             name: name.into(),
             url: format!("file://{}", path.display()),
@@ -1063,11 +1063,11 @@ mod tests {
         // AppImage.
         let published = tmp.path().join("published.AppImage");
         std::fs::write(&published, script("9.9.9")).unwrap();
-        let installed = tmp.path().join("apps/Peler.AppImage");
+        let installed = tmp.path().join("apps/TernaryShell.AppImage");
         std::fs::create_dir_all(installed.parent().unwrap()).unwrap();
         std::fs::write(&installed, script("1.0.0")).unwrap();
         let prepared = download(
-            &release(asset("Peler-9.9.9-linux-x.AppImage", &published)),
+            &release(asset("TernaryShell-9.9.9-linux-x.AppImage", &published)),
             &stage,
         )
         .unwrap();
@@ -1085,12 +1085,12 @@ mod tests {
         let other = tmp.path().join("other.AppImage");
         std::fs::write(&other, script("9.9.8")).unwrap();
         let err = download(
-            &release(asset("Peler-9.9.9-linux-x.AppImage", &other)),
+            &release(asset("TernaryShell-9.9.9-linux-x.AppImage", &other)),
             &stage,
         )
         .unwrap_err();
         assert!(err.contains("version"), "{err}");
-        let mut tampered = asset("Peler-9.9.9-linux-x.AppImage", &published);
+        let mut tampered = asset("TernaryShell-9.9.9-linux-x.AppImage", &published);
         tampered.sha256 = Some("00".into());
         assert!(
             download(&release(tampered), &stage)
@@ -1098,10 +1098,10 @@ mod tests {
                 .contains("checksum")
         );
 
-        // The .tar.gz: its bin/peler replaces the installed binary.
-        let tree = tmp.path().join("tree/peler-9.9.9/bin");
+        // The .tar.gz: its bin/ternaryshell replaces the installed binary.
+        let tree = tmp.path().join("tree/ternaryshell-9.9.9/bin");
         std::fs::create_dir_all(&tree).unwrap();
-        std::fs::write(tree.join("peler"), script("9.9.9")).unwrap();
+        std::fs::write(tree.join("ternaryshell"), script("9.9.9")).unwrap();
         let tarball = tmp.path().join("published.tar.gz");
         assert!(
             Command::new("tar")
@@ -1109,16 +1109,16 @@ mod tests {
                 .arg(&tarball)
                 .arg("-C")
                 .arg(tmp.path().join("tree"))
-                .arg("peler-9.9.9")
+                .arg("ternaryshell-9.9.9")
                 .status()
                 .unwrap()
                 .success()
         );
-        let binary = tmp.path().join("local/bin/peler");
+        let binary = tmp.path().join("local/bin/ternaryshell");
         std::fs::create_dir_all(binary.parent().unwrap()).unwrap();
         std::fs::write(&binary, script("1.0.0")).unwrap();
         let prepared = download(
-            &release(asset("Peler-9.9.9-linux-x.tar.gz", &tarball)),
+            &release(asset("TernaryShell-9.9.9-linux-x.tar.gz", &tarball)),
             &stage,
         )
         .unwrap();
@@ -1151,9 +1151,9 @@ mod tests {
         // osascript joins the swap's lines with \r; the last one is the reason.
         assert_eq!(
             parse_outcome(
-                "1.2.0\n1\n7:158: execution error: noise\rthe download is not Peler (1)\n"
+                "1.2.0\n1\n7:158: execution error: noise\rthe download is not TernaryShell (1)\n"
             ),
-            Some(Outcome::Failed("the download is not Peler".into()))
+            Some(Outcome::Failed("the download is not TernaryShell".into()))
         );
         assert_eq!(
             parse_outcome("1.2.0\n1\nditto: noise\nthe update could not be copied\n"),
@@ -1185,18 +1185,18 @@ mod tests {
     #[cfg(target_os = "macos")]
     /// A small ad-hoc signed bundle (its executable is a copy of `true`).
     fn fake_app(parent: &Path, version: &str) -> PathBuf {
-        let app = parent.join("Peler.app");
+        let app = parent.join("TernaryShell.app");
         std::fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
         std::fs::create_dir_all(app.join("Contents/Resources")).unwrap();
-        std::fs::copy("/usr/bin/true", app.join("Contents/MacOS/peler")).unwrap();
+        std::fs::copy("/usr/bin/true", app.join("Contents/MacOS/ternaryshell")).unwrap();
         std::fs::write(app.join("Contents/Resources/notes.txt"), version).unwrap();
         std::fs::write(
             app.join("Contents/Info.plist"),
             format!(
                 r#"<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>peler</string>
-<key>CFBundleIdentifier</key><string>dev.peler.test</string>
+<key>CFBundleExecutable</key><string>ternaryshell</string>
+<key>CFBundleIdentifier</key><string>dev.ternaryshell.test</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>{version}</string>
 </dict></plist>"#
@@ -1217,10 +1217,10 @@ mod tests {
     /// Runs `script` the way the helper does for a user-writable app; returns its stderr.
     fn run_swap(script: &str, new: &Path, app: &Path, version: &str, team: &str) -> String {
         let out = Command::new("/bin/sh")
-            .args(["-c", script, "peler-update"])
+            .args(["-c", script, "ternaryshell-update"])
             .arg(new)
             .arg(app)
-            .args([version, team, "dev.peler.test"])
+            .args([version, team, "dev.ternaryshell.test"])
             .output()
             .unwrap();
         assert_eq!(out.status.success(), out.stderr.is_empty());
@@ -1245,7 +1245,7 @@ mod tests {
         let app = fake_app(&apps, "1.0.0");
         let new = fake_app(&download, "2.0.0");
         // From an update that was interrupted earlier.
-        std::fs::create_dir_all(apps.join(".Peler.app.old-1234/Contents")).unwrap();
+        std::fs::create_dir_all(apps.join(".TernaryShell.app.old-1234/Contents")).unwrap();
 
         assert_eq!(run_swap(SWAP_SCRIPT, &new, &app, "2.0.0", ""), "");
         assert_eq!(
@@ -1323,18 +1323,18 @@ mod tests {
         let outside = tmp.path().join("outside");
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(outside.join("keep.txt"), "x").unwrap();
-        std::fs::create_dir_all(apps.join(".Peler.app.old-a/Contents")).unwrap();
-        std::os::unix::fs::symlink(&outside, apps.join(".Peler.app.old-link")).unwrap();
+        std::fs::create_dir_all(apps.join(".TernaryShell.app.old-a/Contents")).unwrap();
+        std::os::unix::fs::symlink(&outside, apps.join(".TernaryShell.app.old-link")).unwrap();
 
         std::fs::write(app.join("Contents/Resources/notes.txt"), "damaged").unwrap();
-        remove_leftovers_beside(&app, "dev.peler.test");
+        remove_leftovers_beside(&app, "dev.ternaryshell.test");
         assert_eq!(leftovers(&apps).len(), 2, "kept: the app is not intact");
 
         std::fs::remove_dir_all(&app).unwrap();
         let app = fake_app(&apps, "1.0.0");
-        remove_leftovers_beside(&app, "dev.peler.app");
+        remove_leftovers_beside(&app, "dev.ternaryshell.app");
         assert_eq!(leftovers(&apps).len(), 2, "kept: not the expected app");
-        remove_leftovers_beside(&app, "dev.peler.test");
+        remove_leftovers_beside(&app, "dev.ternaryshell.test");
         assert!(leftovers(&apps).is_empty());
         assert!(outside.join("keep.txt").exists(), "links are not followed");
         assert!(app.exists());

@@ -23,7 +23,7 @@ impl NetWatch {
         let changes = Arc::new(AtomicU64::new(0));
         let counter = changes.clone();
         std::thread::Builder::new()
-            .name("peler-netwatch".into())
+            .name("ternaryshell-netwatch".into())
             .spawn(move || {
                 let mut last = addresses();
                 let (mut mono, mut wall) = (Instant::now(), SystemTime::now());

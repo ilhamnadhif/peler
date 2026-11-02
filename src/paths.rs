@@ -8,16 +8,16 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-pub const APP_NAME: &str = "peler";
+pub const APP_NAME: &str = "ternaryshell";
 
 static DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
-/// Data directory: `~/Library/Application Support/peler`, or `PELER_DATA_DIR` when set in a
+/// Data directory: `~/Library/Application Support/ternaryshell`, or `TERNARYSHELL_DATA_DIR` when set in a
 /// debug build (tests and the scripted UI checks; release builds ignore it).
 pub fn data_dir() -> &'static Path {
     DATA_DIR.get_or_init(|| {
         if cfg!(debug_assertions)
-            && let Some(dir) = std::env::var_os("PELER_DATA_DIR")
+            && let Some(dir) = std::env::var_os("TERNARYSHELL_DATA_DIR")
         {
             return PathBuf::from(dir);
         }
@@ -27,15 +27,15 @@ pub fn data_dir() -> &'static Path {
     })
 }
 
-/// Where crash reports go: `~/Library/Logs/Peler` on macOS, `%LOCALAPPDATA%\Peler\Logs` on
-/// Windows, `~/.local/state/peler/logs` on Linux.
+/// Where crash reports go: `~/Library/Logs/TernaryShell` on macOS, `%LOCALAPPDATA%\TernaryShell\Logs` on
+/// Windows, `~/.local/state/ternaryshell/logs` on Linux.
 pub fn logs_dir() -> PathBuf {
     if cfg!(target_os = "macos") {
-        home_dir().join("Library/Logs/Peler")
+        home_dir().join("Library/Logs/TernaryShell")
     } else if cfg!(windows) {
         dirs::data_local_dir()
             .unwrap_or_else(home_dir)
-            .join("Peler")
+            .join("TernaryShell")
             .join("Logs")
     } else {
         dirs::state_dir()

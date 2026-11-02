@@ -1,4 +1,4 @@
-//! One app instance per user. A second launch (for example `peler web-1` from a terminal while
+//! One app instance per user. A second launch (for example `ternaryshell web-1` from a terminal while
 //! the app is open) hands its arguments to the running instance and exits, so two processes
 //! never edit the same bookmarks and settings files.
 //!
@@ -47,7 +47,7 @@ fn socket_path() -> PathBuf {
     for b in paths::data_dir().as_os_str().as_encoded_bytes() {
         hash = (hash ^ *b as u64).wrapping_mul(0x0100_0000_01b3);
     }
-    std::env::temp_dir().join(format!("peler-{hash:016x}.sock"))
+    std::env::temp_dir().join(format!("ternaryshell-{hash:016x}.sock"))
 }
 
 /// Becomes the primary instance, or forwards `args` to the running one.
@@ -213,7 +213,7 @@ where
     let slot: Arc<Mutex<Option<egui::Context>>> = Arc::default();
     let ctx = slot.clone();
     std::thread::Builder::new()
-        .name("peler-instance".into())
+        .name("ternaryshell-instance".into())
         .spawn(move || {
             loop {
                 let Ok(mut stream) = next() else {

@@ -24,7 +24,7 @@ use crate::secrets::SecretSet;
 /// them in an encrypted `credentials` blob, still read on import). Older versions refuse a
 /// schema 3 file instead of importing it without its passwords.
 pub const EXPORT_SCHEMA_VERSION: u32 = 3;
-pub const EXPORT_APP: &str = "peler";
+pub const EXPORT_APP: &str = "ternaryshell";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ExportFile {
@@ -186,7 +186,7 @@ pub fn export(
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SourceKind {
-    Peler,
+    TernaryShell,
     Electerm,
     SshConfig,
 }
@@ -290,7 +290,7 @@ pub fn read_import(data: &[u8]) -> Result<Incoming> {
         }
     };
     if value.get("schema_version").is_some() {
-        return read_peler(value);
+        return read_ternaryshell(value);
     }
     if electerm::looks_like_electerm(&value) {
         return electerm::read(&value);
@@ -298,12 +298,12 @@ pub fn read_import(data: &[u8]) -> Result<Incoming> {
     bail!(
         "{}",
         t(
-            "Unrecognized file format: expected a Peler export, an Electerm export or an SSH config."
+            "Unrecognized file format: expected a TernaryShell export, an Electerm export or an SSH config."
         )
     )
 }
 
-fn read_peler(value: serde_json::Value) -> Result<Incoming> {
+fn read_ternaryshell(value: serde_json::Value) -> Result<Incoming> {
     let version = value
         .get("schema_version")
         .and_then(|v| v.as_u64())
@@ -312,7 +312,7 @@ fn read_peler(value: serde_json::Value) -> Result<Incoming> {
         bail!(
             "{}",
             tf(
-                "This file was exported by a newer version of peler (schema {}); this version reads up to schema {}. Please update the app.",
+                "This file was exported by a newer version of TernaryShell (schema {}); this version reads up to schema {}. Please update the app.",
                 &[&version.to_string(), &EXPORT_SCHEMA_VERSION.to_string()]
             )
         );
@@ -362,7 +362,7 @@ fn read_peler(value: serde_json::Value) -> Result<Incoming> {
         ));
     }
     Ok(Incoming {
-        kind: SourceKind::Peler,
+        kind: SourceKind::TernaryShell,
         groups: file.groups,
         bookmarks,
         secrets,
@@ -871,7 +871,7 @@ mod tests {
         m
     }
 
-    /// A schema 2 export, as Peler 1.1 to 1.2.3 made them: credentials in an encrypted blob.
+    /// A schema 2 export, as TernaryShell 1.1 to 1.2.3 made them: credentials in an encrypted blob.
     fn encrypted_export(
         src: &BookmarkStore,
         secrets: &HashMap<Uuid, SecretSet>,
@@ -1147,7 +1147,7 @@ mod tests {
         let file = ExportFile {
             schema_version: 1,
             exported_at: Utc::now(),
-            app: "peler".into(),
+            app: "ternaryshell".into(),
             groups: src.groups.clone(),
             bookmarks: vec![
                 src.bookmarks[0].clone().into(),

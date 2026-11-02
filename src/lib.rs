@@ -1,4 +1,4 @@
-//! Peler: a lightweight SSH/SFTP client for macOS, Windows and Linux.
+//! TernaryShell: a lightweight SSH/SFTP client for macOS, Windows and Linux.
 
 pub mod app;
 pub mod bookmarks;

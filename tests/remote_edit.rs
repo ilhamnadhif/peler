@@ -10,11 +10,11 @@ use std::sync::Arc;
 
 use common::{TestServer, user, wait_for};
 use eframe::egui;
-use peler::bookmarks::{Auth, Bookmark};
-use peler::sftp::edit::{self, LoadError, SaveError};
-use peler::sftp::remote;
-use peler::ssh::session::{ConnectSpec, Connection};
-use peler::ssh::types::Prompt;
+use ternaryshell::bookmarks::{Auth, Bookmark};
+use ternaryshell::sftp::edit::{self, LoadError, SaveError};
+use ternaryshell::sftp::remote;
+use ternaryshell::ssh::session::{ConnectSpec, Connection};
+use ternaryshell::ssh::types::Prompt;
 
 fn connect(rt: &tokio::runtime::Runtime, server: &TestServer) -> (Connection, remote::Sftp) {
     let spec = ConnectSpec {

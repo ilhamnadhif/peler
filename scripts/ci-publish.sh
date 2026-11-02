@@ -15,11 +15,11 @@ VERSION="${TAG#v}"
 fail() { echo "Error: $*" >&2; exit 1; }
 grep -q "^version = \"$VERSION\"" Cargo.toml || fail "Cargo.toml is not at version $VERSION"
 
-FILES=("dist/Peler-$VERSION-windows-x64-setup.exe" "dist/Peler-$VERSION-windows-x64.zip")
+FILES=("dist/TernaryShell-$VERSION-windows-x64-setup.exe" "dist/TernaryShell-$VERSION-windows-x64.zip")
 for arch in x86_64 aarch64; do
     case "$arch" in x86_64) deb=amd64 ;; aarch64) deb=arm64 ;; esac
-    FILES+=("dist/Peler-$VERSION-linux-$arch.tar.gz" "dist/Peler-$VERSION-linux-$arch.AppImage"
-        "dist/Peler-$VERSION-linux-$deb.deb" "dist/Peler-$VERSION-linux-$arch.rpm")
+    FILES+=("dist/TernaryShell-$VERSION-linux-$arch.tar.gz" "dist/TernaryShell-$VERSION-linux-$arch.AppImage"
+        "dist/TernaryShell-$VERSION-linux-$deb.deb" "dist/TernaryShell-$VERSION-linux-$arch.rpm")
 done
 for f in "${FILES[@]}"; do [ -f "$f" ] || fail "missing $f"; done
 
@@ -37,7 +37,7 @@ case "$STATE" in
         ;;
     none)
         echo "==> No release for $TAG (not made by scripts/release.sh): a draft with these files"
-        gh release create "$TAG" --draft --verify-tag --title "Peler $VERSION" --generate-notes "${FILES[@]}"
+        gh release create "$TAG" --draft --verify-tag --title "TernaryShell $VERSION" --generate-notes "${FILES[@]}"
         ;;
 esac
 echo "==> $(gh release view "$TAG" --json url --jq .url)"

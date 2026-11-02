@@ -211,7 +211,10 @@ async fn replace_via_temp(
 ) -> Result<bool, String> {
     let dir = remote_parent(path);
     let name = remote_name(path).to_string();
-    let tmp = remote_join(&dir, &format!(".{name}.peler-edit-{}", random_suffix()));
+    let tmp = remote_join(
+        &dir,
+        &format!(".{name}.ternaryshell-edit-{}", random_suffix()),
+    );
     let mode = original.permissions.map(|p| p & 0o7777);
     let attrs = FileAttributes {
         permissions: mode,

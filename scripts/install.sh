@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Installs (or updates) Peler from its GitHub releases into /Applications.
+# Installs (or updates) TernaryShell from its GitHub releases into /Applications.
 #
-#   curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/peler/master/scripts/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/ternaryshell/master/scripts/install.sh | bash
 #   ... | bash -s -- v1.0.0          # a specific version
 #
 # The app is downloaded with curl, so macOS does not quarantine it and it opens without the
@@ -11,11 +11,11 @@
 # when /Applications or the installed app is not writable (the .pkg installs it as root).
 set -euo pipefail
 
-REPO="${PELER_REPO:-ilhamnadhif/peler}"
+REPO="${TERNARYSHELL_REPO:-ilhamnadhif/ternaryshell}"
 TAG="${1:-latest}"
-APP_DIR="${PELER_APP_DIR:-/Applications}"
-APP="$APP_DIR/Peler.app"
-BUNDLE_ID="dev.peler.app"
+APP_DIR="${TERNARYSHELL_APP_DIR:-/Applications}"
+APP="$APP_DIR/TernaryShell.app"
+BUNDLE_ID="dev.ternaryshell.app"
 
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 die() { printf 'Error: %s\n' "$*" >&2; exit 1; }
@@ -24,7 +24,7 @@ fetch() { curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fL "$@"; }
 plist() { plutil -extract "$2" raw -o - "$1/Contents/Info.plist" 2>/dev/null || true; }
 team() { codesign -dv "$1" 2>&1 | sed -n 's/^TeamIdentifier=//p' | grep -v '^not set$' || true; }
 
-[ "$(uname -s)" = "Darwin" ] || die "Peler is a macOS app."
+[ "$(uname -s)" = "Darwin" ] || die "TernaryShell is a macOS app."
 case "$TAG" in
     latest | v[0-9]*) ;;
     [0-9]*) TAG="v$TAG" ;;
@@ -66,13 +66,13 @@ ZIP="" DMG=""
 i=0
 while name="$(json "assets.$i.name")"; do
     case "$name" in
-        "Peler-$VERSION.zip") ZIP=$i ;;
-        "Peler-$VERSION.dmg") DMG=$i ;;
+        "TernaryShell-$VERSION.zip") ZIP=$i ;;
+        "TernaryShell-$VERSION.dmg") DMG=$i ;;
     esac
     i=$((i + 1))
 done
 ASSET="${ZIP:-$DMG}"
-[ -n "$ASSET" ] || die "no Peler-$VERSION.zip or .dmg in release $TAG of $REPO"
+[ -n "$ASSET" ] || die "no TernaryShell-$VERSION.zip or .dmg in release $TAG of $REPO"
 NAME="$(json "assets.$ASSET.name")"
 URL="$(json "assets.$ASSET.browser_download_url")"
 DIGEST="$(json "assets.$ASSET.digest" || true)"
@@ -91,21 +91,21 @@ fi
 
 if [ -n "$ZIP" ]; then
     ditto -x -k "$TMP/$NAME" "$TMP/unpacked"
-    SRC="$TMP/unpacked/Peler.app"
+    SRC="$TMP/unpacked/TernaryShell.app"
 else
     mkdir -p "$MNT"
     hdiutil attach -quiet -nobrowse -readonly -mountpoint "$MNT" "$TMP/$NAME"
-    SRC="$MNT/Peler.app"
+    SRC="$MNT/TernaryShell.app"
 fi
-[ -d "$SRC" ] || die "the download does not contain Peler.app"
+[ -d "$SRC" ] || die "the download does not contain TernaryShell.app"
 
 # Checks an app before it is installed. A copy signed by a team only accepts the same team.
 check_app() {
     $SUDO codesign --verify --deep --strict "$1" 2>/dev/null || die "the downloaded app's signature is not valid"
-    [ "$(plist "$1" CFBundleIdentifier)" = "$BUNDLE_ID" ] || die "the download is not Peler"
+    [ "$(plist "$1" CFBundleIdentifier)" = "$BUNDLE_ID" ] || die "the download is not TernaryShell"
     [ "$(plist "$1" CFBundleShortVersionString)" = "$VERSION" ] || die "the downloaded version does not match the release"
     if [ -n "$INSTALLED_TEAM" ] && [ "$(team "$1")" != "$INSTALLED_TEAM" ]; then
-        die "the download is signed by someone else than the installed Peler; remove $APP first to install it anyway"
+        die "the download is signed by someone else than the installed TernaryShell; remove $APP first to install it anyway"
     fi
 }
 INSTALLED_TEAM=""
@@ -114,23 +114,23 @@ check_app "$SRC"
 
 if [ ! -w "$APP_DIR" ] || { [ -e "$APP" ] && { [ ! -w "$APP" ] || [ ! -w "$APP/Contents" ]; }; }; then
     SUDO="sudo"
-    say "$APP_DIR or the installed Peler.app is not writable by $(id -un) (the .pkg installs it as root)."
+    say "$APP_DIR or the installed TernaryShell.app is not writable by $(id -un) (the .pkg installs it as root)."
     say "sudo will ask for your password to replace it."
-    sudo -v || die "Peler was not installed: administrator rights are needed"
+    sudo -v || die "TernaryShell was not installed: administrator rights are needed"
 fi
 
-if pgrep -xq peler; then
-    say "Quitting the running Peler"
-    osascript -e 'quit app "Peler"' >/dev/null 2>&1 || true
-    for _ in $(seq 1 20); do pgrep -xq peler || break; sleep 0.5; done
-    pgrep -xq peler && die "Peler is still running; quit it and run this again."
+if pgrep -xq ternaryshell; then
+    say "Quitting the running TernaryShell"
+    osascript -e 'quit app "TernaryShell"' >/dev/null 2>&1 || true
+    for _ in $(seq 1 20); do pgrep -xq ternaryshell || break; sleep 0.5; done
+    pgrep -xq ternaryshell && die "TernaryShell is still running; quit it and run this again."
 fi
 
 # The copy that gets installed is made into a new folder only this script (or root) can write,
 # and checked again there. /private/tmp is on the same volume as /Applications, so moving it in
 # is a rename. As root it gets the owner of the copy it replaces (root for the .pkg install).
-STAGE="$($SUDO mktemp -d /private/tmp/peler-install.XXXXXXXX)"
-NEW="$STAGE/Peler.app"
+STAGE="$($SUDO mktemp -d /private/tmp/ternaryshell-install.XXXXXXXX)"
+NEW="$STAGE/TernaryShell.app"
 $SUDO ditto --norsrc --noextattr --noacl "$SRC" "$NEW"
 if [ -n "$SUDO" ]; then
     owner="root:wheel"
@@ -141,12 +141,12 @@ $SUDO chmod -R u+rwX,go+rX,go-w,a-st "$NEW"
 check_app "$NEW"
 
 if [ -e "$APP" ]; then
-    say "Replacing Peler $(plist "$APP" CFBundleShortVersionString) in $APP_DIR with $VERSION"
-    OLD="$(mktemp -u "$APP_DIR/.Peler.app.old-XXXXXXXX")"
+    say "Replacing TernaryShell $(plist "$APP" CFBundleShortVersionString) in $APP_DIR with $VERSION"
+    OLD="$(mktemp -u "$APP_DIR/.TernaryShell.app.old-XXXXXXXX")"
     # -h: never move into a directory a link points to.
     $SUDO mv -h "$APP" "$OLD" || die "the installed app could not be moved aside; nothing was changed"
 else
-    say "Installing Peler $VERSION into $APP_DIR"
+    say "Installing TernaryShell $VERSION into $APP_DIR"
 fi
 if ! $SUDO mv -h "$NEW" "$APP"; then
     if [ -n "$OLD" ]; then
@@ -157,11 +157,11 @@ if ! $SUDO mv -h "$NEW" "$APP"; then
 fi
 OLD=""
 # The old copy, and any an interrupted update left behind (the new app is in place and checked).
-for leftover in "$APP_DIR"/.Peler.app.old-*; do
+for leftover in "$APP_DIR"/.TernaryShell.app.old-*; do
     if [ -e "$leftover" ] || [ -L "$leftover" ]; then
         $SUDO rm -rf "$leftover" 2>/dev/null || say "Could not remove $leftover; delete it yourself."
     fi
 done
 
-say "Done. Peler $(plist "$APP" CFBundleShortVersionString) is in $APP_DIR."
+say "Done. TernaryShell $(plist "$APP" CFBundleShortVersionString) is in $APP_DIR."
 open "$APP" || true

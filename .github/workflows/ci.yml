@@ -71,7 +71,7 @@ jobs:
         run: |
           cd dist
           deb=$(ls *.deb); rpm=$(ls *.rpm); appimage=$(ls *.AppImage)
-          check='peler --version && if ldd /usr/bin/peler | grep "not found"; then exit 1; fi'
+          check='ternaryshell --version && if ldd /usr/bin/ternaryshell | grep "not found"; then exit 1; fi'
           for image in ubuntu:22.04 ubuntu:24.04 debian:12; do
             echo "== $image"
             docker run --rm -v "$PWD:/pkg:ro" "$image" bash -ec \
@@ -83,12 +83,12 @@ jobs:
           done
           echo "== AppImage"
           chmod +x "$appimage"
-          (mkdir -p /tmp/ai && cd /tmp/ai && "$OLDPWD/$appimage" --appimage-extract >/dev/null && squashfs-root/usr/bin/peler --version)
+          (mkdir -p /tmp/ai && cd /tmp/ai && "$OLDPWD/$appimage" --appimage-extract >/dev/null && squashfs-root/usr/bin/ternaryshell --version)
       - uses: actions/upload-artifact@v4
         with:
           name: linux-${{ matrix.arch }}
           if-no-files-found: error
-          path: dist/Peler-*-linux-*
+          path: dist/TernaryShell-*-linux-*
 
   bundle-windows:
     if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
@@ -102,12 +102,12 @@ jobs:
       - name: Install, run and uninstall
         shell: pwsh
         run: |
-          $setup = (Get-ChildItem dist/Peler-*-windows-x64-setup.exe).FullName
+          $setup = (Get-ChildItem dist/TernaryShell-*-windows-x64-setup.exe).FullName
           Start-Process -Wait -FilePath $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER'
-          $dir = "$env:LOCALAPPDATA\Programs\Peler"
-          if (-not (Test-Path "$dir\peler.exe") -or -not (Test-Path "$dir\unins000.exe")) { throw "not installed" }
-          $out = Join-Path $env:TEMP 'peler-version.txt'
-          Start-Process -Wait -NoNewWindow -FilePath "$dir\peler.exe" -ArgumentList '--version' -RedirectStandardOutput $out
+          $dir = "$env:LOCALAPPDATA\Programs\TernaryShell"
+          if (-not (Test-Path "$dir\ternaryshell.exe") -or -not (Test-Path "$dir\unins000.exe")) { throw "not installed" }
+          $out = Join-Path $env:TEMP 'ternaryshell-version.txt'
+          Start-Process -Wait -NoNewWindow -FilePath "$dir\ternaryshell.exe" -ArgumentList '--version' -RedirectStandardOutput $out
           Get-Content $out
           Start-Process -Wait -FilePath "$dir\unins000.exe" -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
       - uses: actions/upload-artifact@v4
@@ -115,8 +115,8 @@ jobs:
           name: windows
           if-no-files-found: error
           path: |
-            dist/Peler-*-windows-x64-setup.exe
-            dist/Peler-*-windows-x64.zip
+            dist/TernaryShell-*-windows-x64-setup.exe
+            dist/TernaryShell-*-windows-x64.zip
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')

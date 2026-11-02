@@ -12,9 +12,9 @@ use std::time::Duration;
 
 use common::{TestServer, user, wait_for};
 use eframe::egui;
-use peler::bookmarks::{Auth, Bookmark, Forward, ForwardKind};
-use peler::ssh::session::{ConnectSpec, Connection};
-use peler::ssh::types::Prompt;
+use ternaryshell::bookmarks::{Auth, Bookmark, Forward, ForwardKind};
+use ternaryshell::ssh::session::{ConnectSpec, Connection};
+use ternaryshell::ssh::types::Prompt;
 
 fn runtime() -> tokio::runtime::Runtime {
     tokio::runtime::Builder::new_multi_thread()

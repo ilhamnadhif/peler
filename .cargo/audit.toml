@@ -1,9 +1,9 @@
-# cargo audit settings for Peler.
+# cargo audit settings for TernaryShell.
 
 [advisories]
 ignore = [
     # RUSTSEC-2023-0071, the "Marvin attack": the `rsa` crate's private-key operations can leak
-    # the key through timing. Peler makes RSA login signatures with `ring` instead (constant
+    # the key through timing. TernaryShell makes RSA login signatures with `ring` instead (constant
     # time; src/ssh/rsa_sign.rs); the `rsa` crate only reads keys and checks servers'
     # signatures, which use public keys. It still signs in two cases ring can't handle: SHA-1
     # signatures for servers older than 2016 (only with "legacy algorithms" switched on for

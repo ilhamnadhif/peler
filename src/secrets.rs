@@ -2,7 +2,7 @@
 //! Windows, the Secret Service (GNOME Keyring, KWallet, KeePassXC …) on Linux.
 //!
 //! Each bookmark can have up to three secrets, stored as separate generic-password items under
-//! service `peler`, account `<bookmark-id>/<kind>`. Nothing secret is ever written to the
+//! service `ternaryshell`, account `<bookmark-id>/<kind>`. Nothing secret is ever written to the
 //! bookmark file.
 
 use std::collections::HashMap;
@@ -12,7 +12,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-pub const SERVICE: &str = "peler";
+pub const SERVICE: &str = "ternaryshell";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SecretKind {
@@ -84,7 +84,7 @@ fn account(id: Uuid, kind: SecretKind) -> String {
 
 enum Backend {
     Keychain,
-    /// Process-local store used by tests (`PELER_SECRETS=memory`, debug builds only).
+    /// Process-local store used by tests (`TERNARYSHELL_SECRETS=memory`, debug builds only).
     Memory(Mutex<HashMap<String, String>>),
 }
 
@@ -94,7 +94,7 @@ fn backend() -> &'static Backend {
         // The in-memory store is for tests only; release builds always use the Keychain.
         if cfg!(test)
             || (cfg!(debug_assertions)
-                && std::env::var("PELER_SECRETS").is_ok_and(|v| v == "memory"))
+                && std::env::var("TERNARYSHELL_SECRETS").is_ok_and(|v| v == "memory"))
         {
             Backend::Memory(Mutex::new(HashMap::new()))
         } else {

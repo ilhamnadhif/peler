@@ -103,8 +103,8 @@ impl Default for Settings {
         Self {
             language: Language::System,
             theme: ThemeMode::System,
-            scheme_dark: "Peler Dark".into(),
-            scheme_light: "Peler Light".into(),
+            scheme_dark: "TernaryShell Dark".into(),
+            scheme_light: "TernaryShell Light".into(),
             font: FontChoice::default(),
             // Menlo at 13 matches the other macOS terminals; Consolas and Hack read better a
             // point larger.

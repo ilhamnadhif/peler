@@ -753,7 +753,7 @@ impl ImportDialog {
         let modal = egui::Modal::new(egui::Id::new("import")).show(ctx, |ui| {
             ui.set_width(640.0);
             let kind = match self.plan.kind {
-                SourceKind::Peler => "peler",
+                SourceKind::TernaryShell => "TernaryShell",
                 SourceKind::Electerm => "Electerm",
                 SourceKind::SshConfig => "SSH config",
             };
@@ -1019,7 +1019,7 @@ fn general(ui: &mut egui::Ui, s: &mut Settings) {
             t("Check for updates automatically"),
         )
         .on_hover_text(t(
-            "Peler asks GitHub for the latest release when it starts and every few hours.",
+            "TernaryShell asks GitHub for the latest release when it starts and every few hours.",
         ));
     });
     style::row(ui, t("Data folder"), |ui| {

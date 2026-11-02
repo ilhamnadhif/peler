@@ -6,7 +6,7 @@ Oct 15, 2026 · @Tommy Lumos Empire
 
 Produk ini adalah aplikasi desktop macOS untuk SSH dan SFTP, ditulis 100% Rust termasuk UI, dengan manajemen bookmark yang bisa di-export dan di-import. Tujuannya menggantikan Electerm bagi pengguna yang terganggu oleh pemakaian memori dan waktu start aplikasi berbasis Electron.
 
-Nama kerja sementara: **peler** (bisa diganti).
+Nama: **TernaryShell** (keluarga Ternary, bersama TernaryGrid dan TernaryWire).
 
 **Masalah.** Electerm lengkap fiturnya, tetapi membawa Chromium dan Node.js penuh. Akibatnya aplikasi berat untuk sekadar membuka satu sesi SSH dan mentransfer file.
 

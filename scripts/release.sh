@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Publishes a new version of Peler on GitHub. Installed copies offer it to their users the next
+# Publishes a new version of TernaryShell on GitHub. Installed copies offer it to their users the next
 # time they start (or within a day).
 #
 #   scripts/release.sh 1.1.0                 # release notes generated from the commits
 #   scripts/release.sh 1.1.0 notes.md        # release notes from a file
 #
-# Set PELER_SIGN_IDENTITY, PELER_INSTALLER_IDENTITY and PELER_NOTARY_PROFILE (see package.sh) to
+# Set TERNARYSHELL_SIGN_IDENTITY, TERNARYSHELL_INSTALLER_IDENTITY and TERNARYSHELL_NOTARY_PROFILE (see package.sh) to
 # publish Developer ID signed, notarized builds that open without any warning.
 #
 # Steps: checks → version bump in Cargo.toml → tests → build (.app, .dmg, .pkg, .zip, cask) →
@@ -26,7 +26,7 @@ NOTES="${2:-}"
 TAG="v$VERSION"
 BRANCH="master"
 CURRENT="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-FILES=("dist/Peler-$VERSION.dmg" "dist/Peler-$VERSION.pkg" "dist/Peler-$VERSION.zip" "dist/homebrew/peler.rb")
+FILES=("dist/TernaryShell-$VERSION.dmg" "dist/TernaryShell-$VERSION.pkg" "dist/TernaryShell-$VERSION.zip" "dist/homebrew/ternaryshell.rb")
 
 fail() { echo "Error: $*" >&2; exit 1; }
 command -v gh >/dev/null || fail "the GitHub CLI (gh) is needed: brew install gh"
@@ -45,7 +45,7 @@ release_state() {
         echo "none"
 }
 STATE="$(release_state)"
-[ "$STATE" != "published" ] || { echo "Peler $TAG is already released."; exit 0; }
+[ "$STATE" != "published" ] || { echo "TernaryShell $TAG is already released."; exit 0; }
 LOCAL_TAG="$(git rev-parse -q --verify "refs/tags/$TAG^{commit}" || true)"
 # The commit the tag on origin points at (an annotated tag is listed again peeled, with ^{}).
 REMOTE_TAG="$(git ls-remote --tags origin |
@@ -65,7 +65,7 @@ if [ -n "$LOCAL_TAG" ] || [ -n "$REMOTE_TAG" ] || [ "$STATE" = "draft" ] || $rel
         if [ -n "$REMOTE_TAG" ]; then
             git fetch --quiet origin "refs/tags/$TAG:refs/tags/$TAG"
         else
-            git tag -a "$TAG" -m "Peler $VERSION"
+            git tag -a "$TAG" -m "TernaryShell $VERSION"
         fi
     fi
     for f in "${FILES[@]}"; do
@@ -97,7 +97,7 @@ else
 
     git commit --quiet -m "Release $VERSION" -- Cargo.toml Cargo.lock
     trap - EXIT
-    git tag -a "$TAG" -m "Peler $VERSION"
+    git tag -a "$TAG" -m "TernaryShell $VERSION"
     HEAD_SHA="$(git rev-parse HEAD)"
 fi
 
@@ -117,17 +117,17 @@ fi
 # The app shows the notes above the marker in its update dialog.
 cat >> "$BODY" <<'INSTALL'
 
-<!-- peler:end-of-notes -->
+<!-- ternaryshell:end-of-notes -->
 
 ## Install
 
 **macOS**: run this in Terminal, or download the `.pkg` or `.dmg` below.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/peler/master/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/ternaryshell/master/scripts/install.sh | bash
 ```
 
-**Windows**: run `Peler-<version>-windows-x64-setup.exe` (no administrator rights needed), or
+**Windows**: run `TernaryShell-<version>-windows-x64-setup.exe` (no administrator rights needed), or
 unpack the portable `.zip`.
 
 **Linux**: the `.deb` (Debian, Ubuntu, Mint), the `.rpm` (Fedora, RHEL, openSUSE), or the
@@ -135,19 +135,19 @@ unpack the portable `.zip`.
 
 Installed copies update themselves from the app (the `.deb` and `.rpm` through a new package).
 INSTALL
-if [ -z "${PELER_NOTARY_PROFILE:-}" ]; then
+if [ -z "${TERNARYSHELL_NOTARY_PROFILE:-}" ]; then
     cat >> "$BODY" <<'GATEKEEPER'
 
-**macOS says “Peler” Not Opened / “Apple could not verify…”?** This build is not notarized by
+**macOS says “TernaryShell” Not Opened / “Apple could not verify…”?** This build is not notarized by
 Apple yet, so macOS blocks a `.dmg`, `.pkg` or app downloaded with a browser. Since macOS 15,
 right-click → Open no longer gets past it. Do one of these:
 
 - **Use the one-line installer** above. Nothing downloaded with `curl` is blocked.
 - **Allow it once**: click **Done** in the warning, open **System Settings → Privacy & Security**,
-  scroll down to **Security**, and click **Open Anyway** next to “Peler was blocked…”. Confirm with
+  scroll down to **Security**, and click **Open Anyway** next to “TernaryShell was blocked…”. Confirm with
   your password, then open it again.
 - **Or in Terminal**, after dragging the app to Applications:
-  `xattr -dr com.apple.quarantine /Applications/Peler.app`
+  `xattr -dr com.apple.quarantine /Applications/TernaryShell.app`
 GATEKEEPER
 fi
 
@@ -155,11 +155,11 @@ fi
 if [ "$(release_state)" = "draft" ]; then
     echo "==> Updating the draft release"
     gh release upload "$TAG" "${FILES[@]}" --clobber
-    gh release edit "$TAG" --title "Peler $VERSION" --notes-file "$BODY"
+    gh release edit "$TAG" --title "TernaryShell $VERSION" --notes-file "$BODY"
 else
     echo "==> Creating a draft release"
     gh release create "$TAG" "${FILES[@]}" \
-        --draft --target "$HEAD_SHA" --title "Peler $VERSION" --notes-file "$BODY"
+        --draft --target "$HEAD_SHA" --title "TernaryShell $VERSION" --notes-file "$BODY"
 fi
 
 echo "==> Pushing the tag"
@@ -187,4 +187,4 @@ if [ -n "$run" ]; then
 fi
 [ "$(release_state)" = "published" ] || fail "$TAG is not published yet: see $REPO_URL/actions"
 echo
-echo "Released $TAG on macOS, Windows and Linux. Installed copies of Peler will offer the update on their next check."
+echo "Released $TAG on macOS, Windows and Linux. Installed copies of TernaryShell will offer the update on their next check."

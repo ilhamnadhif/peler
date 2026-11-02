@@ -40,7 +40,7 @@ pub enum Auth {
     /// key contents, such as Electerm), so no key is written to disk in plain text.
     KeychainKey,
     /// The keys of an SSH agent (the macOS one, 1Password, Secretive, a YubiKey…); the agent
-    /// signs, Peler never sees the keys. `socket` is the agent's socket, empty for the one in
+    /// signs, TernaryShell never sees the keys. `socket` is the agent's socket, empty for the one in
     /// `SSH_AUTH_SOCK`.
     Agent {
         #[serde(default)]
@@ -49,7 +49,7 @@ pub enum Auth {
 }
 
 impl Auth {
-    /// A private key Peler reads itself, which may have a passphrase.
+    /// A private key TernaryShell reads itself, which may have a passphrase.
     pub fn uses_key(&self) -> bool {
         matches!(self, Auth::Key { .. } | Auth::KeychainKey)
     }

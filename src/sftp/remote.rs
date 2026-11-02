@@ -141,7 +141,11 @@ pub fn random_suffix() -> String {
 pub async fn replace_file(sftp: &SftpSession, tmp: &str, path: &str) -> Result<bool, String> {
     let aside = remote_join(
         &remote_parent(path),
-        &format!(".{}.peler-old-{}", remote_name(path), random_suffix()),
+        &format!(
+            ".{}.ternaryshell-old-{}",
+            remote_name(path),
+            random_suffix()
+        ),
     );
     if sftp.rename(path, aside.clone()).await.is_err() {
         return Ok(false);

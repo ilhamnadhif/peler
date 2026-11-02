@@ -1,26 +1,26 @@
-# Peler
+# TernaryShell
 
 **Klien SSH & SFTP ringan untuk macOS, Windows, dan Linux, ditulis sepenuhnya dalam Rust.**
 
-Peler adalah pengganti native untuk klien SSH berbasis Electron seperti Electerm. Bentuknya satu
-binary kecil, tanpa Chromium dan tanpa Node.js. Peler terbuka
+TernaryShell adalah pengganti native untuk klien SSH berbasis Electron seperti Electerm. Bentuknya satu
+binary kecil, tanpa Chromium dan tanpa Node.js. TernaryShell terbuka
 dalam ±0,1 detik, CPU 0% saat diam, dan memakai sekitar 70 MB memori dengan satu sesi terbuka.
 
 [English](README.md)
 
-![Peler: koneksi tersimpan, tab, dan split pane dalam satu koneksi SSH](docs/screenshots/terminal.png)
+![TernaryShell: koneksi tersimpan, tab, dan split pane dalam satu koneksi SSH](docs/screenshots/terminal.png)
 
 ## Sorotan
 
 - **Koneksi tersimpan** dalam grup bertingkat, dengan drag and drop, pencarian fuzzy, dan quick connect
   (`⌘K`, `Ctrl+Shift+K` di Windows dan Linux). Password dan passphrase disimpan di keychain sistem
-  (Keychain macOS, Credential Manager Windows, Secret Service di Linux), bukan di file Peler. Tombol **Show** di
+  (Keychain macOS, Credential Manager Windows, Secret Service di Linux), bukan di file TernaryShell. Tombol **Show** di
   Edit Connection menampilkan yang tersimpan.
 - **Terminal sungguhan** (alacritty_terminal): warna 24-bit, mouse untuk vim/htop/tmux, IME, CJK,
   dan garis kotak yang digambar presisi.
 - **Tab dan split pane** yang memakai satu koneksi SSH bersama.
 - **Mendeteksi koneksi yang mati**: setelah jaringan berubah (VPN dinyalakan atau dimatikan, ganti
-  Wi-Fi, komputer bangun dari sleep), atau saat ketikan tidak dibalas, Peler mengecek server. Koneksi
+  Wi-Fi, komputer bangun dari sleep), atau saat ketikan tidak dibalas, TernaryShell mengecek server. Koneksi
   yang tidak menjawab lagi langsung diberi tahu dalam beberapa detik dengan tombol **Reconnect**,
   bukan menggantung.
 - **SFTP dua panel**: transfer banyak file sekaligus di latar belakang, dengan progres, kecepatan,
@@ -37,115 +37,115 @@ dalam ±0,1 detik, CPU 0% saat diam, dan memakai sekitar 70 MB memori dengan sat
 
 ## Instalasi
 
-Unduh dari [rilis terbaru](https://github.com/ilhamnadhif/peler/releases/latest):
+Unduh dari [rilis terbaru](https://github.com/ilhamnadhif/ternaryshell/releases/latest):
 
 | Sistem | Unduhan |
 | --- | --- |
-| macOS 12 Monterey atau lebih baru (Apple Silicon, Intel) | installer satu baris di bawah, `Peler-<versi>.pkg` atau `.dmg` |
-| Windows 10 (1809) atau lebih baru, x64 | `Peler-<versi>-windows-x64-setup.exe`, atau `-windows-x64.zip` portable |
-| Debian, Ubuntu, Mint, Pop!_OS | `Peler-<versi>-linux-amd64.deb` (`-arm64.deb` di ARM) |
-| Fedora, RHEL, Rocky, AlmaLinux, openSUSE | `Peler-<versi>-linux-x86_64.rpm` (`-aarch64.rpm`) |
-| Linux apa pun (Arch, Manjaro …) | `Peler-<versi>-linux-x86_64.AppImage` atau `.tar.gz` (`-aarch64` di ARM) |
+| macOS 12 Monterey atau lebih baru (Apple Silicon, Intel) | installer satu baris di bawah, `TernaryShell-<versi>.pkg` atau `.dmg` |
+| Windows 10 (1809) atau lebih baru, x64 | `TernaryShell-<versi>-windows-x64-setup.exe`, atau `-windows-x64.zip` portable |
+| Debian, Ubuntu, Mint, Pop!_OS | `TernaryShell-<versi>-linux-amd64.deb` (`-arm64.deb` di ARM) |
+| Fedora, RHEL, Rocky, AlmaLinux, openSUSE | `TernaryShell-<versi>-linux-x86_64.rpm` (`-aarch64.rpm`) |
+| Linux apa pun (Arch, Manjaro …) | `TernaryShell-<versi>-linux-x86_64.AppImage` atau `.tar.gz` (`-aarch64` di ARM) |
 
 ### macOS
 
 #### Installer satu baris (disarankan)
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/peler/master/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/ternaryshell/master/scripts/install.sh | bash
 ```
 
-Skrip ini mengunduh rilis terbaru, memasang `Peler.app` ke `/Applications`, lalu membukanya.
+Skrip ini mengunduh rilis terbaru, memasang `TernaryShell.app` ke `/Applications`, lalu membukanya.
 Jalankan lagi untuk update. Untuk versi tertentu, tambahkan versinya sebagai argumen:
-`… | bash -s -- v1.0.0`.
+`… | bash -s -- v1.4.2`.
 
 #### Paket installer atau disk image
 
-Unduh salah satu file ini dari [rilis terbaru](https://github.com/ilhamnadhif/peler/releases/latest):
+Unduh salah satu file ini dari [rilis terbaru](https://github.com/ilhamnadhif/ternaryshell/releases/latest):
 
-- **`Peler-<versi>.pkg`**: installer macOS biasa yang memasang Peler ke `/Applications`.
-- **`Peler-<versi>.dmg`**: buka, lalu seret **Peler** ke **Applications**.
+- **`TernaryShell-<versi>.pkg`**: installer macOS biasa yang memasang TernaryShell ke `/Applications`.
+- **`TernaryShell-<versi>.dmg`**: buka, lalu seret **TernaryShell** ke **Applications**.
 
-> **Muncul “Peler” Not Opened / “Apple could not verify…”?** Build rilis belum dinotarisasi
+> **Muncul “TernaryShell” Not Opened / “Apple could not verify…”?** Build rilis belum dinotarisasi
 > Apple, jadi macOS memblokir app dan installer yang diunduh lewat browser. Sejak macOS 15, cara
 > lama klik kanan → Open sudah tidak bisa. Pilih salah satu cara berikut:
 >
 > - **Pakai installer satu baris** di atas. File yang diunduh lewat `curl` tidak diblokir.
 > - **Izinkan sekali lewat Settings**: klik **Done** di peringatannya, buka **System Settings →
 >   Privacy & Security**, gulir ke bagian **Security**, lalu klik **Open Anyway** di samping
->   “Peler was blocked…”. Konfirmasi dengan password, lalu buka Peler (atau file `.pkg`) lagi.
+>   “TernaryShell was blocked…”. Konfirmasi dengan password, lalu buka TernaryShell (atau file `.pkg`) lagi.
 > - **Atau lewat Terminal**, setelah app diseret ke Applications:
->   `xattr -dr com.apple.quarantine /Applications/Peler.app`
+>   `xattr -dr com.apple.quarantine /Applications/TernaryShell.app`
 
 #### Homebrew
 
-Setiap rilis menyertakan file cask `peler.rb`:
+Setiap rilis menyertakan file cask `ternaryshell.rb`:
 
 ```sh
-curl -fsSLO https://github.com/ilhamnadhif/peler/releases/latest/download/peler.rb
-brew install --cask ./peler.rb
-xattr -dr com.apple.quarantine /Applications/Peler.app   # selama rilis belum dinotarisasi
+curl -fsSLO https://github.com/ilhamnadhif/ternaryshell/releases/latest/download/ternaryshell.rb
+brew install --cask ./ternaryshell.rb
+xattr -dr com.apple.quarantine /Applications/TernaryShell.app   # selama rilis belum dinotarisasi
 ```
 
 ### Windows
 
-Jalankan **`Peler-<versi>-windows-x64-setup.exe`**. Installer ini memasang Peler untuk user Anda
+Jalankan **`TernaryShell-<versi>-windows-x64-setup.exe`**. Installer ini memasang TernaryShell untuk user Anda
 tanpa hak administrator (pilih **Install for all users** di jendela pertamanya untuk memasang ke
-Program Files), menambahkan Peler ke menu Start, dan bisa menaruh `peler` di PATH supaya
-`peler web-01` membuka koneksi tersimpan dari terminal. Atau ekstrak **`.zip`** portable di mana
-saja lalu jalankan `peler.exe`.
+Program Files), menambahkan TernaryShell ke menu Start, dan bisa menaruh `ternaryshell` di PATH supaya
+`ternaryshell web-01` membuka koneksi tersimpan dari terminal. Atau ekstrak **`.zip`** portable di mana
+saja lalu jalankan `ternaryshell.exe`.
 
 > **Muncul “Windows protected your PC”?** Build-nya belum ditandatangani kode, jadi SmartScreen
 > memberi peringatan untuk unduhan baru. Klik **More info**, lalu **Run anyway**.
 
 ### Linux
 
-Peler berjalan di X11 dan Wayland dengan OpenGL (renderer software juga cukup) dan butuh glibc
+TernaryShell berjalan di X11 dan Wayland dengan OpenGL (renderer software juga cukup) dan butuh glibc
 2.28 atau lebih baru (RHEL 8, Debian 10, Ubuntu 18.10, dan yang lebih baru). Password tersimpan
 masuk ke Secret Service (GNOME Keyring, KWallet, KeePassXC); dialog file memakai desktop portal.
 
 ```sh
-sudo apt install ./Peler-<versi>-linux-amd64.deb              # Debian, Ubuntu, Mint, Pop!_OS
-sudo dnf install ./Peler-<versi>-linux-x86_64.rpm             # Fedora, RHEL, Rocky, AlmaLinux
-sudo zypper install --allow-unsigned-rpm ./Peler-<versi>-linux-x86_64.rpm   # openSUSE
-chmod +x Peler-<versi>-linux-x86_64.AppImage && ./Peler-<versi>-linux-x86_64.AppImage
-tar -xzf Peler-<versi>-linux-x86_64.tar.gz -C ~/.local --strip-components=1   # lalu jalankan: peler
+sudo apt install ./TernaryShell-<versi>-linux-amd64.deb              # Debian, Ubuntu, Mint, Pop!_OS
+sudo dnf install ./TernaryShell-<versi>-linux-x86_64.rpm             # Fedora, RHEL, Rocky, AlmaLinux
+sudo zypper install --allow-unsigned-rpm ./TernaryShell-<versi>-linux-x86_64.rpm   # openSUSE
+chmod +x TernaryShell-<versi>-linux-x86_64.AppImage && ./TernaryShell-<versi>-linux-x86_64.AppImage
+tar -xzf TernaryShell-<versi>-linux-x86_64.tar.gz -C ~/.local --strip-components=1   # lalu jalankan: ternaryshell
 ```
 
-`.tar.gz` diekstrak ke `~/.local` apa adanya (`bin/peler`, entri menu, dan ikonnya).
+`.tar.gz` diekstrak ke `~/.local` apa adanya (`bin/ternaryshell`, entri menu, dan ikonnya).
 
 ### Update otomatis
 
-Setiap kali dibuka, Peler memeriksa rilis baru di GitHub. Kalau ada versi baru, jendela update
+Setiap kali dibuka, TernaryShell memeriksa rilis baru di GitHub. Kalau ada versi baru, jendela update
 langsung muncul berisi versi sekarang, versi baru, dan daftar perubahannya. **Install Update** lalu
 mengunduh versi terbaru, termasuk yang rilis setelah jendelanya muncul (jadi 1.2.3 langsung ke
 versi terbaru, tidak naik satu per satu), memverifikasinya (ukuran dan SHA-256 yang dipublikasikan
-GitHub, ditambah pemeriksaan tiap sistem), menutup Peler, lalu memasangnya:
+GitHub, ditambah pemeriksaan tiap sistem), menutup TernaryShell, lalu memasangnya:
 
 - **macOS**: memeriksa bundle id, versi, dan tanda tangan kode, mengganti aplikasinya, lalu membuka
-  versi baru. Kalau Peler dipasang lewat `.pkg` (aplikasinya milik root), macOS meminta password
+  versi baru. Kalau TernaryShell dipasang lewat `.pkg` (aplikasinya milik root), macOS meminta password
   administrator.
 - **Windows** (dipasang dengan installer): menjalankan installer baru secara diam-diam di atas versi
-  yang terpasang, lalu membuka Peler lagi. Instalasi untuk semua user meminta hak administrator.
+  yang terpasang, lalu membuka TernaryShell lagi. Instalasi untuk semua user meminta hak administrator.
 - **AppImage dan `.tar.gz` di Linux**: memastikan versi baru bisa berjalan, menaruhnya di tempat yang
   lama, lalu membukanya.
 - **`.deb`, `.rpm`, dan `.zip` Windows portable** diperbarui dengan mengunduh paket baru dari GitHub
   (jendela update memberi tahu dan membuka halamannya).
 
-**Close** akan menanyakan lagi saat Peler dibuka berikutnya; centang **Don't show again for
-version …** untuk melewati versi itu. Selama Peler tetap terbuka, pengecekan diulang setiap 6 jam
+**Close** akan menanyakan lagi saat TernaryShell dibuka berikutnya; centang **Don't show again for
+version …** untuk melewati versi itu. Selama TernaryShell tetap terbuka, pengecekan diulang setiap 6 jam
 dan hanya memunculkan tombol **Update** di toolbar supaya tidak mengganggu. Anda juga bisa memakai
-**Check for Updates…** (di menu **Peler** pada macOS, di menu **☰** pada sistem lain), atau
+**Check for Updates…** (di menu **TernaryShell** pada macOS, di menu **☰** pada sistem lain), atau
 mematikan pengecekan otomatis di **Settings → General**. Pengecekan update adalah satu-satunya
-koneksi yang dibuat Peler selain ke server Anda sendiri.
+koneksi yang dibuat TernaryShell selain ke server Anda sendiri.
 
 ### Uninstall
 
 | Sistem | Cara menghapus |
 | --- | --- |
-| macOS | `rm -rf /Applications/Peler.app ~/Library/Application\ Support/peler`; password tersimpan adalah item Keychain bernama `peler` |
-| Windows | **Settings → Apps → Peler → Uninstall**, lalu hapus `%APPDATA%\peler`; password tersimpan ada di Credential Manager (`peler`) |
-| Linux | `sudo apt remove peler` / `sudo dnf remove peler`, atau hapus AppImage atau `~/.local/bin/peler`; lalu `rm -rf ~/.local/share/peler` |
+| macOS | `rm -rf /Applications/TernaryShell.app ~/Library/Application\ Support/ternaryshell`; password tersimpan adalah item Keychain bernama `ternaryshell` |
+| Windows | **Settings → Apps → TernaryShell → Uninstall**, lalu hapus `%APPDATA%\ternaryshell`; password tersimpan ada di Credential Manager (`ternaryshell`) |
+| Linux | `sudo apt remove ternaryshell` / `sudo dnf remove ternaryshell`, atau hapus AppImage atau `~/.local/bin/ternaryshell`; lalu `rm -rf ~/.local/share/ternaryshell` |
 
 Folder data berisi koneksi, pengaturan, dan known hosts.
 
@@ -156,20 +156,20 @@ Folder data berisi koneksi, pengaturan, dan known hosts.
 - Isian: nama, host, port, user, grup, tag, catatan, folder awal remote dan lokal, startup command,
   dan algoritma lama per server.
 - Login dengan password atau private key. **Paste key-nya** (OpenSSH atau PEM; RSA, ECDSA, atau
-  Ed25519, terenkripsi atau tidak): Peler langsung memeriksanya saat di-paste dan menyimpannya di
+  Ed25519, terenkripsi atau tidak): TernaryShell langsung memeriksanya saat di-paste dan menyimpannya di
   keychain sistem. Atau pilih file key di `~/.ssh`.
 - **SSH agent**: login dengan key dari agent sistem (`ssh-add`), 1Password, Secretive, Bitwarden,
-  GNOME Keyring, atau agent YubiKey; di Windows OpenSSH agent atau Pageant. Agent yang menandatangani; key tidak pernah keluar darinya. Peler menemukan 1Password
+  GNOME Keyring, atau agent YubiKey; di Windows OpenSSH agent atau Pageant. Agent yang menandatangani; key tidak pernah keluar darinya. TernaryShell menemukan 1Password
   dan Secretive sendiri.
 - **Jump host** (`ssh -J`): sambung ke server lewat koneksi tersimpan lain, juga beberapa
   berturut-turut. Setiap hop memeriksa host key-nya sendiri dan login dengan metodenya sendiri.
 - **Port forwarding** per koneksi, aktif saat tersambung: lokal (`-L`), remote (`-R`), dan proxy
   SOCKS (`-D`). Status bar menampilkan forward-nya dan memberi tahu kalau port sudah dipakai.
-- Grup bertingkat, tertutup saat Peler dibuka; drag and drop untuk mengurutkan atau memindah grup.
+- Grup bertingkat, tertutup saat TernaryShell dibuka; drag and drop untuk mengurutkan atau memindah grup.
 - Pencarian fuzzy pada nama, host, user, tag, dan grup. Tekan Enter untuk konek.
 - `⌘K` membuka palet perintah. Mengetik `user@host:port` di sana (IPv6 sebagai `[::1]:22`) langsung
   konek tanpa menyimpan koneksi.
-- Buka dari Terminal: `open -a Peler --args web-01` atau `--args deploy@10.0.0.5:2222`. Peler hanya
+- Buka dari Terminal: `open -a TernaryShell --args web-01` atau `--args deploy@10.0.0.5:2222`. TernaryShell hanya
   berjalan satu instance: menjalankannya lagi membuka tab di jendela yang sudah terbuka.
 
 ### Terminal
@@ -203,7 +203,7 @@ Folder data berisi koneksi, pengaturan, dan known hosts.
   kursor di atas daftar, lalu drag antar daftar, drop file dari Finder atau Explorer, atau pakai menu
   klik-kanan. **Unggah…** di sisi remote membuka pemilih file sistem.
 - **Jelajahi sebagai root (sudo)**: tombol **Root** di sisi remote membuka ulang panel file sebagai
-  root lewat `sudo`, untuk melihat dan mentransfer file yang tidak bisa diakses user Anda. Peler
+  root lewat `sudo`, untuk melihat dan mentransfer file yang tidak bisa diakses user Anda. TernaryShell
   menanyakan password sudo (atau kosongkan untuk sudo tanpa password); terminal tetap sebagai user
   Anda. Server harus mengizinkan sudo untuk user Anda. Klik **Root** lagi untuk kembali.
 - **Transfer yang bisa dipantau**: popup mengambang (bisa disembunyikan atau ditutup) menampilkan
@@ -240,7 +240,7 @@ Klik dua kali file remote (atau klik kanan → **Edit**) untuk mengeditnya langs
   Electerm. Siapa pun yang memegang file itu bisa masuk ke server-server tersebut, jadi simpan
   baik-baik dan hapus setelah diimpor. File hanya bisa dibaca oleh akun user Anda.
 - Saat import, di komputer yang punya file key yang sama di path itu, koneksi tetap memakai file
-  tersebut; di komputer lain key-nya disimpan di keychain sistem. Export terenkripsi dari Peler 1.2.3 ke bawah
+  tersebut; di komputer lain key-nya disimpan di keychain sistem. Export terenkripsi dari TernaryShell 1.2.3 ke bawah
   tetap bisa diimpor: masukkan passphrase-nya di jendela import.
 - **Import** menampilkan pratinjau apa yang akan ditambah, diperbarui, atau dilewati. Setiap konflik
   bisa dilewati, ditimpa, atau disimpan keduanya. Import file yang sama dua kali tidak mengubah apa
@@ -281,10 +281,10 @@ Meta key** dinyalakan di Pengaturan. Semua perintah juga ada di menu: menu bar d
 
 ## Performa
 
-Diukur di MacBook Apple Silicon dengan macOS 14.6, memakai build rilis. Di Windows dan Linux Peler
+Diukur di MacBook Apple Silicon dengan macOS 14.6, memakai build rilis. Di Windows dan Linux TernaryShell
 menggambar dengan OpenGL, yang membuka jendela lebih cepat dan membuat binary lebih kecil daripada
 Vulkan atau Direct3D (Windows memakai Direct3D 12 bila OpenGL tidak ada). Binary Linux sekitar
-16 MB dan paketnya sekitar 8 MB; di Windows `peler.exe` sekitar 21 MB dan installernya 8 MB.
+16 MB dan paketnya sekitar 8 MB; di Windows `ternaryshell.exe` sekitar 21 MB dan installernya 8 MB.
 
 | | Hasil |
 | --- | --- |
@@ -303,14 +303,14 @@ sering membuka banyak tab yang ramai.
 
 | Apa | macOS | Windows | Linux |
 | --- | --- | --- | --- |
-| Folder data: koneksi (`bookmarks.json`), pengaturan, host key tepercaya (`known_hosts`) | `~/Library/Application Support/peler` | `%APPDATA%\peler` | `~/.local/share/peler` |
-| Password, passphrase, key hasil import (service `peler`) | Keychain | Credential Manager | Secret Service (GNOME Keyring, KWallet …) |
-| Laporan crash (`panic-*.log`) | `~/Library/Logs/Peler` | `%LOCALAPPDATA%\Peler\Logs` | `~/.local/state/peler/logs` |
+| Folder data: koneksi (`bookmarks.json`), pengaturan, host key tepercaya (`known_hosts`) | `~/Library/Application Support/ternaryshell` | `%APPDATA%\ternaryshell` | `~/.local/share/ternaryshell` |
+| Password, passphrase, key hasil import (service `ternaryshell`) | Keychain | Credential Manager | Secret Service (GNOME Keyring, KWallet …) |
+| Laporan crash (`panic-*.log`) | `~/Library/Logs/TernaryShell` | `%LOCALAPPDATA%\TernaryShell\Logs` | `~/.local/state/ternaryshell/logs` |
 
 File di folder data hanya bisa dibaca user Anda (mode 0600 di macOS dan Linux; Windows menjaga
 AppData tetap privat per user).
 
-- **Host key**: Peler memeriksa `known_hosts` milik aplikasi dan, hanya baca, `~/.ssh/known_hosts`,
+- **Host key**: TernaryShell memeriksa `known_hosts` milik aplikasi dan, hanya baca, `~/.ssh/known_hosts`,
   termasuk entri ter-hash, wildcard, negasi, dan `@revoked`.
   - Host baru harus dipercaya dengan klik; Enter tidak pernah menerima key.
   - Key yang berubah, atau key dengan jenis berbeda dari yang tercatat, memunculkan peringatan merah
@@ -333,11 +333,11 @@ Tools di macOS, MSVC build tools di Windows, `gcc` di Linux (tanpa library lain:
 OpenGL dimuat saat berjalan).
 
 ```sh
-git clone https://github.com/ilhamnadhif/peler.git && cd peler
+git clone https://github.com/ilhamnadhif/ternaryshell.git && cd ternaryshell
 cargo run --release                       # build dan jalankan
 cargo run --release -- web-01             # buka koneksi tersimpan (atau user@host[:port])
-scripts/package.sh                        # macOS: Peler.app universal, .dmg, .pkg, dan Homebrew cask di dist/
-PELER_ARCHS=aarch64 scripts/package.sh    # macOS: hanya Apple Silicon (lebih cepat)
+scripts/package.sh                        # macOS: TernaryShell.app universal, .dmg, .pkg, dan Homebrew cask di dist/
+TERNARYSHELL_ARCHS=aarch64 scripts/package.sh    # macOS: hanya Apple Silicon (lebih cepat)
 scripts/package-linux.sh                  # Linux: .tar.gz, .deb, .rpm, dan .AppImage di dist/
 pwsh scripts/package-windows.ps1          # Windows: installer (Inno Setup 6) dan .zip portable di dist/
 ```
@@ -368,11 +368,11 @@ Windows untuk setiap push.
 Dengan akun Apple Developer:
 
 ```sh
-xcrun notarytool store-credentials peler-notary --apple-id <email> --team-id <TEAMID>   # sekali saja
+xcrun notarytool store-credentials ternaryshell-notary --apple-id <email> --team-id <TEAMID>   # sekali saja
 
-PELER_SIGN_IDENTITY="Developer ID Application: Nama Anda (TEAMID)" \
-PELER_INSTALLER_IDENTITY="Developer ID Installer: Nama Anda (TEAMID)" \
-PELER_NOTARY_PROFILE=peler-notary scripts/package.sh
+TERNARYSHELL_SIGN_IDENTITY="Developer ID Application: Nama Anda (TEAMID)" \
+TERNARYSHELL_INSTALLER_IDENTITY="Developer ID Installer: Nama Anda (TEAMID)" \
+TERNARYSHELL_NOTARY_PROFILE=ternaryshell-notary scripts/package.sh
 ```
 
 Skrip ini menandatangani dengan hardened runtime, lalu menotarisasi dan men-staple DMG dan paket
@@ -399,12 +399,12 @@ sungguhan ke jendela, lewat jalur yang sama dengan input pengguna (menu, winit, 
 lain hanya aksi dan pengecekannya yang berjalan:
 
 ```sh
-PELER_DATA_DIR=/tmp/peler-e2e PELER_SECRETS=memory \
-PELER_DEV_SCRIPT='sleep 1500;; connect local dev;; sleep 2500;; keys echo hi\r;; expect-screen hi;; key cmd+d;; expect-panes 2;; quit' \
-  target/debug/peler
+TERNARYSHELL_DATA_DIR=/tmp/ternaryshell-e2e TERNARYSHELL_SECRETS=memory \
+TERNARYSHELL_DEV_SCRIPT='sleep 1500;; connect local dev;; sleep 2500;; keys echo hi\r;; expect-screen hi;; key cmd+d;; expect-panes 2;; quit' \
+  target/debug/ternaryshell
 ```
 
-Hasilnya dicetak sebagai baris `DEVTEST PASS/FAIL`. `PELER_DATA_DIR` dan `PELER_SECRETS` hanya
+Hasilnya dicetak sebagai baris `DEVTEST PASS/FAIL`. `TERNARYSHELL_DATA_DIR` dan `TERNARYSHELL_SECRETS` hanya
 berlaku di build debug. `scripts/dev-sshd.sh` menjalankan sshd lokal untuk mencoba aplikasi.
 
 ## Struktur kode
@@ -430,7 +430,7 @@ scripts/              package.sh (macOS), package-linux.sh, package-windows.ps1,
                       ci-publish.sh, install.sh, dev-sshd.sh, build-fonts.py
 packaging/            installer Windows (Inno Setup) dan ikonnya, entri desktop dan ikon Linux
 .github/workflows/    CI: tes di Linux dan Windows, paket dan penerbitan rilis
-vendor/ssh-key/       ssh-key dengan perbaikan untuk sebagian kunci ECDSA (lihat PELER-PATCH.md di sana)
+vendor/ssh-key/       ssh-key dengan perbaikan untuk sebagian kunci ECDSA (lihat TERNARYSHELL-PATCH.md di sana)
 ```
 
 Dibangun dengan [egui](https://github.com/emilk/egui) (Metal lewat wgpu di macOS, OpenGL di Windows
@@ -444,7 +444,7 @@ dan Linux),
 - Build rilis belum ditandatangani dan dinotarisasi dengan Apple Developer ID, dan belum
   ditandatangani kode untuk Windows: macOS dan SmartScreen memberi peringatan bila diunduh lewat
   browser; lihat bagian *Instalasi*.
-- Di Windows, Peler di-build dan diuji oleh CI (unit test, installer); driver end-to-end dan tes
+- Di Windows, TernaryShell di-build dan diuji oleh CI (unit test, installer); driver end-to-end dan tes
   integrasi OpenSSH berjalan di macOS dan Linux.
 - File yang diseret dari file manager ke jendela berfungsi di macOS, Windows, dan X11, belum di
   Wayland (belum didukung library jendelanya).

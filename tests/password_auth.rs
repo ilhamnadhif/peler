@@ -8,12 +8,12 @@ use std::time::Duration;
 
 use common::wait_for;
 use eframe::egui;
-use peler::bookmarks::{Auth, Bookmark};
-use peler::secrets::{self, SecretKind};
-use peler::ssh::session::{ConnectSpec, Connection};
-use peler::ssh::types::{ConnError, ConnState, Prompt, SecretAnswer, SecretPromptKind};
 use russh::server::{Auth as ServerAuth, Msg, Response, Session};
 use russh::{Channel, ChannelId, MethodKind, MethodSet};
+use ternaryshell::bookmarks::{Auth, Bookmark};
+use ternaryshell::secrets::{self, SecretKind};
+use ternaryshell::ssh::session::{ConnectSpec, Connection};
+use ternaryshell::ssh::types::{ConnError, ConnState, Prompt, SecretAnswer, SecretPromptKind};
 
 #[derive(Clone)]
 struct TestServer {
@@ -188,7 +188,7 @@ fn answer(
 #[test]
 fn password_and_keyboard_interactive_logins() {
     // SAFETY: set before other threads read the environment.
-    unsafe { std::env::set_var("PELER_SECRETS", "memory") };
+    unsafe { std::env::set_var("TERNARYSHELL_SECRETS", "memory") };
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Packages the Linux build for this machine's architecture (x86_64 or aarch64) into dist/:
 #
-#   Peler-<v>-linux-<arch>.tar.gz     any distribution: unpack into ~/.local (see the README)
-#   Peler-<v>-linux-<amd64|arm64>.deb Debian, Ubuntu, Mint, Pop!_OS …
-#   Peler-<v>-linux-<arch>.rpm        Fedora, RHEL, Rocky, AlmaLinux, openSUSE …
-#   Peler-<v>-linux-<arch>.AppImage   most others (Arch, Manjaro …); updates itself
+#   TernaryShell-<v>-linux-<arch>.tar.gz     any distribution: unpack into ~/.local (see the README)
+#   TernaryShell-<v>-linux-<amd64|arm64>.deb Debian, Ubuntu, Mint, Pop!_OS …
+#   TernaryShell-<v>-linux-<arch>.rpm        Fedora, RHEL, Rocky, AlmaLinux, openSUSE …
+#   TernaryShell-<v>-linux-<arch>.AppImage   most others (Arch, Manjaro …); updates itself
 #
 #   cargo build --release --locked
 #   scripts/package-linux.sh
@@ -23,47 +23,47 @@ case "$ARCH" in
   aarch64) DEB_ARCH=arm64 ;;
   *) echo "unsupported architecture: $ARCH" >&2; exit 1 ;;
 esac
-BIN="${PELER_BIN:-$ROOT/target/release/peler}"
+BIN="${TERNARYSHELL_BIN:-$ROOT/target/release/ternaryshell}"
 OUT="$ROOT/dist"
 WORK="$ROOT/target/linux-pkg"
-REPO="https://github.com/ilhamnadhif/peler"
+REPO="https://github.com/ilhamnadhif/ternaryshell"
 SUMMARY="Lightweight SSH and SFTP client"
-DESCRIPTION="Peler is a fast, native SSH and SFTP client written in Rust: saved connections in
+DESCRIPTION="TernaryShell is a fast, native SSH and SFTP client written in Rust: saved connections in
 groups, tabs and split panes, a dual-pane SFTP browser with background transfers, remote file
 editing, jump hosts, port forwarding and SSH agents. No account, no telemetry."
-NAME="Peler-$VERSION-linux"
+NAME="TernaryShell-$VERSION-linux"
 
 [[ -x "$BIN" ]] || { echo "missing $BIN: run cargo build --release first" >&2; exit 1; }
-[[ "$("$BIN" --version)" == "Peler $VERSION" ]] || { echo "$BIN is not Peler $VERSION" >&2; exit 1; }
+[[ "$("$BIN" --version)" == "TernaryShell $VERSION" ]] || { echo "$BIN is not TernaryShell $VERSION" >&2; exit 1; }
 rm -rf "$WORK"
 mkdir -p "$WORK" "$OUT"
 
 echo "== file tree"
 TREE="$WORK/tree"
-install -Dm755 "$BIN" "$TREE/usr/bin/peler"
-install -Dm644 packaging/linux/peler.desktop "$TREE/usr/share/applications/peler.desktop"
-for icon in packaging/linux/icons/hicolor/*/apps/peler.png; do
+install -Dm755 "$BIN" "$TREE/usr/bin/ternaryshell"
+install -Dm644 packaging/linux/ternaryshell.desktop "$TREE/usr/share/applications/ternaryshell.desktop"
+for icon in packaging/linux/icons/hicolor/*/apps/ternaryshell.png; do
   install -Dm644 "$icon" "$TREE/usr/share/icons/${icon#packaging/linux/icons/}"
 done
-install -Dm644 README.md "$TREE/usr/share/doc/peler/README.md"
-install -Dm644 LICENSE "$TREE/usr/share/doc/peler/copyright"
+install -Dm644 README.md "$TREE/usr/share/doc/ternaryshell/README.md"
+install -Dm644 LICENSE "$TREE/usr/share/doc/ternaryshell/copyright"
 
 echo "== tar.gz"
 # bin/ and share/ at the top, so it unpacks into ~/.local (or /usr/local) as it is.
-TAR_DIR="$WORK/peler-$VERSION"
+TAR_DIR="$WORK/ternaryshell-$VERSION"
 mkdir -p "$TAR_DIR"
 cp -a "$TREE/usr/." "$TAR_DIR/"
-tar -C "$WORK" -czf "$OUT/$NAME-$ARCH.tar.gz" "peler-$VERSION"
+tar -C "$WORK" -czf "$OUT/$NAME-$ARCH.tar.gz" "ternaryshell-$VERSION"
 
 echo "== deb"
 DEB="$WORK/deb"
 cp -a "$TREE" "$DEB"
 mkdir -p "$DEB/DEBIAN"
 {
-  echo "Package: peler"
+  echo "Package: ternaryshell"
   echo "Version: $VERSION"
   echo "Architecture: $DEB_ARCH"
-  echo "Maintainer: Peler contributors <ilhamnadhif@users.noreply.github.com>"
+  echo "Maintainer: TernaryShell contributors <ilhamnadhif@users.noreply.github.com>"
   echo "Installed-Size: $(du -sk "$TREE" | cut -f1)"
   # The window system and OpenGL libraries are loaded at run time; desktops have them.
   echo "Depends: libc6 (>= 2.28), libgcc-s1 | libgcc1, libxkbcommon0, libgl1 | libegl1"
@@ -80,7 +80,7 @@ echo "== rpm"
 RPM="$WORK/rpm"
 mkdir -p "$RPM"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
 {
-  echo "Name: peler"
+  echo "Name: ternaryshell"
   echo "Version: $VERSION"
   echo "Release: 1"
   echo "Summary: $SUMMARY"
@@ -97,21 +97,21 @@ mkdir -p "$RPM"/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
   echo "mkdir -p %{buildroot}"
   echo "cp -a $TREE/. %{buildroot}/"
   echo "%files"
-  echo "/usr/bin/peler"
-  echo "/usr/share/applications/peler.desktop"
-  echo "/usr/share/icons/hicolor/*/apps/peler.png"
-  echo "%doc /usr/share/doc/peler/README.md"
-  echo "%license /usr/share/doc/peler/copyright"
-} > "$RPM/SPECS/peler.spec"
-rpmbuild -bb --quiet --define "_topdir $RPM" --target "$ARCH" "$RPM/SPECS/peler.spec"
-cp "$RPM/RPMS/$ARCH/peler-$VERSION-1.$ARCH.rpm" "$OUT/$NAME-$ARCH.rpm"
+  echo "/usr/bin/ternaryshell"
+  echo "/usr/share/applications/ternaryshell.desktop"
+  echo "/usr/share/icons/hicolor/*/apps/ternaryshell.png"
+  echo "%doc /usr/share/doc/ternaryshell/README.md"
+  echo "%license /usr/share/doc/ternaryshell/copyright"
+} > "$RPM/SPECS/ternaryshell.spec"
+rpmbuild -bb --quiet --define "_topdir $RPM" --target "$ARCH" "$RPM/SPECS/ternaryshell.spec"
+cp "$RPM/RPMS/$ARCH/ternaryshell-$VERSION-1.$ARCH.rpm" "$OUT/$NAME-$ARCH.rpm"
 
 echo "== AppImage"
-APPDIR="$WORK/Peler.AppDir"
+APPDIR="$WORK/TernaryShell.AppDir"
 cp -a "$TREE" "$APPDIR"
-ln -s usr/bin/peler "$APPDIR/AppRun"
-cp packaging/linux/peler.desktop "$APPDIR/peler.desktop"
-cp packaging/linux/icons/hicolor/256x256/apps/peler.png "$APPDIR/peler.png"
+ln -s usr/bin/ternaryshell "$APPDIR/AppRun"
+cp packaging/linux/ternaryshell.desktop "$APPDIR/ternaryshell.desktop"
+cp packaging/linux/icons/hicolor/256x256/apps/ternaryshell.png "$APPDIR/ternaryshell.png"
 TOOL="${APPIMAGETOOL:-$ROOT/target/appimagetool-$ARCH.AppImage}"
 if [[ ! -x "$TOOL" ]]; then
   curl --proto '=https' --tlsv1.2 -fsSL -o "$TOOL" \

@@ -12,18 +12,18 @@ use alacritty_terminal::index::{Column, Line};
 use common::{TestServer, user, wait_for};
 use eframe::egui;
 use parking_lot::Mutex;
-use peler::bookmarks::{Auth, Bookmark};
-use peler::ssh::session::{ConnectSpec, Connection, PaneInput, PaneStart, PaneStatus};
-use peler::ssh::types::{
+use ternaryshell::bookmarks::{Auth, Bookmark};
+use ternaryshell::ssh::session::{ConnectSpec, Connection, PaneInput, PaneStart, PaneStatus};
+use ternaryshell::ssh::types::{
     ConnError, ConnState, HostKeyStatus, Prompt, SecretAnswer, SecretPromptKind,
 };
-use peler::term::core::{Feeder, GridSize, new_terminal, term_config};
-use peler::term::scheme::SCHEMES;
+use ternaryshell::term::core::{Feeder, GridSize, new_terminal, term_config};
+use ternaryshell::term::scheme::SCHEMES;
 use tokio::sync::mpsc;
 
 fn runtime() -> tokio::runtime::Runtime {
     // SAFETY: tests in this file set the same value before any other thread reads it.
-    unsafe { std::env::set_var("PELER_SECRETS", "memory") };
+    unsafe { std::env::set_var("TERNARYSHELL_SECRETS", "memory") };
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -140,7 +140,7 @@ fn screen_text(p: &TestPane) -> String {
 fn key_auth_shell_known_hosts_and_errors() {
     let rt = runtime();
     let server = TestServer::start();
-    let known = server.dir.path().join("peler_known_hosts");
+    let known = server.dir.path().join("ternaryshell_known_hosts");
     let ctx = egui::Context::default();
 
     // First connection: unknown host key is confirmed, key auth succeeds.
@@ -273,7 +273,7 @@ fn key_auth_shell_known_hosts_and_errors() {
     drop(conn);
     // The passphrase was saved ("save: true"), so the next connection does not ask.
     assert_eq!(
-        peler::secrets::get(id, peler::secrets::SecretKind::Passphrase)
+        ternaryshell::secrets::get(id, ternaryshell::secrets::SecretKind::Passphrase)
             .unwrap()
             .as_deref(),
         Some("open sesame")

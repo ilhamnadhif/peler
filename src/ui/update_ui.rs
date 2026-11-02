@@ -13,7 +13,7 @@ use crate::sftp::entry::human_size;
 use crate::update::{self, CURRENT, Prepared, Release, Stage};
 
 /// Automatic checks: right after launch, where a new version opens the update dialog by
-/// itself, then every few hours while Peler stays open, where it only lights up the toolbar
+/// itself, then every few hours while TernaryShell stays open, where it only lights up the toolbar
 /// button (a dialog popping up while you type would take your keys).
 const FIRST_CHECK_AFTER: Duration = Duration::from_secs(2);
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 3600);
@@ -149,9 +149,8 @@ impl Updater {
     fn report_last_update(&mut self) -> Option<String> {
         std::thread::spawn(update::remove_leftovers);
         match update::take_outcome()? {
-            update::Outcome::Installed(version) => {
-                (version == CURRENT).then(|| tf("Peler was updated to version {}.", &[CURRENT]))
-            }
+            update::Outcome::Installed(version) => (version == CURRENT)
+                .then(|| tf("TernaryShell was updated to version {}.", &[CURRENT])),
             update::Outcome::Cancelled => {
                 self.show_error(
                     t("The update was not installed because no administrator password was entered.")
@@ -224,7 +223,7 @@ impl Updater {
                                         self.popup = true;
                                     } else if !self.dialog_open {
                                         toast = Some(tf(
-                                            "Peler {} is available. Use the Update button to install it.",
+                                            "TernaryShell {} is available. Use the Update button to install it.",
                                             &[&release.version],
                                         ));
                                     }
@@ -308,7 +307,7 @@ impl Updater {
             &label,
             true,
         )
-        .on_hover_text(t("A new version of Peler is available"));
+        .on_hover_text(t("A new version of TernaryShell is available"));
         #[cfg(debug_assertions)]
         crate::devtest::record("update-button", resp.rect);
         let clicked = resp.clicked();
@@ -325,7 +324,7 @@ impl Updater {
         let ctx = ctx.clone();
         let offered = release.clone();
         std::thread::spawn(move || {
-            // Always the latest: a release that came out since this one was found (Peler
+            // Always the latest: a release that came out since this one was found (TernaryShell
             // open for days) is installed instead, not after another update.
             let release = match update::check() {
                 Ok(Some(latest)) if update::is_newer(&latest.version, &offered.version) => {
@@ -378,7 +377,7 @@ impl Updater {
                     }
                 }
                 State::UpToDate => {
-                    ui.heading(t("Peler is up to date"));
+                    ui.heading(t("TernaryShell is up to date"));
                     ui.label(tf("Version {} is the latest version.", &[CURRENT]));
                     ui.add_space(8.0);
                     if ui.add(style::primary(t("OK"))).clicked() {
@@ -403,7 +402,7 @@ impl Updater {
                 }
                 State::Available(release) => {
                     ui.heading(t("Software Update"));
-                    ui.label(RichText::new(t("A new version of Peler is available.")).strong());
+                    ui.label(RichText::new(t("A new version of TernaryShell is available.")).strong());
                     ui.add_space(6.0);
                     egui::Grid::new("update-versions")
                         .num_columns(2)
@@ -463,7 +462,7 @@ impl Updater {
                     });
                 }
                 State::Downloading(release) => {
-                    ui.heading(tf("Updating to Peler {}", &[&release.version]));
+                    ui.heading(tf("Updating to TernaryShell {}", &[&release.version]));
                     ui.add_space(6.0);
                     let stage = self.stage.lock().clone();
                     let (fraction, text) = match stage {
@@ -489,9 +488,9 @@ impl Updater {
                     }
                 }
                 State::Ready(release, _) => {
-                    ui.heading(tf("Peler {} is ready to install", &[&release.version]));
+                    ui.heading(tf("TernaryShell {} is ready to install", &[&release.version]));
                     ui.label(t(
-                        "Peler will quit, install the new version and open again. Open sessions are closed.",
+                        "TernaryShell will quit, install the new version and open again. Open sessions are closed.",
                     ));
                     ui.add_space(8.0);
                     ui.horizontal(|ui| {
@@ -527,7 +526,7 @@ impl Updater {
 }
 
 /// Marks where the release notes end and the web-only part (how to install) begins.
-const NOTES_END: &str = "<!-- peler:end-of-notes -->";
+const NOTES_END: &str = "<!-- ternaryshell:end-of-notes -->";
 
 /// One piece of the release notes.
 #[derive(Debug, PartialEq)]
@@ -782,7 +781,7 @@ mod tests {
     fn prepared(version: &str) -> Prepared {
         Prepared {
             version: version.into(),
-            dir: std::path::PathBuf::from("/nonexistent/peler-update-test"),
+            dir: std::path::PathBuf::from("/nonexistent/ternaryshell-update-test"),
             file: std::path::PathBuf::new(),
         }
     }
@@ -796,7 +795,7 @@ mod tests {
         }
     }
 
-    /// Peler stays open while two releases come out: the second replaces the first, even one
+    /// TernaryShell stays open while two releases come out: the second replaces the first, even one
     /// already downloaded, and finding the same version again changes nothing.
     #[test]
     fn a_newer_release_replaces_the_one_offered() {
@@ -843,12 +842,15 @@ mod tests {
 
     #[test]
     fn notes_are_read_like_markdown() {
-        let notes = "## Fixes\n\n- **Peler no longer quits** when you close\n  a tab.\n- Dialogs\n  - Esc closes `Export` again.\n\nSee [the page](https://x) for more.\n\n<!-- peler:end-of-notes -->\n\n## Install\n\ncurl …";
+        let notes = "## Fixes\n\n- **TernaryShell no longer quits** when you close\n  a tab.\n- Dialogs\n  - Esc closes `Export` again.\n\nSee [the page](https://x) for more.\n\n<!-- ternaryshell:end-of-notes -->\n\n## Install\n\ncurl …";
         assert_eq!(
             parse_notes(notes),
             [
                 Block::Heading("Fixes".into()),
-                Block::Item(0, "**Peler no longer quits** when you close a tab.".into()),
+                Block::Item(
+                    0,
+                    "**TernaryShell no longer quits** when you close a tab.".into()
+                ),
                 Block::Item(0, "Dialogs".into()),
                 Block::Item(1, "Esc closes `Export` again.".into()),
                 Block::Paragraph("See [the page](https://x) for more.".into()),

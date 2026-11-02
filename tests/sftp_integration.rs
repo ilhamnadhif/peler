@@ -12,16 +12,16 @@ use std::time::Instant;
 
 use common::{TestServer, user, wait_for};
 use eframe::egui;
-use peler::bookmarks::{Auth, Bookmark};
-use peler::sftp::entry::remote_join;
-use peler::sftp::remote;
-use peler::sftp::transfer::{TransferState, Transfers};
-use peler::ssh::session::{ConnectSpec, Connection};
-use peler::ssh::types::{ConnState, Prompt};
+use ternaryshell::bookmarks::{Auth, Bookmark};
+use ternaryshell::sftp::entry::remote_join;
+use ternaryshell::sftp::remote;
+use ternaryshell::sftp::transfer::{TransferState, Transfers};
+use ternaryshell::ssh::session::{ConnectSpec, Connection};
+use ternaryshell::ssh::types::{ConnState, Prompt};
 
 fn runtime() -> tokio::runtime::Runtime {
     // SAFETY: set before any other thread reads the environment.
-    unsafe { std::env::set_var("PELER_SECRETS", "memory") };
+    unsafe { std::env::set_var("TERNARYSHELL_SECRETS", "memory") };
     tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
@@ -103,7 +103,7 @@ fn same_contents(a: &Path, b: &Path) -> bool {
     }
 }
 
-fn wait_transfer(t: &peler::sftp::transfer::Transfer, secs: u64) -> TransferState {
+fn wait_transfer(t: &ternaryshell::sftp::transfer::Transfer, secs: u64) -> TransferState {
     wait_for(secs, "transfer", || t.is_finished().then(|| t.state()))
 }
 
@@ -314,7 +314,7 @@ fn file_operations_and_transfers() {
     let leftovers: Vec<_> = std::fs::read_dir(&back)
         .unwrap()
         .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .filter(|n| n.contains("peler-part"))
+        .filter(|n| n.contains("ternaryshell-part"))
         .collect();
     assert!(leftovers.is_empty(), "temporary files left: {leftovers:?}");
 
@@ -362,7 +362,7 @@ fn upload_replaces_files_safely() {
         std::fs::read_dir(dir)
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .filter(|n| n.contains(".peler-"))
+            .filter(|n| n.contains(".ternaryshell-"))
             .collect()
     };
 

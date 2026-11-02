@@ -3509,54 +3509,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "peler"
-version = "1.4.1"
-dependencies = [
- "alacritty_terminal",
- "anyhow",
- "argon2",
- "base64 0.23.1",
- "chacha20poly1305",
- "chrono",
- "dirs",
- "eframe",
- "egui_extras",
- "getrandom 0.4.3",
- "hmac",
- "keyring",
- "libc",
- "log",
- "memmap2",
- "muda",
- "objc2 0.6.5",
- "objc2-app-kit 0.3.2",
- "objc2-foundation 0.3.2",
- "parking_lot",
- "rfd",
- "ring",
- "rsa",
- "russh",
- "russh-sftp",
- "serde",
- "serde_json",
- "sha1",
- "sha2",
- "signature",
- "skrifa",
- "sys-locale",
- "tempfile",
- "thiserror 2.0.21",
- "tiny-skia 0.12.0",
- "tokio",
- "tokio-util",
- "uuid",
- "wgpu",
- "windows-sys 0.61.2",
- "winit",
- "winresource",
-]
-
-[[package]]
 name = "pem-rfc7468"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4381,7 +4333,7 @@ dependencies = [
  "log",
  "memmap2",
  "smithay-client-toolkit 0.19.2",
- "tiny-skia 0.11.4",
+ "tiny-skia",
 ]
 
 [[package]]
@@ -4953,6 +4905,53 @@ dependencies = [
 ]
 
 [[package]]
+name = "ternaryshell"
+version = "1.4.1"
+dependencies = [
+ "alacritty_terminal",
+ "anyhow",
+ "argon2",
+ "base64 0.23.1",
+ "chacha20poly1305",
+ "chrono",
+ "dirs",
+ "eframe",
+ "egui_extras",
+ "getrandom 0.4.3",
+ "hmac",
+ "keyring",
+ "libc",
+ "log",
+ "memmap2",
+ "muda",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
+ "parking_lot",
+ "rfd",
+ "ring",
+ "rsa",
+ "russh",
+ "russh-sftp",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "signature",
+ "skrifa",
+ "sys-locale",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "uuid",
+ "wgpu",
+ "windows-sys 0.61.2",
+ "winit",
+ "winresource",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5017,22 +5016,7 @@ dependencies = [
  "bytemuck",
  "cfg-if",
  "log",
- "tiny-skia-path 0.11.4",
-]
-
-[[package]]
-name = "tiny-skia"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47ffee5eaaf5527f630fb0e356b90ebdec84d5d18d937c5e440350f88c5a91ea"
-dependencies = [
- "arrayref",
- "arrayvec",
- "bytemuck",
- "cfg-if",
- "log",
- "png",
- "tiny-skia-path 0.12.0",
+ "tiny-skia-path",
 ]
 
 [[package]]
@@ -5040,17 +5024,6 @@ name = "tiny-skia-path"
 version = "0.11.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9c9e7fc0c2e86a30b117d0462aa261b72b7a99b7ebd7deb3a14ceda95c5bdc93"
-dependencies = [
- "arrayref",
- "bytemuck",
- "strict-num",
-]
-
-[[package]]
-name = "tiny-skia-path"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edca365c3faccca67d06593c5980fa6c57687de727a03131735bb85f01fdeeb9"
 dependencies = [
  "arrayref",
  "bytemuck",

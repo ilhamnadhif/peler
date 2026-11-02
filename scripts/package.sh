@@ -1,38 +1,38 @@
 #!/usr/bin/env bash
-# Builds Peler.app (universal: Apple Silicon + Intel), signs it, and produces the installers:
-#   dist/Peler-<version>.dmg   drag-to-Applications disk image
-#   dist/Peler-<version>.pkg   macOS Installer package (installs into /Applications)
-#   dist/Peler-<version>.zip   the app alone, which the in-app updater downloads
-#   dist/homebrew/peler.rb     Homebrew cask pointing at the GitHub release
+# Builds TernaryShell.app (universal: Apple Silicon + Intel), signs it, and produces the installers:
+#   dist/TernaryShell-<version>.dmg   drag-to-Applications disk image
+#   dist/TernaryShell-<version>.pkg   macOS Installer package (installs into /Applications)
+#   dist/TernaryShell-<version>.zip   the app alone, which the in-app updater downloads
+#   dist/homebrew/ternaryshell.rb     Homebrew cask pointing at the GitHub release
 #
 #   scripts/package.sh                 # ad-hoc signed (runs on this Mac)
-#   PELER_SIGN_IDENTITY="Developer ID Application: Name (TEAMID)" \
-#   PELER_INSTALLER_IDENTITY="Developer ID Installer: Name (TEAMID)" \
-#   PELER_NOTARY_PROFILE=peler-notary scripts/package.sh
+#   TERNARYSHELL_SIGN_IDENTITY="Developer ID Application: Name (TEAMID)" \
+#   TERNARYSHELL_INSTALLER_IDENTITY="Developer ID Installer: Name (TEAMID)" \
+#   TERNARYSHELL_NOTARY_PROFILE=ternaryshell-notary scripts/package.sh
 #                                      # Developer ID signing + Apple notarization
 #
-# PELER_NOTARY_PROFILE is a notarytool keychain profile, created once with:
-#   xcrun notarytool store-credentials peler-notary --apple-id <id> --team-id <TEAMID>
-# Set PELER_ARCHS="aarch64" to build only for Apple Silicon (faster, smaller).
+# TERNARYSHELL_NOTARY_PROFILE is a notarytool keychain profile, created once with:
+#   xcrun notarytool store-credentials ternaryshell-notary --apple-id <id> --team-id <TEAMID>
+# Set TERNARYSHELL_ARCHS="aarch64" to build only for Apple Silicon (faster, smaller).
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 
-APP_NAME="Peler"
-BIN_NAME="peler"
-BUNDLE_ID="${PELER_BUNDLE_ID:-dev.peler.app}"
+APP_NAME="TernaryShell"
+BIN_NAME="ternaryshell"
+BUNDLE_ID="${TERNARYSHELL_BUNDLE_ID:-dev.ternaryshell.app}"
 VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
-ARCHS="${PELER_ARCHS:-aarch64 x86_64}"
+ARCHS="${TERNARYSHELL_ARCHS:-aarch64 x86_64}"
 DIST="dist"
 # The built app sits in a `.noindex` folder: Spotlight skips it, so macOS doesn't offer (and
-# open) this copy instead of the installed one when you launch Peler.
+# open) this copy instead of the installed one when you launch TernaryShell.
 APP="$DIST/app.noindex/$APP_NAME.app"
 LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
 DMG="$DIST/$APP_NAME-$VERSION.dmg"
 PKG="$DIST/$APP_NAME-$VERSION.pkg"
 ZIP="$DIST/$APP_NAME-$VERSION.zip"
-REPO="${PELER_REPO:-ilhamnadhif/peler}"
+REPO="${TERNARYSHELL_REPO:-ilhamnadhif/ternaryshell}"
 export MACOSX_DEPLOYMENT_TARGET=12.0
 
 echo "==> Building $APP_NAME $VERSION for: $ARCHS"
@@ -84,10 +84,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 echo "==> Signing"
-if [ -n "${PELER_SIGN_IDENTITY:-}" ]; then
-    codesign --force --timestamp --options runtime --sign "$PELER_SIGN_IDENTITY" "$APP"
+if [ -n "${TERNARYSHELL_SIGN_IDENTITY:-}" ]; then
+    codesign --force --timestamp --options runtime --sign "$TERNARYSHELL_SIGN_IDENTITY" "$APP"
 else
-    echo "    (ad-hoc: set PELER_SIGN_IDENTITY for a Developer ID signature)"
+    echo "    (ad-hoc: set TERNARYSHELL_SIGN_IDENTITY for a Developer ID signature)"
     codesign --force --sign - "$APP"
 fi
 codesign --verify --strict --verbose=1 "$APP"
@@ -99,30 +99,30 @@ echo "==> Creating DMG"
 STAGE="$(mktemp -d)"
 cp -R "$APP" "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
-if [ -z "${PELER_NOTARY_PROFILE:-}" ]; then
+if [ -z "${TERNARYSHELL_NOTARY_PROFILE:-}" ]; then
     # Not notarized: say how to get past Gatekeeper, right next to the app.
-    cat > "$STAGE/If Peler does not open.txt" <<'HELP'
-macOS says "Peler" Not Opened / "Apple could not verify Peler is free of malware"?
+    cat > "$STAGE/If TernaryShell does not open.txt" <<'HELP'
+macOS says "TernaryShell" Not Opened / "Apple could not verify TernaryShell is free of malware"?
 
-This build of Peler is not notarized by Apple yet, so macOS blocks it the first time.
+This build of TernaryShell is not notarized by Apple yet, so macOS blocks it the first time.
 To open it:
 
-1. Drag Peler onto Applications (in this window).
-2. Open Peler. When the warning appears, click "Done".
+1. Drag TernaryShell onto Applications (in this window).
+2. Open TernaryShell. When the warning appears, click "Done".
 3. Open System Settings > Privacy & Security, scroll down to "Security",
-   and click "Open Anyway" next to "Peler was blocked...". Enter your password.
-4. Open Peler again and click "Open Anyway".
+   and click "Open Anyway" next to "TernaryShell was blocked...". Enter your password.
+4. Open TernaryShell again and click "Open Anyway".
 
-Or, in Terminal:   xattr -dr com.apple.quarantine /Applications/Peler.app
+Or, in Terminal:   xattr -dr com.apple.quarantine /Applications/TernaryShell.app
 
 Easiest of all, install from Terminal instead (nothing is blocked):
-   curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/peler/master/scripts/install.sh | bash
+   curl -fsSL https://raw.githubusercontent.com/ilhamnadhif/ternaryshell/master/scripts/install.sh | bash
 HELP
 fi
 hdiutil create -quiet -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
 rm -rf "$STAGE"
-if [ -n "${PELER_SIGN_IDENTITY:-}" ]; then
-    codesign --force --timestamp --sign "$PELER_SIGN_IDENTITY" "$DMG"
+if [ -n "${TERNARYSHELL_SIGN_IDENTITY:-}" ]; then
+    codesign --force --timestamp --sign "$TERNARYSHELL_SIGN_IDENTITY" "$DMG"
 fi
 
 echo "==> Creating installer package"
@@ -138,7 +138,7 @@ pkgbuild --quiet \
     --install-location /Applications \
     --identifier "$BUNDLE_ID.pkg" \
     --version "$VERSION" \
-    "$PKG_WORK/Peler-component.pkg"
+    "$PKG_WORK/TernaryShell-component.pkg"
 cat > "$PKG_WORK/distribution.xml" <<DIST
 <?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
@@ -149,12 +149,12 @@ cat > "$PKG_WORK/distribution.xml" <<DIST
     <choices-outline><line choice="default"><line choice="$BUNDLE_ID"/></line></choices-outline>
     <choice id="default"/>
     <choice id="$BUNDLE_ID" visible="false"><pkg-ref id="$BUNDLE_ID.pkg"/></choice>
-    <pkg-ref id="$BUNDLE_ID.pkg" version="$VERSION" onConclusion="none">Peler-component.pkg</pkg-ref>
+    <pkg-ref id="$BUNDLE_ID.pkg" version="$VERSION" onConclusion="none">TernaryShell-component.pkg</pkg-ref>
 </installer-gui-script>
 DIST
 PRODUCT_SIGN=()
-if [ -n "${PELER_INSTALLER_IDENTITY:-}" ]; then
-    PRODUCT_SIGN=(--sign "$PELER_INSTALLER_IDENTITY" --timestamp)
+if [ -n "${TERNARYSHELL_INSTALLER_IDENTITY:-}" ]; then
+    PRODUCT_SIGN=(--sign "$TERNARYSHELL_INSTALLER_IDENTITY" --timestamp)
 fi
 productbuild --quiet ${PRODUCT_SIGN[@]+"${PRODUCT_SIGN[@]}"} \
     --distribution "$PKG_WORK/distribution.xml" \
@@ -162,10 +162,10 @@ productbuild --quiet ${PRODUCT_SIGN[@]+"${PRODUCT_SIGN[@]}"} \
     "$PKG"
 rm -rf "$PKG_ROOT" "$PKG_WORK"
 
-if [ -n "${PELER_NOTARY_PROFILE:-}" ]; then
+if [ -n "${TERNARYSHELL_NOTARY_PROFILE:-}" ]; then
     echo "==> Notarizing (this can take a few minutes)"
     for artifact in "$DMG" "$PKG"; do
-        xcrun notarytool submit "$artifact" --keychain-profile "$PELER_NOTARY_PROFILE" --wait
+        xcrun notarytool submit "$artifact" --keychain-profile "$TERNARYSHELL_NOTARY_PROFILE" --wait
         xcrun stapler staple "$artifact"
         xcrun stapler validate "$artifact"
     done
@@ -173,22 +173,22 @@ fi
 
 SHA="$(shasum -a 256 "$DMG" | awk '{print $1}')"
 mkdir -p "$DIST/homebrew"
-cat > "$DIST/homebrew/peler.rb" <<CASK
-cask "peler" do
+cat > "$DIST/homebrew/ternaryshell.rb" <<CASK
+cask "ternaryshell" do
   version "$VERSION"
   sha256 "$SHA"
 
-  url "https://github.com/$REPO/releases/download/v#{version}/Peler-#{version}.dmg"
-  name "Peler"
+  url "https://github.com/$REPO/releases/download/v#{version}/TernaryShell-#{version}.dmg"
+  name "TernaryShell"
   desc "Lightweight SSH and SFTP client"
   homepage "https://github.com/$REPO"
 
   depends_on macos: ">= :monterey"
 
-  app "Peler.app"
+  app "TernaryShell.app"
 
   zap trash: [
-    "~/Library/Application Support/peler",
+    "~/Library/Application Support/ternaryshell",
   ]
 end
 CASK
@@ -196,16 +196,16 @@ CASK
 APP_SIZE="$(du -sh "$APP" | awk '{print $1}')"
 ARCHS_BUILT="$(lipo -archs "$APP/Contents/MacOS/$BIN_NAME")"
 # The app is in the installers now. macOS registers any app it comes across (even here, after
-# a while), and would then open this build instead of the installed Peler, so it goes. Set
-# PELER_KEEP_APP=1 to keep it for testing.
-if [ -z "${PELER_KEEP_APP:-}" ]; then
+# a while), and would then open this build instead of the installed TernaryShell, so it goes. Set
+# TERNARYSHELL_KEEP_APP=1 to keep it for testing.
+if [ -z "${TERNARYSHELL_KEEP_APP:-}" ]; then
     "$LSREGISTER" -u "$APP" 2>/dev/null || true
     rm -rf "$(dirname "$APP")"
 fi
 
 echo
-echo "App:      $APP_SIZE, $ARCHS_BUILT$([ -n "${PELER_KEEP_APP:-}" ] && echo " ($APP)")"
+echo "App:      $APP_SIZE, $ARCHS_BUILT$([ -n "${TERNARYSHELL_KEEP_APP:-}" ] && echo " ($APP)")"
 echo "DMG:      $DMG ($(du -h "$DMG" | awk '{print $1}'))"
 echo "PKG:      $PKG ($(du -h "$PKG" | awk '{print $1}'))"
 echo "ZIP:      $ZIP ($(du -h "$ZIP" | awk '{print $1}'))"
-echo "Cask:     $DIST/homebrew/peler.rb"
+echo "Cask:     $DIST/homebrew/ternaryshell.rb"

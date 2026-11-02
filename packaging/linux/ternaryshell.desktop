@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=Peler
+Name=TernaryShell
 GenericName=SSH Client
 Comment=Lightweight SSH and SFTP client
-Exec=peler %U
-Icon=peler
-StartupWMClass=peler
+Exec=ternaryshell %U
+Icon=ternaryshell
+StartupWMClass=ternaryshell
 Terminal=false
 Categories=Network;RemoteAccess;System;
 Keywords=SSH;SFTP;terminal;remote;server;

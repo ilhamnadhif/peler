@@ -47,7 +47,7 @@ pub struct Palette {
 }
 
 const LIGHT: Palette = Palette {
-    // The background of the "Peler Light" terminal scheme, so the terminal blends in.
+    // The background of the "TernaryShell Light" terminal scheme, so the terminal blends in.
     canvas: Color32::from_rgb(0xfb, 0xfb, 0xfc),
     chrome: Color32::from_rgb(0xf5, 0xf5, 0xf7),
     surface: Color32::from_rgb(0xff, 0xff, 0xff),
@@ -71,7 +71,7 @@ const LIGHT: Palette = Palette {
 };
 
 const DARK: Palette = Palette {
-    // The background of the "Peler Dark" terminal scheme, so the terminal blends in.
+    // The background of the "TernaryShell Dark" terminal scheme, so the terminal blends in.
     canvas: Color32::from_rgb(0x17, 0x19, 0x1e),
     chrome: Color32::from_rgb(0x12, 0x13, 0x17),
     surface: Color32::from_rgb(0x1f, 0x20, 0x26),

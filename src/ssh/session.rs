@@ -1541,7 +1541,7 @@ const SFTP_SERVER_DISCOVERY: &str = "for p in \
 /usr/lib/ssh/sftp-server \
 /usr/libexec/ssh/sftp-server \
 /usr/lib/sftp-server; do [ -x \"$p\" ] && exec \"$p\"; done; \
-echo peler: sftp-server not found >&2; exit 127";
+echo ternaryshell: sftp-server not found >&2; exit 127";
 
 /// Opens an SFTP session that runs as root through `sudo`. `password` is written on the channel
 /// for `sudo -S`; `None` uses `sudo -n` (passwordless sudo). The server must allow sudo for this
@@ -1563,7 +1563,7 @@ async fn open_sftp_root(
         "sudo -n -p '' --"
     };
     let prefix = if cfg!(debug_assertions) {
-        std::env::var("PELER_SFTP_ROOT_PREFIX").unwrap_or_else(|_| sudo.to_string())
+        std::env::var("TERNARYSHELL_SFTP_ROOT_PREFIX").unwrap_or_else(|_| sudo.to_string())
     } else {
         sudo.to_string()
     };

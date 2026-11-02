@@ -127,7 +127,7 @@ const ID: &[(&str, &str)] = &[
         "0 = off. Applies to new connections.",
         "0 = mati. Berlaku untuk koneksi baru.",
     ),
-    ("About Peler", "Tentang Peler"),
+    ("About TernaryShell", "Tentang TernaryShell"),
     ("Accept New Key", "Terima Kunci Baru"),
     ("Action", "Tindakan"),
     ("Actual Size", "Ukuran Asli"),
@@ -260,7 +260,7 @@ const ID: &[(&str, &str)] = &[
     ("Group name", "Nama grup"),
     ("Help", "Bantuan"),
     ("Hide Others", "Sembunyikan Lainnya"),
-    ("Hide Peler", "Sembunyikan Peler"),
+    ("Hide TernaryShell", "Sembunyikan TernaryShell"),
     ("Home folder", "Folder home"),
     ("Host", "Host"),
     ("Host is required.", "Host wajib diisi."),
@@ -398,8 +398,8 @@ const ID: &[(&str, &str)] = &[
     ("Quick Commands", "Quick Command"),
     ("Quick Connect…", "Konek Cepat…"),
     ("Quit", "Keluar"),
-    ("Quit Peler", "Keluar dari Peler"),
-    ("Quit Peler?", "Keluar dari Peler?"),
+    ("Quit TernaryShell", "Keluar dari TernaryShell"),
+    ("Quit TernaryShell?", "Keluar dari TernaryShell?"),
     ("Read", "Baca"),
     ("Reconnect", "Konek Ulang"),
     ("Refresh", "Muat ulang"),
@@ -529,8 +529,8 @@ const ID: &[(&str, &str)] = &[
         "File ini berisi password dan key terenkripsi. Masukkan passphrase ekspor untuk mengimpornya, atau lanjutkan tanpanya.",
     ),
     (
-        "This file was exported by a newer version of peler (schema {}); this version reads up to schema {}. Please update the app.",
-        "File ini diekspor oleh versi peler yang lebih baru (skema {}); versi ini hanya membaca sampai skema {}. Silakan perbarui aplikasi.",
+        "This file was exported by a newer version of TernaryShell (schema {}); this version reads up to schema {}. Please update the app.",
+        "File ini diekspor oleh versi TernaryShell yang lebih baru (skema {}); versi ini hanya membaca sampai skema {}. Silakan perbarui aplikasi.",
     ),
     (
         "This server has not been seen before. Check that the fingerprint matches the server's key before trusting it.",
@@ -554,8 +554,8 @@ const ID: &[(&str, &str)] = &[
         "Kredensial untuk {} koneksi berhasil dibuka.",
     ),
     (
-        "Unrecognized file format: expected a Peler export, an Electerm export or an SSH config.",
-        "Format file tidak dikenali: harus berupa ekspor Peler, ekspor Electerm, atau SSH config.",
+        "Unrecognized file format: expected a TernaryShell export, an Electerm export or an SSH config.",
+        "Format file tidak dikenali: harus berupa ekspor TernaryShell, ekspor Electerm, atau SSH config.",
     ),
     ("Upload", "Unggah"),
     (
@@ -713,8 +713,8 @@ const ID: &[(&str, &str)] = &[
         "Startup command dijalankan di server setiap kali koneksi dibuka. Import hanya dari file yang Anda percaya.",
     ),
     (
-        "The connections were saved by a newer version of Peler (schema {}). Please update the app; until then changes to connections are not saved.",
-        "Koneksi disimpan oleh versi Peler yang lebih baru (schema {}). Perbarui aplikasi; sampai saat itu perubahan koneksi tidak disimpan.",
+        "The connections were saved by a newer version of TernaryShell (schema {}). Please update the app; until then changes to connections are not saved.",
+        "Koneksi disimpan oleh versi TernaryShell yang lebih baru (schema {}). Perbarui aplikasi; sampai saat itu perubahan koneksi tidak disimpan.",
     ),
     (
         "The encrypted credentials in the file are damaged.",
@@ -783,8 +783,8 @@ const ID: &[(&str, &str)] = &[
     ("Connecting to {} through {}…", "Menyambung ke {} lewat {}…"),
     ("Connections", "Koneksi"),
     (
-        "Peler asks GitHub for the latest release when it starts and every few hours.",
-        "Peler mengecek rilis terbaru di GitHub saat dibuka dan setiap beberapa jam.",
+        "TernaryShell asks GitHub for the latest release when it starts and every few hours.",
+        "TernaryShell mengecek rilis terbaru di GitHub saat dibuka dan setiap beberapa jam.",
     ),
     ("Port forwarding is on", "Port forwarding aktif"),
     ("Text", "Teks"),
@@ -806,7 +806,7 @@ const ID: &[(&str, &str)] = &[
     ("Advanced", "Lanjutan"),
     ("Agent", "Agent"),
     (
-        "Agent found. It signs for Peler; the keys never leave it.",
+        "Agent found. It signs for TernaryShell; the keys never leave it.",
         "Agent ditemukan. Agent yang menandatangani; key tidak pernah keluar darinya.",
     ),
     ("Jump host", "Jump host"),
@@ -932,8 +932,8 @@ const ID: &[(&str, &str)] = &[
         "Server tidak merespons lagi. Sambungkan ulang untuk melanjutkan.",
     ),
     (
-        "A new version of Peler is available.",
-        "Versi baru Peler tersedia.",
+        "A new version of TernaryShell is available.",
+        "Versi baru TernaryShell tersedia.",
     ),
     ("Current version:", "Versi sekarang:"),
     ("New version:", "Versi baru:"),
@@ -1031,12 +1031,12 @@ const ID: &[(&str, &str)] = &[
     ("{} cancelled", "{} dibatalkan"),
     ("{} failed", "{} gagal"),
     (
-        "A new version of Peler is available",
-        "Versi baru Peler sudah tersedia",
+        "A new version of TernaryShell is available",
+        "Versi baru TernaryShell sudah tersedia",
     ),
     (
-        "Automatic installation needs Peler in the Applications folder. Download the new version from GitHub instead.",
-        "Instalasi otomatis butuh Peler di folder Applications. Unduh versi barunya dari GitHub saja.",
+        "Automatic installation needs TernaryShell in the Applications folder. Download the new version from GitHub instead.",
+        "Instalasi otomatis butuh TernaryShell di folder Applications. Unduh versi barunya dari GitHub saja.",
     ),
     ("Check for Updates…", "Periksa Pembaruan…"),
     (
@@ -1053,23 +1053,29 @@ const ID: &[(&str, &str)] = &[
     ),
     ("Later", "Nanti"),
     ("Open Releases Page", "Buka Halaman Rilis"),
-    ("Peler is up to date", "Peler sudah versi terbaru"),
     (
-        "Peler will quit, install the new version and open again. Open sessions are closed.",
-        "Peler akan keluar, memasang versi baru, lalu terbuka lagi. Sesi yang terbuka akan ditutup.",
+        "TernaryShell is up to date",
+        "TernaryShell sudah versi terbaru",
     ),
     (
-        "Peler {} is available. Use the Update button to install it.",
-        "Peler {} sudah tersedia. Pakai tombol Perbarui untuk memasangnya.",
-    ),
-    ("Peler {} is ready to install", "Peler {} siap dipasang"),
-    (
-        "Peler wants to install an update.",
-        "Peler ingin memasang pembaruan.",
+        "TernaryShell will quit, install the new version and open again. Open sessions are closed.",
+        "TernaryShell akan keluar, memasang versi baru, lalu terbuka lagi. Sesi yang terbuka akan ditutup.",
     ),
     (
-        "Peler was updated to version {}.",
-        "Peler sudah diperbarui ke versi {}.",
+        "TernaryShell {} is available. Use the Update button to install it.",
+        "TernaryShell {} sudah tersedia. Pakai tombol Perbarui untuk memasangnya.",
+    ),
+    (
+        "TernaryShell {} is ready to install",
+        "TernaryShell {} siap dipasang",
+    ),
+    (
+        "TernaryShell wants to install an update.",
+        "TernaryShell ingin memasang pembaruan.",
+    ),
+    (
+        "TernaryShell was updated to version {}.",
+        "TernaryShell sudah diperbarui ke versi {}.",
     ),
     ("Restart", "Mulai Ulang"),
     ("Restart Now", "Mulai Ulang Sekarang"),
@@ -1087,7 +1093,10 @@ const ID: &[(&str, &str)] = &[
     ),
     ("Update", "Perbarui"),
     ("Updates", "Pembaruan"),
-    ("Updating to Peler {}", "Memperbarui ke Peler {}"),
+    (
+        "Updating to TernaryShell {}",
+        "Memperbarui ke TernaryShell {}",
+    ),
     ("Verifying…", "Memverifikasi…"),
     (
         "Version {} is the latest version.",
@@ -1136,14 +1145,14 @@ const ID: &[(&str, &str)] = &[
     ("search connections", "cari koneksi"),
     ("via", "lewat"),
     (
-        "Peler was installed from a package (or where you can't change it). Download the new version from GitHub and install it the same way.",
-        "Peler dipasang dari paket (atau di tempat yang tidak bisa Anda ubah). Unduh versi baru dari GitHub dan pasang dengan cara yang sama.",
+        "TernaryShell was installed from a package (or where you can't change it). Download the new version from GitHub and install it the same way.",
+        "TernaryShell dipasang dari paket (atau di tempat yang tidak bisa Anda ubah). Unduh versi baru dari GitHub dan pasang dengan cara yang sama.",
     ),
     ("Show in Explorer", "Tampilkan di Explorer"),
     ("Show in Folder", "Tampilkan di Folder"),
     (
-        "This copy of Peler was not installed with its setup. Download the new version from GitHub instead.",
-        "Peler ini tidak dipasang dengan installer-nya. Unduh versi baru dari GitHub saja.",
+        "This copy of TernaryShell was not installed with its setup. Download the new version from GitHub instead.",
+        "TernaryShell ini tidak dipasang dengan installer-nya. Unduh versi baru dari GitHub saja.",
     ),
     ("the installer did not finish", "installer tidak selesai"),
     ("the Keychain", "Keychain"),
@@ -1174,8 +1183,8 @@ const ID: &[(&str, &str)] = &[
         "Memakai SSH agent sesi Anda (key yang ditambahkan dengan ssh-add).",
     ),
     (
-        "Something went wrong and Peler recovered. A report was saved in {}.",
-        "Terjadi kesalahan dan Peler berhasil pulih. Laporannya disimpan di {}.",
+        "Something went wrong and TernaryShell recovered. A report was saved in {}.",
+        "Terjadi kesalahan dan TernaryShell berhasil pulih. Laporannya disimpan di {}.",
     ),
 ];
 

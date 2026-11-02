@@ -46,7 +46,7 @@ const fn scheme(
 
 pub const SCHEMES: &[Scheme] = &[
     scheme(
-        "Peler Dark",
+        "TernaryShell Dark",
         true,
         0xd4d7dd,
         0x17191e,
@@ -58,7 +58,7 @@ pub const SCHEMES: &[Scheme] = &[
         ],
     ),
     scheme(
-        "Peler Light",
+        "TernaryShell Light",
         false,
         0x383a42,
         0xfbfbfc,
@@ -211,7 +211,7 @@ mod tests {
         assert_eq!(xterm_256(196), Color32::from_rgb(255, 0, 0));
         assert_eq!(xterm_256(232), Color32::from_rgb(8, 8, 8));
         assert_eq!(xterm_256(255), Color32::from_rgb(238, 238, 238));
-        assert_eq!(find("nope", false).name, "Peler Light");
+        assert_eq!(find("nope", false).name, "TernaryShell Light");
         assert!(SCHEMES.iter().filter(|s| s.dark).count() >= 3);
     }
 }
