@@ -679,6 +679,14 @@ const ID: &[(&str, &str)] = &[
     ("Could not save {}", "Tidak bisa menyimpan {}"),
     ("{} is damaged", "{} rusak"),
     (
+        "{}: the saved passwords and keys are damaged.",
+        "{}: password dan key yang tersimpan rusak.",
+    ),
+    (
+        "{}: the saved passwords and keys were written by a newer version of TernaryShell. Please update the app.",
+        "{}: password dan key yang tersimpan ditulis oleh versi TernaryShell yang lebih baru. Perbarui aplikasi.",
+    ),
+    (
         "Could not save the host key in {} ({})",
         "Tidak bisa menyimpan host key di {} ({})",
     ),
