@@ -56,6 +56,9 @@ winit = "0.30"
 objc2 = "0.6.5"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSGeometry", "NSArray"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSEvent", "NSApplication", "NSResponder", "NSWindow", "NSView", "NSGraphicsContext"] }
+# The Keychain (src/secrets.rs): writes go through an item's reference, which macOS allows a new
+# build without asking. Already in the dependency tree via keyring.
+security-framework = "3.7.0"
 
 # OpenGL, on X11 or Wayland, whichever the session runs (both are loaded at run time, so the
 # binary links neither).

@@ -4933,6 +4933,7 @@ dependencies = [
  "rsa",
  "russh",
  "russh-sftp",
+ "security-framework",
  "serde",
  "serde_json",
  "sha1",
