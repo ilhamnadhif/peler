@@ -1,9 +1,10 @@
 //! Bookmark export and import.
 //!
-//! Export writes one versioned JSON file. Credentials are left out unless the user opts in, and
-//! then they are encrypted with a passphrase (see `crate::crypto`). Import never overwrites
-//! silently: it builds an [`ImportPlan`] that the UI shows as a preview, with a per-bookmark
-//! choice for every conflict, and only [`ImportPlan::apply`] changes the store.
+//! Export writes one versioned JSON file, each connection with its saved password, passphrase
+//! and key in plain text (schema 3). Schema 2 files kept them in a passphrase-encrypted blob
+//! (see `crate::crypto`), which import still reads. Import never overwrites silently: it builds
+//! an [`ImportPlan`] that the UI shows as a preview, with a per-bookmark choice for every
+//! conflict, and only [`ImportPlan::apply`] changes the store.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -259,8 +260,8 @@ pub struct Incoming {
     pub warnings: Vec<String>,
 }
 
-/// Detects the file format and parses it. `ssh_config_name` hints that a non-JSON file should
-/// be read as an OpenSSH config.
+/// Detects the file format and parses it: a TernaryShell export, an Electerm export, or (when
+/// the file is not JSON) an OpenSSH config.
 pub fn read_import(data: &[u8]) -> Result<Incoming> {
     if data.len() as u64 > MAX_IMPORT_BYTES {
         bail!(

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Publishes a new version of TernaryShell on GitHub. Installed copies offer it to their users the next
-# time they start (or within a day).
+# time they start (or within a few hours).
 #
 #   scripts/release.sh 1.1.0                 # release notes generated from the commits
 #   scripts/release.sh 1.1.0 notes.md        # release notes from a file

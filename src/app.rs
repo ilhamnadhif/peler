@@ -3052,7 +3052,6 @@ impl TernaryShellApp {
         }
     }
 
-    /// End-of-frame focus bookkeeping.
     /// Checks every connection after a network change, and one whose typed keys got no reply:
     /// a connection whose route went away (a VPN turned on, another Wi-Fi, a night asleep) is
     /// closed within seconds and says it needs a reconnect, instead of hanging for minutes.
@@ -3076,6 +3075,7 @@ impl TernaryShellApp {
         }
     }
 
+    /// End-of-frame focus bookkeeping.
     fn track_focus(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
         // Leaving a tab: its panes lose focus (a focus-out report for programs that asked).
         let active_id = self.tabs.get(self.active).map(|t| t.id);
@@ -3170,8 +3170,8 @@ impl TernaryShellApp {
         }
     }
 
-    /// The active connection's port forwards: how many, and a list of how each is doing.
-    /// Port forwards of the active connection, in the status bar (only while it has some).
+    /// Port forwards of the active connection, in the status bar (only while it has some): how
+    /// many, and a list of how each is doing.
     fn forwards_button(&mut self, ui: &mut Ui) {
         let Some(tab) = self.tabs.get(self.active) else {
             return;

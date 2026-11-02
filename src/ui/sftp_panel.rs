@@ -2147,8 +2147,6 @@ const TRANSFER_ROW_H: f32 = 28.0;
 /// Where the transfers popup (and its pill) sit: the bottom right corner, above the status bar.
 const ACTIVITY_OFFSET: egui::Vec2 = egui::vec2(-14.0, -40.0);
 
-/// One transfer: direction, name, status (bar while running), details, and cancel/remove.
-/// Returns the id to remove when its × was clicked after it finished.
 /// A thin accent bar on a quiet track.
 fn progress_bar(ui: &mut Ui, fraction: f32, width: f32) {
     let p = style::pal(ui);
@@ -2159,6 +2157,8 @@ fn progress_bar(ui: &mut Ui, fraction: f32, width: f32) {
     ui.painter().rect_filled(done, 2.0, p.accent);
 }
 
+/// One transfer: direction, name, status (bar while running), details, and cancel/remove.
+/// Returns the id to remove when its × was clicked after it finished.
 fn transfer_row(ui: &mut Ui, tr: &Transfer) -> Option<u64> {
     let mut remove = None;
     let state = tr.state();

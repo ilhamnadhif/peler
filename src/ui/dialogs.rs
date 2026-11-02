@@ -1040,10 +1040,7 @@ fn terminal(ui: &mut egui::Ui, s: &mut Settings) {
                 .width(220.0)
                 .show_ui(ui, |ui| {
                     for p in fonts::PRESETS {
-                        let available = p
-                            .path
-                            .is_none_or(|path| std::path::Path::new(path).exists());
-                        if available
+                        if fonts::is_available(p)
                             && ui
                                 .selectable_label(current.name == p.name, p.name)
                                 .clicked()

@@ -90,7 +90,7 @@ pub struct Settings {
     pub last_local_dir: Option<String>,
     /// Window position and size in points (x, y, width, height), restored on launch.
     pub window: Option<[f32; 4]>,
-    /// Look for a new version on GitHub (at launch and once a day).
+    /// Look for a new version on GitHub (at launch and every few hours).
     pub check_updates: bool,
     /// A version the user chose to skip.
     pub skipped_version: Option<String>,

@@ -369,6 +369,15 @@ fn add_face(defs: &mut FontDefinitions, key: &str, file: &str, index: u32) -> bo
     true
 }
 
+/// Whether a preset's font file is on this computer, so it can be offered: the built-in font
+/// always is; the others are looked up where the system keeps fonts (on Windows and Linux the
+/// preset names a file, not a path).
+pub fn is_available(preset: &FontPreset) -> bool {
+    preset
+        .path
+        .is_none_or(|file| locate(file).is_some_and(|p| p.is_file()))
+}
+
 /// Finds the preset matching a saved choice (by name), if any.
 pub fn preset(choice: &FontChoice) -> Option<&'static FontPreset> {
     PRESETS.iter().find(|p| p.name == choice.name)
@@ -503,5 +512,27 @@ pub fn effective_choice(choice: &FontChoice) -> FontChoice {
         }
     } else {
         choice.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Settings offers the presets whose files are on this computer: the platform's usual font
+    /// (Menlo, Consolas; the built-in Hack on Linux), never one whose file is missing.
+    #[test]
+    fn presets_are_offered_when_their_file_exists() {
+        let default = PRESETS.iter().find(|p| p.name == DEFAULT_FONT).unwrap();
+        assert!(is_available(default), "{}", default.name);
+        assert!(is_available(&BUILT_IN));
+        for file in ["ternaryshell-no-such-font.ttf", "/no/such/dir/font.ttf"] {
+            let missing = FontPreset {
+                name: "Missing",
+                path: Some(file),
+                faces: [None, None, None, None],
+            };
+            assert!(!is_available(&missing), "{file}");
+        }
     }
 }
